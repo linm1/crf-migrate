@@ -1,0 +1,6 @@
+meta:
+  name: Veeva Vault
+  version: "1.0"
+  description: Veeva Vault eTMF conventions. Inherits from cdisc_standard.
+  author: CRF-Migrate
+  parent: cdisc_standard

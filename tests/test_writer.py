@@ -1,0 +1,385 @@
+"""Tests for src/writer.py — Phase 4 (T4.01–T4.09).
+
+All tests use programmatic synthetic PDFs via fitz — no fixture file dependencies.
+"""
+from pathlib import Path
+
+import fitz
+import pytest
+
+from src.models import AnnotationRecord, MatchRecord, StyleInfo
+from src.profile_models import (
+    AnnotationFilter,
+    AnchorTextConfig,
+    ClassificationRule,
+    FormNameConfig,
+    MatchingConfig,
+    Profile,
+    ProfileMeta,
+    RuleCondition,
+    StyleDefaults,
+    VisitRule,
+)
+from src.writer import build_qc_report, write_annotations
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_profile() -> Profile:
+    return Profile(
+        meta=ProfileMeta(name="test"),
+        domain_codes=["DM", "AE"],
+        classification_rules=[
+            ClassificationRule(
+                conditions=RuleCondition(fallback=True),
+                category="sdtm_mapping",
+            )
+        ],
+    )
+
+
+def make_annotation(
+    annot_id: str = "annot-001",
+    page: int = 1,
+    content: str = "BRTHDTC",
+    domain: str = "DM",
+    font_size: float = 18.0,
+    border_color: list[float] | None = None,
+    rotation: int = 0,
+) -> AnnotationRecord:
+    return AnnotationRecord(
+        id=annot_id,
+        page=page,
+        content=content,
+        domain=domain,
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(
+            font_size=font_size,
+            border_color=border_color or [0.75, 1.0, 1.0],
+        ),
+        rotation=rotation,
+    )
+
+
+def make_match(
+    annot_id: str = "annot-001",
+    status: str = "approved",
+    target_rect: list[float] | None = None,
+    match_type: str = "exact",
+) -> MatchRecord:
+    return MatchRecord(
+        annotation_id=annot_id,
+        field_id="field-001",
+        match_type=match_type,
+        confidence=1.0,
+        target_rect=target_rect or [50.0, 80.0, 250.0, 100.0],
+        status=status,
+    )
+
+
+def make_target_pdf(path: Path) -> Path:
+    """Write a minimal 2-page blank PDF to path and return it."""
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.new_page(width=595, height=842)
+    p = path / "target.pdf"
+    doc.save(str(p))
+    doc.close()
+    return p
+
+
+# ---------------------------------------------------------------------------
+# T4.08 — output PDF page count matches target
+# ---------------------------------------------------------------------------
+
+def test_T4_08_output_page_count(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    assert doc.page_count == 2
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.06 — rejected match → no annotation written
+# ---------------------------------------------------------------------------
+
+def test_T4_06_rejected_not_written(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="rejected")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    assert sum(1 for _ in doc[0].annots()) == 0
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.01 — single approved match → 1 FreeText annotation at target_rect
+# ---------------------------------------------------------------------------
+
+def test_T4_01_approved_writes_freetext(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    target_rect = [50.0, 80.0, 250.0, 100.0]
+    match = make_match(status="approved", target_rect=target_rect)
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    page3 = doc[0]
+    annot_types = []
+    annot_contents = []
+    for a in page3.annots():
+        annot_types.append(a.type[1])
+        annot_contents.append(a.info["content"])
+    assert len(annot_types) == 1
+    assert annot_types[0] == "FreeText"
+    assert annot_contents[0] == "BRTHDTC"
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.02 — custom font_size preserved in output DA string
+# ---------------------------------------------------------------------------
+
+def test_T4_02_font_size_preserved(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation(font_size=14.0)
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    page3 = doc[0]
+    da_strings = []
+    for a in page3.annots():
+        xref = a.xref
+        _, da_val = doc.xref_get_key(xref, "DA")
+        da_strings.append(da_val)
+    assert len(da_strings) == 1
+    assert "14" in da_strings[0]
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.03 — border_color=[0.75,1.0,1.0] → colors["stroke"] ≈ cyan
+# ---------------------------------------------------------------------------
+
+def test_T4_03_border_color_cyan(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation(border_color=[0.75, 1.0, 1.0])
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    strokes = []
+    for a in doc[0].annots():
+        colors = a.colors
+        stroke = colors.get("stroke") or colors.get("fill")
+        strokes.append(stroke)
+    assert len(strokes) == 1
+    assert strokes[0] is not None
+    assert abs(strokes[0][0] - 0.75) < 0.05
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.04 — default StyleInfo uses profile style_defaults values
+# ---------------------------------------------------------------------------
+
+def test_T4_04_default_style_uses_profile_defaults(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation(font_size=18.0, border_color=[0.75, 1.0, 1.0])
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    page3 = doc[0]
+    da_strings = []
+    strokes = []
+    for a in page3.annots():
+        xref = a.xref
+        _, da_val = doc.xref_get_key(xref, "DA")
+        da_strings.append(da_val)
+        colors = a.colors
+        stroke = colors.get("stroke") or colors.get("fill")
+        strokes.append(stroke)
+    assert len(da_strings) == 1
+    assert "18" in da_strings[0]
+    assert strokes[0] is not None
+    assert abs(strokes[0][0] - 0.75) < 0.05
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.05 — rotation=90 preserved
+# ---------------------------------------------------------------------------
+
+def test_T4_05_rotation_preserved(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation(rotation=90)
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    rotations = []
+    for a in doc[0].annots():
+        rotations.append(a.rotation)
+    assert len(rotations) == 1
+    assert rotations[0] == 90
+    doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.07 — build_qc_report with mixed match types → accurate counts
+# ---------------------------------------------------------------------------
+
+def test_T4_07_build_qc_report_counts(tmp_path):
+    matches = [
+        make_match(annot_id="a1", match_type="exact", status="approved"),
+        make_match(annot_id="a2", match_type="exact", status="approved"),
+        make_match(annot_id="a3", match_type="fuzzy", status="rejected"),
+        make_match(annot_id="a4", match_type="unmatched", status="pending"),
+    ]
+    written_ids = ["a1", "a2"]
+    skipped_ids = ["a3", "a4"]
+
+    report = build_qc_report(matches, written_ids, skipped_ids)
+
+    assert report["total_matches"] == 4
+    assert report["written"] == 2
+    assert report["skipped"] == 2
+    assert report["counts_by_match_type"]["exact"] == 2
+    assert report["counts_by_match_type"]["fuzzy"] == 1
+    assert report["counts_by_match_type"]["unmatched"] == 1
+    assert report["unmatched_annotation_ids"] == ["a4"]
+    assert report["rejected_annotation_ids"] == ["a3"]
+
+
+# ---------------------------------------------------------------------------
+# T4.09 — original page text preserved in output PDF
+# ---------------------------------------------------------------------------
+
+def test_T4_09_original_content_preserved(tmp_path):
+    # Build a target PDF that has real text content
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((50, 100), "Date of Birth", fontsize=10)
+    page.insert_text((50, 130), "Sex", fontsize=10)
+    target = tmp_path / "target_with_text.pdf"
+    doc.save(str(target))
+    doc.close()
+
+    # Count text blocks in original
+    orig_doc = fitz.open(str(target))
+    orig_blocks = orig_doc[0].get_text("blocks")
+    orig_count = len(orig_blocks)
+    orig_doc.close()
+
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    out_doc = fitz.open(str(output))
+    out_blocks = out_doc[0].get_text("blocks")
+    # Output should have at least orig_count blocks (annotation adds its text as a block too)
+    assert len(out_blocks) >= orig_count
+    # Verify original text is still present
+    all_text = " ".join(b[4] for b in out_blocks if len(b) > 4)
+    assert "Date of Birth" in all_text
+    assert "Sex" in all_text
+    out_doc.close()
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+def test_empty_matches_list(tmp_path):
+    """Empty matches → valid qc_report with zeroes, no PDF modifications."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [], [], profile)
+
+    assert report["total_matches"] == 0
+    assert report["written"] == 0
+    doc = fitz.open(str(output))
+    assert doc.page_count == 2
+    doc.close()
+
+
+def test_missing_annotation_id_skipped(tmp_path):
+    """Match referencing missing annotation_id is silently skipped."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    match = make_match(annot_id="ghost-id", status="approved")
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [match], [], profile)
+
+    assert report["written"] == 0
+    assert report["skipped"] == 1
+
+
+def test_pending_match_not_written(tmp_path):
+    """Pending match is treated as skipped."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="pending")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    assert sum(1 for _ in doc[0].annots()) == 0
+    doc.close()
+
+
+def test_modified_match_is_written(tmp_path):
+    """Modified status is treated the same as approved."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="modified")
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [match], [annot], profile)
+
+    assert report["written"] == 1
+    doc = fitz.open(str(output))
+    assert sum(1 for _ in doc[0].annots()) == 1
+    doc.close()

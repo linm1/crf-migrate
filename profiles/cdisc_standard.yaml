@@ -1,0 +1,123 @@
+meta:
+  name: CDISC Standard
+  version: "1.0"
+  description: >
+    Default classification rules for CDISC-compliant annotated CRFs.
+    Covers standard SDTM domain codes and common annotation patterns.
+  author: CRF-Migrate
+
+domain_codes:
+  - DM
+  - IE
+  - MH
+  - CM
+  - AE
+  - VS
+  - EG
+  - PE
+  - QS
+  - DS
+  - DA
+  - EX
+  - SC
+  - LB
+  - SV
+  - SE
+  - CO
+  - FA
+  - TU
+  - TR
+  - RS
+
+classification_rules:
+  # Rule 1: Exclude empty or whitespace-only content
+  - conditions:
+      max_length: 0
+    category: _exclude
+
+  # Rule 2: Exclude sticky notes
+  - conditions:
+      subject_is: "Sticky Note"
+    category: _exclude
+
+  # Rule 3: Exclude empty typewriter annotations
+  - conditions:
+      subject_is: "Typewritten Text"
+      max_length: 0
+    category: _exclude
+
+  # Rule 4: Not Submitted markers
+  - conditions:
+      contains: "[NOT SUBMITTED]"
+    category: not_submitted
+
+  # Rule 5: Domain labels (e.g., DM=Demographics)
+  - conditions:
+      regex: "^([A-Z]{2,4})=(.+)$"
+      domain_in: domain_codes
+    category: domain_label
+
+  # Rule 6: Multi-line reference notes (code lists, etc.)
+  - conditions:
+      multi_line: true
+    category: note
+
+  # Rule 7: Inline notes starting with Note:
+  - conditions:
+      starts_with: "Note:"
+    category: note
+
+  # Rule 8: Relational notes (RELREC references)
+  - conditions:
+      contains: "RELREC"
+    category: note
+
+  # Rule 9: Everything else is an SDTM mapping
+  - conditions:
+      fallback: true
+    category: sdtm_mapping
+
+form_name_rules:
+  strategy: largest_bold_text
+  min_font_size: 12
+  exclude_patterns:
+    - "^CDISC$"
+    - "^Study\\s+\\w+$"
+    - "^Assessment Date"
+
+visit_rules:
+  - regex: "Screen(ing)?"
+    value: Screening
+  - regex: "Baseline"
+    value: Baseline
+  - regex: "Week\\s*(\\d+)"
+    value: "Week {1}"
+  - regex: "End of Study|Termination"
+    value: End of Study
+  - regex: "Running\\s*Records?"
+    value: Running Records
+
+anchor_text_config:
+  radius_px: 100
+  prefer_direction: [left, above]
+  exclude_patterns:
+    - "^\\s*$"
+    - "^CDISC$"
+    - "^Study\\s+CDISC"
+
+annotation_filter:
+  include_types: [FreeText]
+  exclude_empty: true
+  min_content_length: 1
+
+matching_config:
+  exact_threshold: 1.0
+  fuzzy_same_form_threshold: 0.80
+  fuzzy_cross_form_threshold: 0.90
+  position_fallback_confidence: 0.50
+
+style_defaults:
+  font: "Arial,BoldItalic"
+  font_size: 18
+  text_color: [0, 0, 0]
+  border_color: [0.75, 1.0, 1.0]

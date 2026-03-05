@@ -1,0 +1,6 @@
+meta:
+  name: Medidata Rave
+  version: "1.0"
+  description: Medidata Rave EDC conventions. Inherits from cdisc_standard.
+  author: CRF-Migrate
+  parent: cdisc_standard
