@@ -259,3 +259,91 @@ def test_session_load_fields_missing_raises(tmp_path):
     session = Session(tmp_path)
     with pytest.raises(FileNotFoundError):
         session.load_fields()
+
+
+# ---------------------------------------------------------------------------
+# Helpers / fixtures for T2.09
+# ---------------------------------------------------------------------------
+
+def _create_annotated_crf_pdf(path: Path) -> Path:
+    """Synthetic CRF PDF that carries FreeText SDTM annotations.
+
+    Native content (left side, x=50): section header, text field, date field,
+    checkbox — identical to _create_blank_crf_pdf page 1.
+
+    FreeText annotations (right side, x=250): SDTM annotation text that
+    page.get_text('dict') would surface as ordinary text blocks in the
+    absence of the annotation-rect filter.
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+
+    # Native CRF content
+    page.insert_text((50, 50), "DEMOGRAPHICS", fontsize=18, fontname="helv")
+    page.insert_text((50, 100), "Subject ID: ___________", fontsize=10, fontname="helv")
+    page.insert_text((50, 130), "Date of Birth: MM/DD/YYYY", fontsize=10, fontname="helv")
+    page.insert_text((50, 160), "Sex: Yes / No", fontsize=10, fontname="helv")
+
+    # SDTM FreeText annotations at non-overlapping positions
+    for rect, content, subject in [
+        ([250, 115, 430, 135], "DM=SEX", "DM"),
+        ([250, 145, 430, 165], "BRTHDTC", "DM"),
+    ]:
+        annot = page.add_freetext_annot(
+            rect=fitz.Rect(rect),
+            text=content,
+            fontsize=18,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content=content, subject=subject)
+        annot.update()
+
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@pytest.fixture(scope="module")
+def annotated_crf_path(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("fixtures_t209")
+    return _create_annotated_crf_pdf(tmp / "annotated_crf.pdf")
+
+
+# ---------------------------------------------------------------------------
+# T2.09 – annotation-origin text is not misclassified as a CRF field
+# ---------------------------------------------------------------------------
+
+def test_t2_09_annotation_text_not_classified_as_field(
+    annotated_crf_path, cdisc_profile_loaded, cdisc_rule_engine
+):
+    """T2.09: FreeText annotation content is not returned as a FieldRecord.
+
+    Guards against page.get_text('dict') surfacing annotation appearance-
+    stream text as regular page content, causing SDTM strings such as
+    'DM=SEX' and 'BRTHDTC' to be misclassified as section_header fields.
+    """
+    from src.field_parser import extract_fields
+
+    records = extract_fields(annotated_crf_path, cdisc_profile_loaded, cdisc_rule_engine)
+    labels = [r.label for r in records]
+
+    # Annotation content must NOT appear as field labels
+    assert "DM=SEX" not in labels, (
+        f"Annotation text 'DM=SEX' was misclassified as a field. Labels: {labels}"
+    )
+    assert "BRTHDTC" not in labels, (
+        f"Annotation text 'BRTHDTC' was misclassified as a field. Labels: {labels}"
+    )
+
+    # Native CRF fields must still be extracted correctly
+    assert any("Subject ID" in lbl for lbl in labels), (
+        f"Native text field 'Subject ID' missing. Labels: {labels}"
+    )
+    assert any("MM/DD/YYYY" in lbl or "Date of Birth" in lbl for lbl in labels), (
+        f"Native date field missing. Labels: {labels}"
+    )
+    assert any(r.field_type == "checkbox" for r in records), (
+        "Expected at least one checkbox record from 'Sex: Yes / No'"
+    )

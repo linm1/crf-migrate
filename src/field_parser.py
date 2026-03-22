@@ -74,14 +74,58 @@ def _process_page(
     return records
 
 
+def _get_annotation_rects(page: fitz.Page) -> list[fitz.Rect]:
+    """Return bounding rects for all annotations on the page.
+
+    Used to suppress spans that originate from annotation appearance streams
+    rather than native page content. Returns [] on any failure.
+    """
+    try:
+        return [annot.rect for annot in page.annots()]
+    except Exception:
+        return []
+
+
+def _span_inside_annotation(
+    bbox: list[float],
+    annot_rects: list[fitz.Rect],
+    threshold: float = 0.3,
+) -> bool:
+    """Return True if >= threshold of the span's area overlaps any annotation rect.
+
+    FreeText annotation appearance text scores ~1.0 (fully inside its rect).
+    Native page text at a different position scores 0.0.
+    Uses arithmetic intersection to avoid fitz operator version differences.
+    """
+    if not annot_rects:
+        return False
+    x0, y0, x1, y1 = bbox
+    span_area = (x1 - x0) * (y1 - y0)
+    if span_area <= 0.0:
+        return False
+    for arect in annot_rects:
+        inter_area = (
+            max(0.0, min(x1, arect.x1) - max(x0, arect.x0))
+            * max(0.0, min(y1, arect.y1) - max(y0, arect.y0))
+        )
+        if inter_area / span_area >= threshold:
+            return True
+    return False
+
+
 def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
     """Extract all non-empty text spans from a page as TextBlock dicts.
 
     Uses PyMuPDF's 'dict' text extraction mode to capture per-span font
     metadata (mirrors the same helper in extractor.py).
+
+    Spans that fall substantially inside annotation bounding boxes are
+    excluded: page.get_text('dict') surfaces FreeText annotation appearance
+    text as ordinary text blocks, which would be misclassified as CRF fields.
     """
     blocks: list[TextBlock] = []
     try:
+        annot_rects = _get_annotation_rects(page)
         raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
         for block in raw.get("blocks", []):
             if block.get("type") != 0:  # 0 = text block
@@ -91,6 +135,9 @@ def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
                     text = span.get("text", "").strip()
                     if not text:
                         continue
+                    bbox = list(span.get("bbox", [0.0, 0.0, 0.0, 0.0]))
+                    if _span_inside_annotation(bbox, annot_rects):
+                        continue
                     flags = span.get("flags", 0)
                     bold = bool(flags & 16)
                     blocks.append(
@@ -98,7 +145,7 @@ def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
                             text=text,
                             font_size=span.get("size", 10.0),
                             bold=bold,
-                            rect=list(span.get("bbox", [0.0, 0.0, 0.0, 0.0])),
+                            rect=bbox,
                         )
                     )
     except Exception:
