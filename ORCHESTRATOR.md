@@ -118,7 +118,12 @@ Sequential phases. Each phase writes a JSON artifact. Editing a phase invalidate
   3. section_header: bold or font_size >= min_font_size
   4. text_field: 3+ consecutive underscores
   5. None if no match
-- Same `_get_text_blocks()` logic as extractor.py
+- `_get_text_blocks()` filters annotation-origin spans before returning:
+  - `_get_annotation_rects(page)` collects all annotation rects via `page.annots()`
+  - `_span_inside_annotation(bbox, annot_rects, threshold=0.3)` skips spans whose bbox overlaps an annotation rect by ≥ 30% of the span area
+  - Needed because `page.get_text("dict")` surfaces FreeText appearance streams as ordinary text blocks; without this, SDTM annotations like "DM=SEX" (18pt) are misclassified as `section_header` fields
+  - Blank CRFs (no annotations) are unaffected — empty rect list short-circuits the filter
+- **Do not mirror this filter in `extractor.py`** — that module intentionally includes annotation-region text for form_name/visit/anchor_text extraction
 
 ### matcher.py (Phase 3)
 - Pass 1 — exact: form_name == form_name AND anchor_text == label (case-insensitive). Requires non-empty anchor_text. Confidence = exact_threshold (1.0).
@@ -189,7 +194,7 @@ No circular imports. `rule_engine.py` is intentionally free of fitz/streamlit.
 | PyMuPDF AGPL-3.0 license | pyproject.toml | HIGH | Fallback (pypdf) not implemented |
 | Rule evaluation order | rule_engine.py:29–40 | MEDIUM | First-match-wins; reordering silently changes behavior |
 | Domain label absolute positioning | matcher.py:172–184 | MEDIUM | Assumes domain labels at margins; may fail for some EDCs |
-| Bold font flag parsing | extractor.py:200, field_parser.py:95 | MEDIUM | `flags & 16` is PDF-generator-specific |
+| Bold font flag parsing | extractor.py:200, field_parser.py:130 | MEDIUM | `flags & 16` is PDF-generator-specific |
 | Anchor text direction penalty weights | extractor.py:234–253 | LOW | index*10.0 penalty — not tuned |
 | Matching threshold defaults | profile_models.py:68–71 | MEDIUM | 0.80/0.90 may be wrong for different CRF styles |
 | CSV NaN handling | csv_handler.py:35,124,224 | LOW | Assumes pandas NaN-for-missing behavior |
@@ -227,7 +232,7 @@ Visit rules: Screening, Baseline, Week {1}, End of Study, Running Records
 | rule_engine.py | 100% |
 | matcher.py | 95% |
 | writer.py | 95% |
-| field_parser.py | 94% |
+| field_parser.py | 92% |
 | profile_loader.py | 91% |
 | session.py | 89% |
 | csv_handler.py | 89% |
@@ -238,15 +243,15 @@ Visit rules: Screening, Baseline, Week {1}, End of Study, Running Records
 
 ## Decisions Made
 
-_(None yet — populated as decisions are made in this thread.)_
+1. **field_parser.py annotation filter (2026-03-22)** — `page.get_text("dict")` surfaces FreeText annotation appearance streams as regular text blocks. Fixed by collecting annotation rects via `page.annots()` before span iteration and skipping spans with ≥ 30% overlap. Threshold 0.3 chosen because annotation text scores ~1.0, native page text scores 0.0. `extractor.py` intentionally left untouched — it needs annotation-region text for form_name/visit/anchor_text extraction.
 
 ---
 
 ## Current State
 
-- Codebase explored: 2026-03-21
-- No changes made yet
-- Branch: claude/explore-codebase-architecture-3RuZg
+- Codebase explored: 2026-03-22
+- Branch: `claude/explore-codebase-architecture-3RuZg`
+- **Phase 2 fix shipped** (commit `37b3b59`): annotation-origin text filtered from field extraction; T2.09 regression test added; 182 tests pass, 93% coverage.
 
 ---
 
