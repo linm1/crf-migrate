@@ -36,6 +36,8 @@ class FormNameConfig(BaseModel):
     strategy: str = "largest_bold_text"
     min_font_size: float = 12.0
     exclude_patterns: list[str] = []
+    top_region_fraction: float | None = None
+    label_prefix: str | None = None
 
 
 class VisitRule(BaseModel):

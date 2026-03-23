@@ -622,6 +622,27 @@ class TestFormNameExtraction:
         assert result == "ADVERSE EVENTS"
 
 
+    def test_form_name_config_accepts_top_region_fraction(self):
+        """FormNameConfig validates top_region_fraction as optional float."""
+        config = FormNameConfig(top_region_fraction=0.25)
+        assert config.top_region_fraction == 0.25
+
+    def test_form_name_config_top_region_fraction_defaults_none(self):
+        """top_region_fraction defaults to None (no filtering)."""
+        config = FormNameConfig()
+        assert config.top_region_fraction is None
+
+    def test_form_name_config_accepts_label_prefix(self):
+        """FormNameConfig validates label_prefix as optional string."""
+        config = FormNameConfig(label_prefix="Form:")
+        assert config.label_prefix == "Form:"
+
+    def test_form_name_config_label_prefix_defaults_none(self):
+        """label_prefix defaults to None (strategy-based selection)."""
+        config = FormNameConfig()
+        assert config.label_prefix is None
+
+
 class TestMatchedRule:
     def test_tr16_matched_rule_populated(self):
         """TR.16: matched_rule field is populated with rule description."""
