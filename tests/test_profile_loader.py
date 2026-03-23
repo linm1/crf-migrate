@@ -185,6 +185,47 @@ class TestProfileAppend:
             load_profile(tmp_path / "profile_a.yaml", tmp_path)
 
 
+class TestProfileYamlFormNameConfig:
+    """Verify new form_name_rules fields load correctly from YAML."""
+
+    def test_cdisc_profile_top_region_fraction_loaded(self):
+        """cdisc_standard.yaml top_region_fraction=0.25 is loaded correctly."""
+        profiles_dir = Path(__file__).parent.parent / "profiles"
+        profile = load_profile(profiles_dir / "cdisc_standard.yaml")
+        assert profile.form_name_rules.top_region_fraction == 0.25
+
+    def test_rave_profile_label_prefix_loaded(self):
+        """rave_medidata.yaml label_prefix='Form:' is loaded correctly."""
+        profiles_dir = Path(__file__).parent.parent / "profiles"
+        profile = load_profile(profiles_dir / "rave_medidata.yaml")
+        assert profile.form_name_rules.label_prefix == "Form:"
+
+    def test_rave_profile_inherits_top_region_fraction(self):
+        """rave_medidata inherits top_region_fraction from cdisc_standard."""
+        profiles_dir = Path(__file__).parent.parent / "profiles"
+        profile = load_profile(profiles_dir / "rave_medidata.yaml")
+        assert profile.form_name_rules.top_region_fraction == 0.25
+
+    def test_rave_profile_label_prefix_extracts_form_name(self):
+        """End-to-end: rave profile's label_prefix extracts 'Demographics'
+        from a Medidata Rave-style metadata block."""
+        from src.rule_engine import RuleEngine, TextBlock
+        profiles_dir = Path(__file__).parent.parent / "profiles"
+        profile = load_profile(profiles_dir / "rave_medidata.yaml")
+        engine = RuleEngine(profile)
+        blocks: list[TextBlock] = [
+            TextBlock(text="Version 13.0: Complete CRF", font_size=10, bold=True,
+                      rect=[50, 20, 400, 35]),
+            TextBlock(text="Folder: Screening", font_size=10, bold=True,
+                      rect=[50, 40, 300, 55]),
+            TextBlock(text="Form: Demographics", font_size=10, bold=True,
+                      rect=[50, 60, 300, 75]),
+            TextBlock(text="Generated On: 05 Dec 2025 16:52:22", font_size=10, bold=True,
+                      rect=[50, 80, 400, 95]),
+        ]
+        assert engine.extract_form_name(blocks) == "Demographics"
+
+
 class TestListProfiles:
     def test_list_profiles_returns_yaml_stems(self, tmp_path):
         """list_profiles returns stem names of all .yaml files."""

@@ -80,6 +80,7 @@ classification_rules:
 form_name_rules:
   strategy: largest_bold_text
   min_font_size: 12
+  top_region_fraction: 0.25
   exclude_patterns:
     - "^CDISC$"
     - "^Study\\s+\\w+$"

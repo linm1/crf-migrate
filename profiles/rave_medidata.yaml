@@ -1,6 +1,11 @@
 meta:
   name: Medidata Rave
   version: "1.0"
-  description: Medidata Rave EDC conventions. Inherits from cdisc_standard.
+  description: >
+    Medidata Rave EDC conventions. Inherits from cdisc_standard.
+    Overrides form_name_rules to extract form name from "Form: <value>" metadata blocks.
   author: CRF-Migrate
   parent: cdisc_standard
+
+form_name_rules:
+  label_prefix: "Form:"
