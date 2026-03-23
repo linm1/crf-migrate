@@ -43,17 +43,43 @@ class RuleEngine:
     def extract_form_name(self, text_blocks: list[TextBlock]) -> str:
         """Apply form_name_rules to identify the CRF form title.
 
-        Strategy 'largest_bold_text': select the text block with the largest
-        font_size that meets min_font_size and does not match any
-        exclude_pattern.  Empty/whitespace-only blocks are always skipped.
+        Evaluation order:
+          1. label_prefix: scan blocks for '<prefix>: <value>', return value.
+             Falls through to strategy if no block matches.
+          2. top_region_fraction: restrict candidates to top N% of page height
+             (estimated from max y1 across all blocks).
+          3. Strategy 'largest_bold_text': select block with largest font_size
+             (bold as tiebreaker) from candidates passing min_font_size and
+             exclude_patterns filters.
         """
         config = self._profile.form_name_rules
+
+        # --- 1. label_prefix (priority override) ---
+        if config.label_prefix is not None:
+            prefix_pat = re.compile(
+                rf"^{re.escape(config.label_prefix.rstrip(':'))}\s*:\s*(.+)$",
+                re.IGNORECASE,
+            )
+            for block in text_blocks:
+                m = prefix_pat.match(block["text"].strip())
+                if m:
+                    return m.group(1).strip()
+            # No block matched — fall through to strategy
+
+        # --- 2. top_region_fraction pre-filter ---
+        if config.top_region_fraction is not None and text_blocks:
+            max_y = max(b["rect"][3] for b in text_blocks)
+            cutoff = config.top_region_fraction * max_y
+            eligible = [b for b in text_blocks if b["rect"][1] <= cutoff]
+        else:
+            eligible = list(text_blocks)
+
+        # --- 3. largest_bold_text strategy ---
         compiled_excludes = [
             re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
         ]
-
         candidates = [
-            block for block in text_blocks
+            block for block in eligible
             if block["text"].strip()
             and block["font_size"] >= config.min_font_size
             and not any(pat.search(block["text"]) for pat in compiled_excludes)

@@ -473,6 +473,22 @@ class TestVisitExtraction:
         assert engine.extract_visit("") == ""
 
 
+def _engine(form_name_kwargs: dict) -> RuleEngine:
+    """Return a RuleEngine with a custom FormNameConfig and minimal other config."""
+    profile = Profile(
+        meta=ProfileMeta(name="Test"),
+        domain_codes=["DM"],
+        classification_rules=[
+            ClassificationRule(
+                conditions=RuleCondition(fallback=True),
+                category="sdtm_mapping",
+            )
+        ],
+        form_name_rules=FormNameConfig(**form_name_kwargs),
+    )
+    return RuleEngine(profile)
+
+
 class TestFormNameExtraction:
     def test_tr13_form_name_excludes_patterns(self):
         """TR.13: Form name extraction excludes configured patterns."""
@@ -641,6 +657,66 @@ class TestFormNameExtraction:
         """label_prefix defaults to None (strategy-based selection)."""
         config = FormNameConfig()
         assert config.label_prefix is None
+
+    def test_form_name_label_prefix_extracts_value(self):
+        """label_prefix='Form:' extracts 'Demographics' from 'Form: Demographics'."""
+        engine = _engine({"label_prefix": "Form:"})
+        blocks: list[TextBlock] = [
+            TextBlock(text="Version 13.0: Complete CRF", font_size=10, bold=True,
+                      rect=[50, 30, 400, 45]),
+            TextBlock(text="Folder: Screening", font_size=10, bold=True,
+                      rect=[50, 50, 300, 65]),
+            TextBlock(text="Form: Demographics", font_size=10, bold=True,
+                      rect=[50, 70, 300, 85]),
+            TextBlock(text="Generated On: 05 Dec 2025 16:52:22", font_size=10, bold=True,
+                      rect=[50, 90, 400, 105]),
+        ]
+        assert engine.extract_form_name(blocks) == "Demographics"
+
+    def test_form_name_label_prefix_case_insensitive(self):
+        """label_prefix matching is case-insensitive."""
+        engine = _engine({"label_prefix": "form:"})
+        blocks: list[TextBlock] = [
+            TextBlock(text="FORM: Adverse Events", font_size=10, bold=False,
+                      rect=[50, 30, 300, 45]),
+        ]
+        assert engine.extract_form_name(blocks) == "Adverse Events"
+
+    def test_form_name_label_prefix_no_match_falls_through_to_strategy(self):
+        """If no block matches label_prefix, falls through to largest_bold_text."""
+        engine = _engine({"label_prefix": "Form:", "min_font_size": 10.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="VITAL SIGNS", font_size=18, bold=True,
+                      rect=[50, 30, 300, 50]),
+            TextBlock(text="Systolic BP: ___", font_size=10, bold=False,
+                      rect=[50, 80, 300, 95]),
+        ]
+        assert engine.extract_form_name(blocks) == "VITAL SIGNS"
+
+    def test_form_name_label_prefix_priority_over_largest_bold(self):
+        """label_prefix result takes priority even when a larger block exists."""
+        engine = _engine({"label_prefix": "Form:", "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="HUGE HEADER", font_size=36, bold=True,
+                      rect=[50, 10, 500, 50]),
+            TextBlock(text="Form: Actual Form Name", font_size=10, bold=False,
+                      rect=[50, 60, 300, 75]),
+        ]
+        assert engine.extract_form_name(blocks) == "Actual Form Name"
+
+    def test_form_name_label_prefix_strips_whitespace(self):
+        """Extracted value is stripped of surrounding whitespace."""
+        engine = _engine({"label_prefix": "Form:"})
+        blocks: list[TextBlock] = [
+            TextBlock(text="Form:   Demographics  ", font_size=10, bold=False,
+                      rect=[50, 30, 300, 45]),
+        ]
+        assert engine.extract_form_name(blocks) == "Demographics"
+
+    def test_form_name_label_prefix_no_blocks_returns_empty(self):
+        """label_prefix with empty block list returns empty string."""
+        engine = _engine({"label_prefix": "Form:"})
+        assert engine.extract_form_name([]) == ""
 
 
 class TestMatchedRule:
