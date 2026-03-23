@@ -718,6 +718,75 @@ class TestFormNameExtraction:
         engine = _engine({"label_prefix": "Form:"})
         assert engine.extract_form_name([]) == ""
 
+    def test_form_name_top_region_fraction_excludes_lower_blocks(self):
+        """top_region_fraction=0.25 excludes blocks in bottom 75% of page."""
+        # Page height estimated from max y1 = 800. Cutoff = 0.25 * 800 = 200.
+        # Block A: y0=50  → IN  top region (50 <= 200) ✓
+        # Block B: y0=400 → OUT of top region (400 > 200) ✗
+        engine = _engine({"top_region_fraction": 0.25, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="FORM TITLE", font_size=14, bold=True,
+                      rect=[50, 50, 300, 70]),    # y0=50, in top region
+            TextBlock(text="LARGER BODY", font_size=18, bold=True,
+                      rect=[50, 400, 300, 800]),  # y0=400, out of top region
+        ]
+        assert engine.extract_form_name(blocks) == "FORM TITLE"
+
+    def test_form_name_top_region_fraction_none_no_filtering(self):
+        """top_region_fraction=None (default) applies no position filter."""
+        engine = _engine({"top_region_fraction": None, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="SMALL HEADER", font_size=14, bold=True,
+                      rect=[50, 50, 300, 70]),
+            TextBlock(text="BIG BODY", font_size=24, bold=True,
+                      rect=[50, 500, 300, 525]),
+        ]
+        # No region filter — picks the largest: "BIG BODY"
+        assert engine.extract_form_name(blocks) == "BIG BODY"
+
+    def test_form_name_top_region_fraction_all_filtered_returns_empty(self):
+        """If top_region_fraction excludes all blocks, returns empty string."""
+        engine = _engine({"top_region_fraction": 0.10, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            # Page max y1 = 500; cutoff = 50. Both blocks have y0 > 50.
+            TextBlock(text="HEADER", font_size=18, bold=True,
+                      rect=[50, 100, 300, 120]),
+            TextBlock(text="BODY", font_size=14, bold=False,
+                      rect=[50, 300, 300, 500]),
+        ]
+        assert engine.extract_form_name(blocks) == ""
+
+    def test_form_name_top_region_fraction_picks_largest_in_top_region(self):
+        """With top_region_fraction, largest_bold_text applies within the region."""
+        engine = _engine({"top_region_fraction": 0.30, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            # Page max y1 = 900; cutoff = 270.
+            TextBlock(text="SMALL TOP", font_size=10, bold=False,
+                      rect=[50, 30, 200, 45]),    # y0=30, in region
+            TextBlock(text="LARGE TOP", font_size=20, bold=True,
+                      rect=[50, 100, 300, 125]),  # y0=100, in region
+            TextBlock(text="HUGE BOTTOM", font_size=36, bold=True,
+                      rect=[50, 600, 400, 900]),  # y0=600, NOT in region
+        ]
+        assert engine.extract_form_name(blocks) == "LARGE TOP"
+
+    def test_form_name_top_region_fraction_combined_with_exclude_patterns(self):
+        """top_region_fraction and exclude_patterns both apply."""
+        engine = _engine({
+            "top_region_fraction": 0.25,
+            "min_font_size": 8.0,
+            "exclude_patterns": ["^CDISC$"],
+        })
+        blocks: list[TextBlock] = [
+            TextBlock(text="CDISC", font_size=18, bold=True,
+                      rect=[50, 20, 200, 38]),    # excluded by pattern
+            TextBlock(text="FORM NAME", font_size=14, bold=True,
+                      rect=[50, 50, 250, 68]),    # passes all filters
+            TextBlock(text="BODY TEXT", font_size=18, bold=True,
+                      rect=[50, 500, 300, 520]),  # excluded by top_region_fraction
+        ]
+        assert engine.extract_form_name(blocks) == "FORM NAME"
+
 
 class TestMatchedRule:
     def test_tr16_matched_rule_populated(self):
