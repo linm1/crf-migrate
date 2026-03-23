@@ -50,10 +50,13 @@ def _process_page(
 ) -> list[AnnotationRecord]:
     """Process all annotations on a single page.
 
-    Extracts text blocks once for the page, derives form_name and visit from
-    them, then processes each annotation individually.
+    Collects annotation rects first so that _get_text_blocks can exclude
+    spans rendered inside annotation boxes (PyMuPDF includes FreeText
+    annotation content in page.get_text output, which would otherwise
+    pollute form-name and anchor-text extraction with SDTM values).
     """
-    text_blocks = _get_text_blocks(page)
+    annot_rects = [a.rect for a in page.annots()]
+    text_blocks = _get_text_blocks(page, annot_rects)
     page_text = " ".join(b["text"] for b in text_blocks)
     form_name = rule_engine.extract_form_name(text_blocks)
     visit = rule_engine.extract_visit(page_text)
@@ -179,12 +182,20 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     )
 
 
-def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
+def _get_text_blocks(
+    page: fitz.Page,
+    annot_rects: list[fitz.Rect] | None = None,
+) -> list[TextBlock]:
     """Extract all non-empty text spans from a page as TextBlock dicts.
 
     Uses PyMuPDF's 'dict' text extraction mode to capture per-span font
-    metadata.  Silently returns an empty list on extraction failure.
+    metadata.  PyMuPDF includes FreeText annotation content in the page text
+    stream, which would otherwise pollute form-name and anchor-text extraction
+    with SDTM annotation values.  Spans whose centre-point falls inside any
+    rect in annot_rects are excluded to prevent this.
+    Silently returns an empty list on extraction failure.
     """
+    rects = annot_rects or []
     blocks: list[TextBlock] = []
     try:
         raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
@@ -196,6 +207,14 @@ def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
                     text = span.get("text", "").strip()
                     if not text:
                         continue
+                    bbox = span.get("bbox", [0.0, 0.0, 0.0, 0.0])
+                    cx = (bbox[0] + bbox[2]) / 2.0
+                    cy = (bbox[1] + bbox[3]) / 2.0
+                    if any(
+                        r.x0 <= cx <= r.x1 and r.y0 <= cy <= r.y1
+                        for r in rects
+                    ):
+                        continue  # span centre inside an annotation rect — skip
                     flags = span.get("flags", 0)
                     bold = bool(flags & 16)  # bit 4 is the bold flag in PDF spec
                     blocks.append(
@@ -203,7 +222,7 @@ def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
                             text=text,
                             font_size=span.get("size", 10.0),
                             bold=bold,
-                            rect=list(span.get("bbox", [0.0, 0.0, 0.0, 0.0])),
+                            rect=list(bbox),
                         )
                     )
     except Exception:

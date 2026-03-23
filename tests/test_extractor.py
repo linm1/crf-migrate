@@ -255,3 +255,83 @@ class TestExtractAnnotations:
         records1 = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
         records2 = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
         assert len(records1) == len(records2)
+
+
+class TestGetTextBlocksAnnotFiltering:
+    """Verify _get_text_blocks excludes spans whose centre overlaps annotation rects."""
+
+    def _make_page_with_annot(self, tmp_path):
+        """Create a minimal PDF page with one regular text block and one FreeText annotation."""
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page(width=400, height=600)
+        # Regular page text at top (simulates a CRF form title)
+        page.insert_text((50, 50), "DEMOGRAPHICS", fontsize=18, fontname="helv")
+        # FreeText annotation at a different position (simulates an SDTM annotation)
+        annot_rect = fitz.Rect(50, 100, 300, 130)
+        annot = page.add_freetext_annot(
+            annot_rect, "DM=Demographics",
+            fontsize=12, fontname="helv",
+            text_color=(0, 0, 0), fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="DM=Demographics", subject="DM")
+        annot.update()
+        # Save and re-open so text rendering is finalised
+        pdf_path = tmp_path / "annot_filter_test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+        doc2 = fitz.open(str(pdf_path))
+        return doc2, doc2[0]
+
+    def test_without_filter_may_include_annot_text(self, tmp_path):
+        """Without annot_rects, annotation text may appear in text_blocks (known PyMuPDF behaviour)."""
+        from src.extractor import _get_text_blocks
+        doc, page = self._make_page_with_annot(tmp_path)
+        blocks = _get_text_blocks(page)
+        texts = " ".join(b["text"] for b in blocks)
+        # "DEMOGRAPHICS" (regular text) must be present
+        assert "DEMOGRAPHICS" in texts, f"Regular text missing from blocks: {texts!r}"
+        doc.close()
+
+    def test_with_annot_rects_excludes_overlapping_text(self, tmp_path):
+        """With annot_rects provided, spans whose centre overlaps are excluded."""
+        import fitz
+        from src.extractor import _get_text_blocks
+        doc, page = self._make_page_with_annot(tmp_path)
+        annot_rects = [a.rect for a in page.annots()]
+        blocks = _get_text_blocks(page, annot_rects)
+        texts = " ".join(b["text"] for b in blocks)
+        # Annotation-area text should NOT appear; regular text should remain
+        assert "DEMOGRAPHICS" in texts, f"Regular text was incorrectly filtered: {texts!r}"
+        # Any text whose centre falls inside the annotation rect (y 100-130) should be gone
+        for b in blocks:
+            cx = (b["rect"][0] + b["rect"][2]) / 2
+            cy = (b["rect"][1] + b["rect"][3]) / 2
+            for r in annot_rects:
+                assert not (r.x0 <= cx <= r.x1 and r.y0 <= cy <= r.y1), (
+                    f"Block {b['text']!r} at centre ({cx:.1f},{cy:.1f}) "
+                    f"leaked through annot rect {r}"
+                )
+        doc.close()
+
+    def test_non_overlapping_text_preserved(self, tmp_path):
+        """Text blocks outside all annotation rects are not filtered out."""
+        import fitz
+        from src.extractor import _get_text_blocks
+        doc, page = self._make_page_with_annot(tmp_path)
+        annot_rects = [a.rect for a in page.annots()]
+        blocks = _get_text_blocks(page, annot_rects)
+        texts = " ".join(b["text"] for b in blocks)
+        assert "DEMOGRAPHICS" in texts, (
+            f"Non-overlapping 'DEMOGRAPHICS' text was incorrectly removed: {texts!r}"
+        )
+        doc.close()
+
+    def test_empty_annot_rects_changes_nothing(self, tmp_path):
+        """Passing an empty annot_rects list returns the same blocks as no argument."""
+        from src.extractor import _get_text_blocks
+        doc, page = self._make_page_with_annot(tmp_path)
+        blocks_default = _get_text_blocks(page)
+        blocks_empty = _get_text_blocks(page, [])
+        assert [b["text"] for b in blocks_default] == [b["text"] for b in blocks_empty]
+        doc.close()
