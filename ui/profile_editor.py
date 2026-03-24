@@ -55,9 +55,12 @@ def _inject_page_css() -> None:
     )
 
 
+# Inject CSS at module level (once when module is first imported)
+_inject_page_css()
+
+
 def render_profile_editor(profiles_dir: Path) -> None:
     """Render the full profile editor page."""
-    _inject_page_css()
     st.header("Profile Editor")
 
     profile_names = list_profiles(profiles_dir)

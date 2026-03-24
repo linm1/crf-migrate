@@ -103,6 +103,7 @@ st.markdown(
     <style>
     /* === Profile Editor: Tab bar pill redesign === */
     /* NOTE: uses data-testid selectors, stable in Streamlit 1.29+ */
+    /* Exception to neo-brutalist sharp edges: tab pill container uses 8px radius per mockup design */
     div[data-testid="stTabs"] > div[role="tablist"] {
         background: #FFFFFF;
         border-radius: 8px !important;
@@ -112,6 +113,15 @@ st.markdown(
         align-items: center;
         box-shadow: none;
         border: none;
+    }
+    .pe-sidebar-label {
+        font-size: 10px !important;
+        font-weight: 600 !important;
+        color: #8A847F !important;
+        letter-spacing: 0.5px !important;
+        text-transform: uppercase !important;
+        margin: 0 0 4px 0 !important;
+        font-family: Inter, ui-sans-serif, sans-serif !important;
     }
     div[data-testid="stTabs"] button[role="tab"] {
         background: #FFFFFF !important;
@@ -259,9 +269,7 @@ def _render_sidebar() -> None:
             if current_profile not in profiles:
                 current_profile = profiles[0]
             st.markdown(
-                '<p style="font-size:10px;font-weight:600;color:#8A847F;'
-                'letter-spacing:0.5px;text-transform:uppercase;margin:0 0 4px 0">'
-                'ACTIVE PROFILE</p>',
+                '<p class="pe-sidebar-label">ACTIVE PROFILE</p>',
                 unsafe_allow_html=True,
             )
             selected = st.selectbox(
