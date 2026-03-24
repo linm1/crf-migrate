@@ -435,62 +435,110 @@ def _render_form_name_tab(draft: dict) -> None:
 
 
 def _render_matching_tab(draft: dict) -> None:
-    config = draft.get("matching_config", {})
-    st.subheader("Matching Configuration")
-    config["exact_threshold"] = st.slider(
-        "Exact Threshold", 0.0, 1.0,
-        value=float(config.get("exact_threshold", 1.0)), step=0.01, key="mc_exact"
+    config: dict = draft.get("matching_config", {})
+    st.markdown('<p class="pe-section-title">Matching Configuration</p>', unsafe_allow_html=True)
+
+    _SLIDERS = [
+        ("exact_threshold",              "Exact Threshold",              1.0),
+        ("fuzzy_same_form_threshold",    "Fuzzy Same-Form Threshold",    0.80),
+        ("fuzzy_cross_form_threshold",   "Fuzzy Cross-Form Threshold",   0.90),
+        ("position_fallback_confidence", "Position Fallback Confidence", 0.50),
+    ]
+    new_config: dict = {}
+    for key, label, default in _SLIDERS:
+        current_val = float(config.get(key, default))
+        lbl_col, badge_col = st.columns([8, 1])
+        with lbl_col:
+            st.markdown(
+                f'<p style="font-size:13px;margin:0;color:#383838">{label}</p>',
+                unsafe_allow_html=True,
+            )
+        with badge_col:
+            # Badge reflects the value at start of this render pass; updates on next rerun
+            st.markdown(
+                f'<span class="pe-slider-badge">{current_val:.2f}</span>',
+                unsafe_allow_html=True,
+            )
+        new_config[key] = st.slider(
+            label, 0.0, 1.0, value=current_val, step=0.01,
+            key=f"mc_{key}", label_visibility="collapsed",
+        )
+    draft["matching_config"] = new_config
+
+
+def _rgb_to_hex(r: float, g: float, b: float) -> str:
+    """Convert 0.0–1.0 RGB floats to #RRGGBB hex string."""
+    return "#{:02x}{:02x}{:02x}".format(
+        max(0, min(255, int(r * 255))),
+        max(0, min(255, int(g * 255))),
+        max(0, min(255, int(b * 255))),
     )
-    config["fuzzy_same_form_threshold"] = st.slider(
-        "Fuzzy Same-Form Threshold", 0.0, 1.0,
-        value=float(config.get("fuzzy_same_form_threshold", 0.80)), step=0.01, key="mc_fuzzy_same"
-    )
-    config["fuzzy_cross_form_threshold"] = st.slider(
-        "Fuzzy Cross-Form Threshold", 0.0, 1.0,
-        value=float(config.get("fuzzy_cross_form_threshold", 0.90)), step=0.01, key="mc_fuzzy_cross"
-    )
-    config["position_fallback_confidence"] = st.slider(
-        "Position Fallback Confidence", 0.0, 1.0,
-        value=float(config.get("position_fallback_confidence", 0.50)), step=0.01, key="mc_pos"
-    )
-    draft["matching_config"] = config
 
 
 def _render_style_tab(draft: dict) -> None:
-    config = draft.get("style_defaults", {})
-    st.subheader("Style Defaults")
-    config["font"] = st.text_input("Font", value=config.get("font", "Arial,BoldItalic"), key="style_font")
-    config["font_size"] = st.number_input(
-        "Font Size", value=float(config.get("font_size", 18.0)),
-        min_value=4.0, max_value=72.0, step=0.5, key="style_font_size"
+    config: dict = draft.get("style_defaults", {})
+    st.markdown('<p class="pe-section-title">Style Defaults</p>', unsafe_allow_html=True)
+
+    new_config: dict = {}
+    new_config["font"] = st.text_input(
+        "Font", value=config.get("font", "Arial,BoldItalic"), key="style_font",
     )
-    tc = config.get("text_color", [0.0, 0.0, 0.0])
-    st.write("Text Color (R, G, B):")
+    new_config["font_size"] = st.number_input(
+        "Font Size", min_value=4.0, max_value=72.0,
+        value=float(config.get("font_size", 18.0)), step=0.5, key="style_font_size",
+    )
+
+    tc = list(config.get("text_color", [0.0, 0.0, 0.0]))
+    tc_hex = _rgb_to_hex(float(tc[0]), float(tc[1]), float(tc[2]))
+    st.markdown(
+        f'Text Color (R, G, B): <span class="pe-swatch" style="background:{tc_hex}"></span>',
+        unsafe_allow_html=True,
+    )
     tc_cols = st.columns(3)
-    tc[0] = tc_cols[0].number_input("R", 0.0, 1.0, float(tc[0]), 0.01, key="style_tc_r")
-    tc[1] = tc_cols[1].number_input("G", 0.0, 1.0, float(tc[1]), 0.01, key="style_tc_g")
-    tc[2] = tc_cols[2].number_input("B", 0.0, 1.0, float(tc[2]), 0.01, key="style_tc_b")
-    config["text_color"] = tc
-    bc = config.get("border_color", [0.75, 1.0, 1.0])
-    st.write("Border Color (R, G, B):")
+    new_tc = [
+        tc_cols[0].number_input("R", 0.0, 1.0, float(tc[0]), 0.01, key="style_tc_r"),
+        tc_cols[1].number_input("G", 0.0, 1.0, float(tc[1]), 0.01, key="style_tc_g"),
+        tc_cols[2].number_input("B", 0.0, 1.0, float(tc[2]), 0.01, key="style_tc_b"),
+    ]
+    new_config["text_color"] = new_tc
+
+    bc = list(config.get("border_color", [0.75, 1.0, 1.0]))
+    bc_hex = _rgb_to_hex(float(bc[0]), float(bc[1]), float(bc[2]))
+    st.markdown(
+        f'Border Color (R, G, B): <span class="pe-swatch" style="background:{bc_hex}"></span>',
+        unsafe_allow_html=True,
+    )
     bc_cols = st.columns(3)
-    bc[0] = bc_cols[0].number_input("R", 0.0, 1.0, float(bc[0]), 0.01, key="style_bc_r")
-    bc[1] = bc_cols[1].number_input("G", 0.0, 1.0, float(bc[1]), 0.01, key="style_bc_g")
-    bc[2] = bc_cols[2].number_input("B", 0.0, 1.0, float(bc[2]), 0.01, key="style_bc_b")
-    config["border_color"] = bc
-    draft["style_defaults"] = config
+    new_bc = [
+        bc_cols[0].number_input("R", 0.0, 1.0, float(bc[0]), 0.01, key="style_bc_r"),
+        bc_cols[1].number_input("G", 0.0, 1.0, float(bc[1]), 0.01, key="style_bc_g"),
+        bc_cols[2].number_input("B", 0.0, 1.0, float(bc[2]), 0.01, key="style_bc_b"),
+    ]
+    new_config["border_color"] = new_bc
+
+    draft["style_defaults"] = new_config
 
 
 def _render_yaml_tab(draft: dict, profiles_dir: Path, name: str) -> None:
-    st.subheader("YAML View")
+    import html as _html  # noqa: PLC0415
+    st.markdown('<p class="pe-section-title">YAML View</p>', unsafe_allow_html=True)
     yaml_text = yaml.dump(draft, allow_unicode=True, sort_keys=False)
-    st.text_area("Profile YAML (read-only)", value=yaml_text, height=400, disabled=True, key="yaml_view")
+    escaped = _html.escape(yaml_text)
+    st.markdown(
+        f'<p class="pe-yaml-filename">{name}.yaml</p>'
+        f'<div class="pe-yaml-terminal">{escaped}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
     st.download_button(
-        "Download YAML",
+        "⬇ Download YAML",
         data=yaml_text.encode("utf-8"),
         file_name=f"{name}.yaml",
         mime="text/yaml",
+        use_container_width=True,
+        key="yaml_download",
     )
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
