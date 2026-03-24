@@ -11,6 +11,7 @@ from pathlib import Path
 import fitz  # PyMuPDF
 
 from src.models import FieldRecord
+from src.pdf_utils import get_annotation_rects, get_text_blocks
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
 
@@ -63,7 +64,7 @@ def _process_page(
     """
     text_blocks = _get_text_blocks(page)
     page_text = " ".join(b["text"] for b in text_blocks)
-    form_name = rule_engine.extract_form_name(text_blocks)
+    form_name = rule_engine.extract_form_name(text_blocks, page_height=page.rect.height)
     visit = rule_engine.extract_visit(page_text) or ""
 
     records: list[FieldRecord] = []
@@ -75,35 +76,14 @@ def _process_page(
 
 
 def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
-    """Extract all non-empty text spans from a page as TextBlock dicts.
+    """Extract text blocks, excluding spans inside annotation bounding boxes.
 
-    Uses PyMuPDF's 'dict' text extraction mode to capture per-span font
-    metadata (mirrors the same helper in extractor.py).
+    Delegates to pdf_utils.get_text_blocks with annotation-overlap filtering
+    so that FreeText annotation appearance text is not misclassified as CRF
+    fields.
     """
-    blocks: list[TextBlock] = []
-    try:
-        raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-        for block in raw.get("blocks", []):
-            if block.get("type") != 0:  # 0 = text block
-                continue
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    text = span.get("text", "").strip()
-                    if not text:
-                        continue
-                    flags = span.get("flags", 0)
-                    bold = bool(flags & 16)
-                    blocks.append(
-                        TextBlock(
-                            text=text,
-                            font_size=span.get("size", 10.0),
-                            bold=bold,
-                            rect=list(span.get("bbox", [0.0, 0.0, 0.0, 0.0])),
-                        )
-                    )
-    except Exception:
-        pass
-    return blocks
+    annot_rects = get_annotation_rects(page)
+    return get_text_blocks(page, annot_rects=annot_rects)
 
 
 def _classify_block(

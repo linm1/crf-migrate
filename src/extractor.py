@@ -10,6 +10,7 @@ from pathlib import Path
 import fitz  # PyMuPDF
 
 from src.models import AnnotationRecord, StyleInfo
+from src.pdf_utils import get_text_blocks, make_clean_page
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
 
@@ -42,6 +43,34 @@ def extract_annotations(
     return records
 
 
+def get_page_text_blocks(pdf_path: Path, page_num: int) -> list[TextBlock]:
+    """Return annotation-free text blocks for one page of a PDF.
+
+    Opens pdf_path, creates a temporary annotation-free copy of the requested
+    page, and returns the extracted text blocks. Intended for the UI to preview
+    the clean CRF text used for form-name and anchor-text extraction.
+
+    Args:
+        pdf_path: Path to the source PDF.
+        page_num: 1-based page number.
+    """
+    doc = fitz.open(str(pdf_path))
+    try:
+        page = doc[page_num - 1]
+        temp_doc, clean_page = make_clean_page(page)
+        try:
+            return get_text_blocks(clean_page)
+        finally:
+            temp_doc.close()
+    finally:
+        doc.close()
+
+
+def _make_clean_page(page: fitz.Page) -> tuple[fitz.Document, fitz.Page]:
+    """Delegate to pdf_utils.make_clean_page (kept for backwards compatibility)."""
+    return make_clean_page(page)
+
+
 def _process_page(
     page: fitz.Page,
     page_num: int,
@@ -50,12 +79,18 @@ def _process_page(
 ) -> list[AnnotationRecord]:
     """Process all annotations on a single page.
 
-    Extracts text blocks once for the page, derives form_name and visit from
-    them, then processes each annotation individually.
+    Creates a temporary annotation-free copy of the page for text extraction
+    so that SDTM annotation content never pollutes form-name, visit, or
+    anchor-text extraction.  Annotations are then processed from the original
+    (unmodified) page.
     """
-    text_blocks = _get_text_blocks(page)
+    temp_doc, clean_page = _make_clean_page(page)
+    try:
+        text_blocks = _get_text_blocks(clean_page)
+    finally:
+        temp_doc.close()
     page_text = " ".join(b["text"] for b in text_blocks)
-    form_name = rule_engine.extract_form_name(text_blocks)
+    form_name = rule_engine.extract_form_name(text_blocks, page_height=page.rect.height)
     visit = rule_engine.extract_visit(page_text)
 
     records: list[AnnotationRecord] = []
@@ -107,7 +142,10 @@ def _process_annotation(
     if category == "_exclude":
         return None
 
-    anchor_text = _extract_anchor_text(annot.rect, profile, text_blocks)
+    anchor_text = _extract_anchor_text(
+        annot.rect, profile, text_blocks,
+        exclude_patterns=rule_engine.anchor_exclude_patterns,
+    )
 
     return AnnotationRecord(
         id=str(uuid.uuid4()),
@@ -180,95 +218,78 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
 
 
 def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
-    """Extract all non-empty text spans from a page as TextBlock dicts.
+    """Delegate to pdf_utils.get_text_blocks (kept for backwards compatibility).
 
-    Uses PyMuPDF's 'dict' text extraction mode to capture per-span font
-    metadata.  Silently returns an empty list on extraction failure.
+    Call on a clean page produced by _make_clean_page() so that
+    annotation-rendered text has already been removed at the PDF level.
     """
-    blocks: list[TextBlock] = []
-    try:
-        raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-        for block in raw.get("blocks", []):
-            if block.get("type") != 0:  # 0 = text block; 1 = image block
-                continue
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    text = span.get("text", "").strip()
-                    if not text:
-                        continue
-                    flags = span.get("flags", 0)
-                    bold = bool(flags & 16)  # bit 4 is the bold flag in PDF spec
-                    blocks.append(
-                        TextBlock(
-                            text=text,
-                            font_size=span.get("size", 10.0),
-                            bold=bold,
-                            rect=list(span.get("bbox", [0.0, 0.0, 0.0, 0.0])),
-                        )
-                    )
-    except Exception:
-        pass
-    return blocks
+    return get_text_blocks(page)
 
 
 def _extract_anchor_text(
     annot_rect: fitz.Rect,
     profile: Profile,
     text_blocks: list[TextBlock],
+    exclude_patterns: list[re.Pattern[str]] | None = None,
 ) -> str:
-    """Find the nearest non-excluded text block within the configured radius.
+    """Find the anchor text for an annotation using the left-column + vertical-distance algorithm.
 
-    Candidates are ranked by direction preference (prefer_direction list order)
-    then by Euclidean distance from the annotation center.  Returns the text of
-    the best candidate, or an empty string when no candidate is within radius.
+    Algorithm:
+      1. Compute the left-column threshold: min(block x0) + left_column_tolerance_px.
+      2. Filter to blocks whose x0 is within that threshold (left column only).
+      3. For each left-column block compute the vertical distance to the annotation:
+         vert_dist = max(0, max(annot_y0, block_y0) - min(annot_y1, block_y1))
+         (0 when the block vertically overlaps or touches the annotation).
+      4. Select the block with the minimum vertical distance; tie-break by
+         absolute difference between block center-y and annotation center-y.
+      5. Skip blocks matching exclude_patterns.
+      6. Return the selected block's text, or empty string when no candidates remain.
+
+    This approach is robust to multi-column CRF layouts where annotations sit
+    to the right of field labels: only the leftmost column (where labels live)
+    is considered, and vertical proximity determines the best match.
+
+    Args:
+        exclude_patterns: Pre-compiled patterns from RuleEngine.anchor_exclude_patterns.
+            When None, patterns are compiled from profile on each call (legacy path).
     """
     config = profile.anchor_text_config
-    radius = config.radius_px
-    exclude_patterns = [
-        re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
-    ]
+    if exclude_patterns is None:
+        exclude_patterns = [
+            re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
+        ]
 
-    cx = (annot_rect.x0 + annot_rect.x1) / 2.0
-    cy = (annot_rect.y0 + annot_rect.y1) / 2.0
+    if not text_blocks:
+        return ""
 
-    def _score(block: TextBlock) -> tuple[float, float]:
-        """Return (direction_penalty, distance) — lower is more preferred."""
-        bx = (block["rect"][0] + block["rect"][2]) / 2.0
-        by = (block["rect"][1] + block["rect"][3]) / 2.0
-        dx = bx - cx
-        dy = by - cy
-        dist = (dx ** 2 + dy ** 2) ** 0.5
+    # --- 1. Compute left-column threshold ---
+    min_x0 = min(b["rect"][0] for b in text_blocks)
+    left_threshold = min_x0 + config.left_column_tolerance_px
 
-        prefer = config.prefer_direction
-        penalty = float(len(prefer)) * 10.0 + 50.0  # default: no preference match
+    annot_y0 = annot_rect.y0
+    annot_y1 = annot_rect.y1
+    annot_cy = (annot_y0 + annot_y1) / 2.0
 
-        if "left" in prefer and dx < 0 and abs(dx) > abs(dy):
-            penalty = float(prefer.index("left")) * 10.0
-        elif "above" in prefer and dy < 0 and abs(dy) >= abs(dx):
-            penalty = float(prefer.index("above")) * 10.0
-        elif "right" in prefer and dx > 0 and abs(dx) > abs(dy):
-            penalty = float(prefer.index("right")) * 10.0
-        elif "below" in prefer and dy > 0 and abs(dy) >= abs(dx):
-            penalty = float(prefer.index("below")) * 10.0
-
-        return penalty, dist
-
-    candidates: list[TextBlock] = []
+    # --- 2-5. Filter to left column, compute vertical distance, apply excludes ---
+    candidates: list[tuple[float, float, TextBlock]] = []
     for block in text_blocks:
-        bx = (block["rect"][0] + block["rect"][2]) / 2.0
-        by = (block["rect"][1] + block["rect"][3]) / 2.0
-        dist = ((bx - cx) ** 2 + (by - cy) ** 2) ** 0.5
-        if dist > radius:
+        if block["rect"][0] > left_threshold:
             continue
         text = block["text"].strip()
         if not text:
             continue
         if any(p.search(text) for p in exclude_patterns):
             continue
-        candidates.append(block)
+        block_y0 = block["rect"][1]
+        block_y1 = block["rect"][3]
+        vert_dist = max(0.0, max(annot_y0, block_y0) - min(annot_y1, block_y1))
+        block_cy = (block_y0 + block_y1) / 2.0
+        center_dist = abs(block_cy - annot_cy)
+        candidates.append((vert_dist, center_dist, block))
 
     if not candidates:
         return ""
 
-    candidates.sort(key=_score)
-    return candidates[0]["text"].strip()
+    # --- 6. Select block with minimum vertical distance (tie-break: center-y distance) ---
+    candidates.sort(key=lambda t: (t[0], t[1]))
+    return candidates[0][2]["text"].strip()

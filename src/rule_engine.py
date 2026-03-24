@@ -21,6 +21,14 @@ class RuleEngine:
 
     def __init__(self, profile: Profile) -> None:
         self._profile = profile
+        self._form_name_excludes: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE)
+            for p in profile.form_name_rules.exclude_patterns
+        ]
+        self._anchor_excludes: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE)
+            for p in profile.anchor_text_config.exclude_patterns
+        ]
 
     # ------------------------------------------------------------------
     # Public API
@@ -40,30 +48,63 @@ class RuleEngine:
 
         return "sdtm_mapping", "Rule N: ultimate fallback (no rule matched)"
 
-    def extract_form_name(self, text_blocks: list[TextBlock]) -> str:
+    def extract_form_name(
+        self,
+        text_blocks: list[TextBlock],
+        page_height: float | None = None,
+    ) -> str:
         """Apply form_name_rules to identify the CRF form title.
 
-        Strategy 'largest_bold_text': select the text block with the largest
-        font_size that meets min_font_size and does not match any
-        exclude_pattern.  Empty/whitespace-only blocks are always skipped.
+        Evaluation order:
+          1. label_prefix: scan blocks for '<prefix>: <value>', return value.
+             Falls through to top-to-bottom scan if no block matches.
+          2. top_region_fraction pre-filter: when page_height is provided and
+             top_region_fraction is set, restrict candidates to blocks whose y0
+             is within the top N% of the true page height.  This prevents footer
+             text (stored at low y in some PDFs) from being picked up.
+          3. Top-to-bottom scan: sort remaining blocks by y0 (ascending) and
+             return the first block that passes min_font_size and exclude_patterns.
+
+        Args:
+            text_blocks: Text blocks extracted from a clean (annotation-free) page.
+            page_height: True page height in PDF points from page.rect.height.
+                         Used to anchor top_region_fraction against a reliable
+                         denominator rather than the max y of text blocks.
         """
         config = self._profile.form_name_rules
-        compiled_excludes = [
-            re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
-        ]
 
-        candidates = [
-            block for block in text_blocks
-            if block["text"].strip()
-            and block["font_size"] >= config.min_font_size
-            and not any(pat.search(block["text"]) for pat in compiled_excludes)
-        ]
+        # --- 1. label_prefix (priority override) ---
+        if config.label_prefix is not None:
+            prefix_pat = re.compile(
+                rf"^{re.escape(config.label_prefix.rstrip(':'))}\s*:\s*(.+)$",
+                re.IGNORECASE,
+            )
+            for block in text_blocks:
+                m = prefix_pat.match(block["text"].strip())
+                if m:
+                    return m.group(1).strip()
+            # No block matched — fall through to top-to-bottom scan
 
-        if not candidates:
-            return ""
+        # --- 2. top_region_fraction pre-filter (uses true page height) ---
+        if config.top_region_fraction is not None and page_height and page_height > 0:
+            cutoff = config.top_region_fraction * page_height
+            eligible = [b for b in text_blocks if b["rect"][1] <= cutoff]
+        else:
+            eligible = list(text_blocks)
 
-        best = max(candidates, key=lambda b: (b["font_size"], b["bold"]))
-        return best["text"].strip()
+        # --- 3. Top-to-bottom scan ---
+        sorted_blocks = sorted(eligible, key=lambda b: b["rect"][1])
+        for block in sorted_blocks:
+            text = block["text"].strip()
+            if not text:
+                continue
+            if block["font_size"] < config.min_font_size:
+                continue
+            if any(pat.search(text) for pat in self._form_name_excludes):
+                continue
+            return text
+
+        return ""
 
     def extract_visit(self, page_text: str) -> str:
         """Apply visit_rules to detect the visit label from page text.
@@ -80,6 +121,11 @@ class RuleEngine:
                 return value
 
         return ""
+
+    @property
+    def anchor_exclude_patterns(self) -> list[re.Pattern[str]]:
+        """Pre-compiled exclude patterns for anchor text extraction."""
+        return self._anchor_excludes
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -135,9 +181,6 @@ class RuleEngine:
             if not groups or groups[0] not in self._profile.domain_codes:
                 return False
 
-        # --- fallback: always True (acts as an unconditional catch-all) ---
-        # Evaluated last so that it cannot short-circuit other conditions when
-        # combined with other fields (though in practice fallback is used alone).
         if cond.fallback:
             return True
 

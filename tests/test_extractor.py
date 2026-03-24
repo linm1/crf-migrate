@@ -255,3 +255,134 @@ class TestExtractAnnotations:
         records1 = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
         records2 = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
         assert len(records1) == len(records2)
+
+
+class TestGetTextBlocksAnnotFiltering:
+    """Verify that _make_clean_page + _get_text_blocks cleanly separates SDTM annotation
+    text from original CRF page text (form names, field labels, etc.).
+
+    The copy-and-delete approach is used: a temporary annotation-free copy of each page
+    is created via _make_clean_page(), then text is extracted from that clean copy.
+    This is robust because PyMuPDF's own engine handles the association between
+    annotations and their rendered text — no geometric heuristics needed.
+    """
+
+    def _make_pdf_with_annot(self, tmp_path, filename="annot_test.pdf"):
+        """Create a minimal PDF with CRF text and a FreeText annotation, saved to disk."""
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page(width=400, height=600)
+        # Regular CRF page text (simulates a form title)
+        page.insert_text((50, 50), "DEMOGRAPHICS", fontsize=18, fontname="helv")
+        # FreeText annotation (simulates an SDTM annotation box)
+        annot_rect = fitz.Rect(50, 100, 300, 130)
+        annot = page.add_freetext_annot(
+            annot_rect, "DM=Demographics",
+            fontsize=12, fontname="helv",
+            text_color=(0, 0, 0), fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="DM=Demographics", subject="DM")
+        annot.update()
+        pdf_path = tmp_path / filename
+        doc.save(str(pdf_path))
+        doc.close()
+        return fitz.open(str(pdf_path))
+
+    def test_get_text_blocks_returns_crf_text(self, tmp_path):
+        """_get_text_blocks on a raw page includes the original CRF text."""
+        from src.extractor import _get_text_blocks
+        doc = self._make_pdf_with_annot(tmp_path)
+        page = doc[0]
+        blocks = _get_text_blocks(page)
+        texts = " ".join(b["text"] for b in blocks)
+        assert "DEMOGRAPHICS" in texts, f"CRF text missing: {texts!r}"
+        doc.close()
+
+    def test_clean_page_excludes_annotation_text(self, tmp_path):
+        """After _make_clean_page, FreeText annotation text is absent from the text stream."""
+        from src.extractor import _make_clean_page, _get_text_blocks
+        doc = self._make_pdf_with_annot(tmp_path)
+        page = doc[0]
+        temp_doc, clean_page = _make_clean_page(page)
+        try:
+            blocks = _get_text_blocks(clean_page)
+            texts = " ".join(b["text"] for b in blocks)
+            assert "DM=Demographics" not in texts, (
+                f"Annotation text leaked into clean page blocks: {texts!r}"
+            )
+        finally:
+            temp_doc.close()
+        doc.close()
+
+    def test_clean_page_preserves_crf_text(self, tmp_path):
+        """After _make_clean_page, original CRF text (form name) is still present."""
+        from src.extractor import _make_clean_page, _get_text_blocks
+        doc = self._make_pdf_with_annot(tmp_path)
+        page = doc[0]
+        temp_doc, clean_page = _make_clean_page(page)
+        try:
+            blocks = _get_text_blocks(clean_page)
+            texts = " ".join(b["text"] for b in blocks)
+            assert "DEMOGRAPHICS" in texts, (
+                f"CRF text was incorrectly removed from clean page: {texts!r}"
+            )
+        finally:
+            temp_doc.close()
+        doc.close()
+
+    def test_adjacent_text_preserved_after_cleaning(self, tmp_path):
+        """Text geometrically adjacent to (or under) an annotation box is preserved.
+
+        This is the key regression test: 'Adverse Events' sits directly below
+        the annotation boxes on the AE page. Previous geometric heuristics
+        could incorrectly exclude it; the copy-and-delete approach cannot.
+        """
+        import fitz
+        from src.extractor import _make_clean_page, _get_text_blocks
+
+        doc = fitz.open()
+        page = doc.new_page(width=400, height=600)
+        # CRF form name text sits near/under the annotation
+        page.insert_text((50, 135), "Adverse Events", fontsize=10, fontname="helv")
+        # Annotation rect overlaps the y-range of the text
+        annot_rect = fitz.Rect(50, 100, 300, 140)
+        annot = page.add_freetext_annot(
+            annot_rect, "AE=Adverse Events",
+            fontsize=12, fontname="helv",
+            text_color=(0, 0, 0), fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="AE=Adverse Events", subject="AE")
+        annot.update()
+        pdf_path = tmp_path / "adjacent_text_test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        doc2 = fitz.open(str(pdf_path))
+        page2 = doc2[0]
+        temp_doc, clean_page = _make_clean_page(page2)
+        try:
+            blocks = _get_text_blocks(clean_page)
+            texts = " ".join(b["text"] for b in blocks)
+            assert "Adverse Events" in texts, (
+                f"'Adverse Events' adjacent to annotation was incorrectly excluded: {texts!r}"
+            )
+        finally:
+            temp_doc.close()
+        doc2.close()
+
+    def test_make_clean_page_does_not_mutate_original(self, tmp_path):
+        """_make_clean_page leaves the original page and its annotations intact."""
+        from src.extractor import _make_clean_page
+        doc = self._make_pdf_with_annot(tmp_path)
+        page = doc[0]
+        original_annot_count = sum(1 for _ in page.annots())
+        assert original_annot_count >= 1, "Fixture must have at least one annotation"
+
+        temp_doc, _ = _make_clean_page(page)
+        temp_doc.close()
+
+        after_count = sum(1 for _ in page.annots())
+        assert after_count == original_annot_count, (
+            f"Original page annotations changed: before={original_annot_count}, after={after_count}"
+        )
+        doc.close()

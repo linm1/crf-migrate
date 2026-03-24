@@ -473,6 +473,22 @@ class TestVisitExtraction:
         assert engine.extract_visit("") == ""
 
 
+def _engine(form_name_kwargs: dict) -> RuleEngine:
+    """Return a RuleEngine with a custom FormNameConfig and minimal other config."""
+    profile = Profile(
+        meta=ProfileMeta(name="Test"),
+        domain_codes=["DM"],
+        classification_rules=[
+            ClassificationRule(
+                conditions=RuleCondition(fallback=True),
+                category="sdtm_mapping",
+            )
+        ],
+        form_name_rules=FormNameConfig(**form_name_kwargs),
+    )
+    return RuleEngine(profile)
+
+
 class TestFormNameExtraction:
     def test_tr13_form_name_excludes_patterns(self):
         """TR.13: Form name extraction excludes configured patterns."""
@@ -566,8 +582,8 @@ class TestFormNameExtraction:
         result = engine.extract_form_name(text_blocks)
         assert result == ""
 
-    def test_form_name_picks_largest_font(self):
-        """extract_form_name selects the block with the largest font size."""
+    def test_form_name_picks_topmost_qualifying_block(self):
+        """extract_form_name selects the topmost (lowest y0) block that passes filters."""
         profile = Profile(
             meta=ProfileMeta(name="Test"),
             domain_codes=["DM"],
@@ -578,12 +594,13 @@ class TestFormNameExtraction:
         )
         engine = RuleEngine(profile)
         text_blocks = [
-            TextBlock(text="Section A", font_size=14.0, bold=True, rect=[0, 0, 100, 20]),
-            TextBlock(text="DEMOGRAPHICS", font_size=20.0, bold=True, rect=[0, 30, 200, 50]),
-            TextBlock(text="Sub-heading", font_size=16.0, bold=True, rect=[0, 60, 150, 80]),
+            TextBlock(text="Section A", font_size=14.0, bold=True, rect=[0, 0, 100, 20]),     # y0=0 — topmost
+            TextBlock(text="DEMOGRAPHICS", font_size=20.0, bold=True, rect=[0, 30, 200, 50]), # y0=30
+            TextBlock(text="Sub-heading", font_size=16.0, bold=True, rect=[0, 60, 150, 80]),  # y0=60
         ]
         result = engine.extract_form_name(text_blocks)
-        assert result == "DEMOGRAPHICS"
+        # Top-to-bottom scan: "Section A" is topmost and passes min_font_size=12
+        assert result == "Section A"
 
     def test_form_name_strips_whitespace(self):
         """extract_form_name strips leading/trailing whitespace from result."""
@@ -620,6 +637,169 @@ class TestFormNameExtraction:
         ]
         result = engine.extract_form_name(text_blocks)
         assert result == "ADVERSE EVENTS"
+
+
+    def test_form_name_config_accepts_top_region_fraction(self):
+        """FormNameConfig validates top_region_fraction as optional float."""
+        config = FormNameConfig(top_region_fraction=0.25)
+        assert config.top_region_fraction == 0.25
+
+    def test_form_name_config_top_region_fraction_defaults_none(self):
+        """top_region_fraction defaults to None (no filtering)."""
+        config = FormNameConfig()
+        assert config.top_region_fraction is None
+
+    def test_form_name_config_accepts_label_prefix(self):
+        """FormNameConfig validates label_prefix as optional string."""
+        config = FormNameConfig(label_prefix="Form:")
+        assert config.label_prefix == "Form:"
+
+    def test_form_name_config_label_prefix_defaults_none(self):
+        """label_prefix defaults to None (strategy-based selection)."""
+        config = FormNameConfig()
+        assert config.label_prefix is None
+
+    def test_form_name_label_prefix_extracts_value(self):
+        """label_prefix='Form:' extracts 'Demographics' from 'Form: Demographics'."""
+        engine = _engine({"label_prefix": "Form:"})
+        blocks: list[TextBlock] = [
+            TextBlock(text="Version 13.0: Complete CRF", font_size=10, bold=True,
+                      rect=[50, 30, 400, 45]),
+            TextBlock(text="Folder: Screening", font_size=10, bold=True,
+                      rect=[50, 50, 300, 65]),
+            TextBlock(text="Form: Demographics", font_size=10, bold=True,
+                      rect=[50, 70, 300, 85]),
+            TextBlock(text="Generated On: 05 Dec 2025 16:52:22", font_size=10, bold=True,
+                      rect=[50, 90, 400, 105]),
+        ]
+        assert engine.extract_form_name(blocks) == "Demographics"
+
+    def test_form_name_label_prefix_case_insensitive(self):
+        """label_prefix matching is case-insensitive."""
+        engine = _engine({"label_prefix": "form:"})
+        blocks: list[TextBlock] = [
+            TextBlock(text="FORM: Adverse Events", font_size=10, bold=False,
+                      rect=[50, 30, 300, 45]),
+        ]
+        assert engine.extract_form_name(blocks) == "Adverse Events"
+
+    def test_form_name_label_prefix_no_match_falls_through_to_strategy(self):
+        """If no block matches label_prefix, falls through to largest_bold_text."""
+        engine = _engine({"label_prefix": "Form:", "min_font_size": 10.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="VITAL SIGNS", font_size=18, bold=True,
+                      rect=[50, 30, 300, 50]),
+            TextBlock(text="Systolic BP: ___", font_size=10, bold=False,
+                      rect=[50, 80, 300, 95]),
+        ]
+        assert engine.extract_form_name(blocks) == "VITAL SIGNS"
+
+    def test_form_name_label_prefix_priority_over_largest_bold(self):
+        """label_prefix result takes priority even when a larger block exists."""
+        engine = _engine({"label_prefix": "Form:", "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="HUGE HEADER", font_size=36, bold=True,
+                      rect=[50, 10, 500, 50]),
+            TextBlock(text="Form: Actual Form Name", font_size=10, bold=False,
+                      rect=[50, 60, 300, 75]),
+        ]
+        assert engine.extract_form_name(blocks) == "Actual Form Name"
+
+    def test_form_name_label_prefix_strips_whitespace(self):
+        """Extracted value is stripped of surrounding whitespace."""
+        engine = _engine({"label_prefix": "Form:"})
+        blocks: list[TextBlock] = [
+            TextBlock(text="Form:   Demographics  ", font_size=10, bold=False,
+                      rect=[50, 30, 300, 45]),
+        ]
+        assert engine.extract_form_name(blocks) == "Demographics"
+
+    def test_form_name_label_prefix_no_blocks_returns_empty(self):
+        """label_prefix with empty block list returns empty string."""
+        engine = _engine({"label_prefix": "Form:"})
+        assert engine.extract_form_name([]) == ""
+
+    def test_form_name_top_region_fraction_excludes_lower_blocks(self):
+        """top_region_fraction=0.25 excludes blocks in bottom 75% of page."""
+        # Page height estimated from max y1 = 800. Cutoff = 0.25 * 800 = 200.
+        # Block A: y0=50  → IN  top region (50 <= 200) ✓
+        # Block B: y0=400 → OUT of top region (400 > 200) ✗
+        engine = _engine({"top_region_fraction": 0.25, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="FORM TITLE", font_size=14, bold=True,
+                      rect=[50, 50, 300, 70]),    # y0=50, in top region
+            TextBlock(text="LARGER BODY", font_size=18, bold=True,
+                      rect=[50, 400, 300, 800]),  # y0=400, out of top region
+        ]
+        assert engine.extract_form_name(blocks) == "FORM TITLE"
+
+    def test_form_name_top_region_fraction_none_no_filtering(self):
+        """top_region_fraction=None (default) applies no position filter.
+
+        The new algorithm ignores top_region_fraction entirely and returns
+        the topmost qualifying block regardless of font size.
+        """
+        engine = _engine({"top_region_fraction": None, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="SMALL HEADER", font_size=14, bold=True,
+                      rect=[50, 50, 300, 70]),    # y0=50 — topmost
+            TextBlock(text="BIG BODY", font_size=24, bold=True,
+                      rect=[50, 500, 300, 525]),  # y0=500 — lower on page
+        ]
+        # Top-to-bottom scan: "SMALL HEADER" is topmost and passes min_font_size
+        assert engine.extract_form_name(blocks) == "SMALL HEADER"
+
+    def test_form_name_top_region_fraction_ignored_returns_topmost(self):
+        """top_region_fraction is ignored by the new algorithm; topmost block wins.
+
+        Previously this tested that top_region_fraction=0.10 excluded all blocks
+        (since both had y0 > cutoff).  Now top_region_fraction has no effect and
+        the topmost qualifying block is returned regardless.
+        """
+        engine = _engine({"top_region_fraction": 0.10, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="HEADER", font_size=18, bold=True,
+                      rect=[50, 100, 300, 120]),   # y0=100 — topmost
+            TextBlock(text="BODY", font_size=14, bold=False,
+                      rect=[50, 300, 300, 500]),   # y0=300 — lower
+        ]
+        # New algorithm: top_region_fraction ignored → "HEADER" is topmost and qualifies
+        assert engine.extract_form_name(blocks) == "HEADER"
+
+    def test_form_name_top_region_fraction_picks_topmost_not_largest(self):
+        """With the new algorithm, top_region_fraction is ignored; topmost block wins.
+
+        Previously this tested that the largest block within the top region won.
+        Now top_region_fraction has no effect; the topmost qualifying block is returned.
+        """
+        engine = _engine({"top_region_fraction": 0.30, "min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="SMALL TOP", font_size=10, bold=False,
+                      rect=[50, 30, 200, 45]),    # y0=30 — topmost, qualifies (font_size >= 8)
+            TextBlock(text="LARGE TOP", font_size=20, bold=True,
+                      rect=[50, 100, 300, 125]),  # y0=100 — larger font but lower
+            TextBlock(text="HUGE BOTTOM", font_size=36, bold=True,
+                      rect=[50, 600, 400, 900]),  # y0=600 — lowest
+        ]
+        # Top-to-bottom scan: "SMALL TOP" is topmost and passes min_font_size=8
+        assert engine.extract_form_name(blocks) == "SMALL TOP"
+
+    def test_form_name_top_region_fraction_combined_with_exclude_patterns(self):
+        """top_region_fraction and exclude_patterns both apply."""
+        engine = _engine({
+            "top_region_fraction": 0.25,
+            "min_font_size": 8.0,
+            "exclude_patterns": ["^CDISC$"],
+        })
+        blocks: list[TextBlock] = [
+            TextBlock(text="CDISC", font_size=18, bold=True,
+                      rect=[50, 20, 200, 38]),    # excluded by pattern
+            TextBlock(text="FORM NAME", font_size=14, bold=True,
+                      rect=[50, 50, 250, 68]),    # passes all filters
+            TextBlock(text="BODY TEXT", font_size=18, bold=True,
+                      rect=[50, 500, 300, 520]),  # excluded by top_region_fraction
+        ]
+        assert engine.extract_form_name(blocks) == "FORM NAME"
 
 
 class TestMatchedRule:
@@ -689,6 +869,255 @@ class TestDomainInWithoutRegex:
         # domain_in rule should fail (no regex → no match), fallback wins
         category, _ = engine.classify("DM=Demographics", "")
         assert category == "sdtm_mapping"
+
+
+class TestFormNameTopToBottomScan:
+    """Tests for the new top-to-bottom scan algorithm in extract_form_name.
+
+    The new algorithm sorts blocks by y0 (ascending) and returns the first
+    block that passes min_font_size and does not match any exclude_patterns.
+    top_region_fraction is no longer used by the algorithm (retained in model
+    for backward compatibility with existing YAML files only).
+    """
+
+    def test_form_name_returns_topmost_qualifying_block(self):
+        """Returns the topmost (lowest y0) block that passes min_font_size."""
+        engine = _engine({"min_font_size": 10.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="BOTTOM BLOCK", font_size=24.0, bold=True,
+                      rect=[50, 400, 300, 420]),   # y0=400 — lower on page
+            TextBlock(text="TOP BLOCK", font_size=14.0, bold=False,
+                      rect=[50, 20, 300, 35]),     # y0=20 — higher on page
+            TextBlock(text="MID BLOCK", font_size=18.0, bold=True,
+                      rect=[50, 200, 300, 220]),   # y0=200 — middle
+        ]
+        assert engine.extract_form_name(blocks) == "TOP BLOCK"
+
+    def test_form_name_skips_excluded_patterns(self):
+        """Blocks matching exclude_patterns are skipped; next qualifying block returned."""
+        engine = _engine({
+            "min_font_size": 10.0,
+            "exclude_patterns": ["^CDISC$", r"^Study\s+\w+$"],
+        })
+        blocks: list[TextBlock] = [
+            TextBlock(text="CDISC", font_size=14.0, bold=True,
+                      rect=[50, 10, 200, 25]),     # y0=10 — excluded by pattern
+            TextBlock(text="Study Protocol", font_size=12.0, bold=False,
+                      rect=[50, 30, 300, 45]),     # y0=30 — excluded by pattern
+            TextBlock(text="VITAL SIGNS", font_size=16.0, bold=True,
+                      rect=[50, 60, 300, 80]),     # y0=60 — passes
+        ]
+        assert engine.extract_form_name(blocks) == "VITAL SIGNS"
+
+    def test_form_name_skips_small_font(self):
+        """Blocks below min_font_size are skipped even if topmost."""
+        engine = _engine({"min_font_size": 12.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="tiny header", font_size=8.0, bold=False,
+                      rect=[50, 10, 200, 20]),     # y0=10 — too small
+            TextBlock(text="small label", font_size=10.0, bold=False,
+                      rect=[50, 30, 200, 42]),     # y0=30 — too small
+            TextBlock(text="DEMOGRAPHICS", font_size=18.0, bold=True,
+                      rect=[50, 60, 300, 80]),     # y0=60 — qualifies
+        ]
+        assert engine.extract_form_name(blocks) == "DEMOGRAPHICS"
+
+    def test_form_name_returns_empty_when_no_candidates(self):
+        """Returns empty string when no blocks pass min_font_size + exclude filters."""
+        engine = _engine({
+            "min_font_size": 20.0,
+            "exclude_patterns": [".*"],  # excludes everything
+        })
+        blocks: list[TextBlock] = [
+            TextBlock(text="SOME BLOCK", font_size=24.0, bold=True,
+                      rect=[50, 10, 300, 30]),
+        ]
+        assert engine.extract_form_name(blocks) == ""
+
+    def test_form_name_top_to_bottom_ignores_font_size_ordering(self):
+        """Topmost block wins regardless of font size — NOT the largest font."""
+        engine = _engine({"min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="SMALLER TITLE", font_size=10.0, bold=False,
+                      rect=[50, 30, 300, 42]),     # y0=30 — topmost
+            TextBlock(text="BIGGER HEADING", font_size=36.0, bold=True,
+                      rect=[50, 200, 400, 240]),   # y0=200 — larger font but lower
+        ]
+        # New algorithm: topmost = "SMALLER TITLE" (NOT "BIGGER HEADING")
+        assert engine.extract_form_name(blocks) == "SMALLER TITLE"
+
+    def test_form_name_skips_blank_blocks_in_scan(self):
+        """Empty or whitespace-only blocks are skipped during top-to-bottom scan."""
+        engine = _engine({"min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="   ", font_size=18.0, bold=True,
+                      rect=[50, 10, 200, 25]),     # blank — skipped
+            TextBlock(text="", font_size=16.0, bold=True,
+                      rect=[50, 30, 200, 42]),     # blank — skipped
+            TextBlock(text="ADVERSE EVENTS", font_size=14.0, bold=False,
+                      rect=[50, 60, 300, 75]),     # qualifies
+        ]
+        assert engine.extract_form_name(blocks) == "ADVERSE EVENTS"
+
+    def test_form_name_top_region_fraction_is_ignored_by_algorithm(self):
+        """top_region_fraction in config does NOT filter blocks (backward compat field only)."""
+        engine = _engine({
+            "top_region_fraction": 0.05,  # Would exclude almost everything if used
+            "min_font_size": 8.0,
+        })
+        blocks: list[TextBlock] = [
+            TextBlock(text="DEEP PAGE TITLE", font_size=14.0, bold=True,
+                      rect=[50, 300, 300, 320]),   # y0=300 — would be excluded if fraction used
+        ]
+        # New algorithm ignores top_region_fraction — should still return this block
+        assert engine.extract_form_name(blocks) == "DEEP PAGE TITLE"
+
+
+class TestAnchorTextLeftColumnAlgorithm:
+    """Tests for the new left-column + vertical-distance anchor text algorithm."""
+
+    def _make_profile_with_anchor_config(self, **kwargs) -> "Profile":
+        from src.profile_models import AnchorTextConfig
+        return Profile(
+            meta=ProfileMeta(name="Test"),
+            domain_codes=["DM"],
+            classification_rules=[
+                ClassificationRule(
+                    conditions=RuleCondition(fallback=True),
+                    category="sdtm_mapping",
+                )
+            ],
+            anchor_text_config=AnchorTextConfig(**kwargs),
+        )
+
+    def test_anchor_uses_leftmost_column_only(self):
+        """Blocks not in the left column are ignored even if vertically closer."""
+        import fitz
+        from src.extractor import _extract_anchor_text
+
+        # Left column threshold: min x0 = 50, tolerance = 50 → threshold = 100
+        # Block A x0=50 → in left column
+        # Block B x0=400 → NOT in left column (even though vertically adjacent)
+        profile = self._make_profile_with_anchor_config(
+            left_column_tolerance_px=50.0,
+            exclude_patterns=[],
+        )
+        annot_rect = fitz.Rect(50, 100, 250, 120)   # annotation in the middle
+        text_blocks = [
+            TextBlock(text="Left Label", font_size=10.0, bold=False,
+                      rect=[50, 95, 200, 115]),    # x0=50, in left column, vertically adjacent
+            TextBlock(text="Right Label", font_size=10.0, bold=False,
+                      rect=[400, 98, 550, 118]),   # x0=400, NOT in left column (closer vertically)
+        ]
+        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        assert result == "Left Label"
+
+    def test_anchor_uses_minimum_vertical_distance(self):
+        """Among left-column blocks, returns the one with smallest vertical gap."""
+        import fitz
+        from src.extractor import _extract_anchor_text
+
+        profile = self._make_profile_with_anchor_config(
+            left_column_tolerance_px=50.0,
+            exclude_patterns=[],
+        )
+        annot_rect = fitz.Rect(50, 200, 250, 220)
+        text_blocks = [
+            TextBlock(text="Far Above", font_size=10.0, bold=False,
+                      rect=[50, 10, 200, 30]),     # x0=50, far above — large vertical gap
+            TextBlock(text="Close Above", font_size=10.0, bold=False,
+                      rect=[50, 180, 200, 198]),   # x0=50, just above annot — small gap
+            TextBlock(text="Close Below", font_size=10.0, bold=False,
+                      rect=[50, 222, 200, 240]),   # x0=50, just below annot — small gap
+        ]
+        # Both "Close Above" and "Close Below" are close; "Close Above" has 0 vert gap
+        # (annot.y0=200, block y1=198 → overlap: vert_dist = max(0, max(200,180)-min(220,198)) = max(0, 200-198)=2)
+        # "Close Below": vert_dist = max(0, max(200,222)-min(220,240)) = max(0, 222-220)=2
+        # Tie — result is one of them, not "Far Above"
+        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        assert result in ("Close Above", "Close Below")
+        assert result != "Far Above"
+
+    def test_anchor_returns_empty_when_no_left_column_blocks(self):
+        """Returns empty string when all blocks are right of left_column_tolerance_px.
+
+        To establish a meaningful left-column boundary, the page contains a reference
+        left-column block at x0=50 (excluded by pattern), so min_x0=50 and
+        left_threshold=100. The two candidate blocks at x0=200 and x0=500 are
+        both beyond the threshold and are excluded from consideration.
+        """
+        import fitz
+        from src.extractor import _extract_anchor_text
+
+        profile = self._make_profile_with_anchor_config(
+            left_column_tolerance_px=50.0,
+            exclude_patterns=["^EXCLUDE_ME$"],
+        )
+        annot_rect = fitz.Rect(50, 100, 250, 120)
+        text_blocks = [
+            # Anchor block at x0=50 establishes min_x0=50 → threshold=100
+            # but is excluded by pattern
+            TextBlock(text="EXCLUDE_ME", font_size=10.0, bold=False,
+                      rect=[50, 95, 200, 115]),    # x0=50, excluded by pattern
+            # Both candidates are x0 > 100 — outside left column
+            TextBlock(text="Right Column", font_size=10.0, bold=False,
+                      rect=[200, 95, 400, 115]),   # x0=200 > threshold
+            TextBlock(text="Far Right", font_size=10.0, bold=False,
+                      rect=[500, 98, 700, 118]),   # x0=500 > threshold
+        ]
+        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        assert result == ""
+
+    def test_anchor_excludes_patterns(self):
+        """Excluded patterns are skipped even if in the left column."""
+        import fitz
+        from src.extractor import _extract_anchor_text
+
+        profile = self._make_profile_with_anchor_config(
+            left_column_tolerance_px=50.0,
+            exclude_patterns=["^CDISC$", r"^\s*$"],
+        )
+        annot_rect = fitz.Rect(50, 100, 250, 120)
+        text_blocks = [
+            TextBlock(text="CDISC", font_size=10.0, bold=False,
+                      rect=[50, 95, 200, 115]),    # x0=50, excluded by pattern
+            TextBlock(text="Field Label", font_size=10.0, bold=False,
+                      rect=[50, 125, 200, 140]),   # x0=50, passes
+        ]
+        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        assert result == "Field Label"
+
+    def test_anchor_empty_blocks_returns_empty(self):
+        """Returns empty string when text_blocks is empty."""
+        import fitz
+        from src.extractor import _extract_anchor_text
+
+        profile = self._make_profile_with_anchor_config(
+            left_column_tolerance_px=50.0,
+            exclude_patterns=[],
+        )
+        annot_rect = fitz.Rect(50, 100, 250, 120)
+        result = _extract_anchor_text(annot_rect, profile, [])
+        assert result == ""
+
+    def test_anchor_vertical_overlap_is_zero_distance(self):
+        """A block vertically overlapping the annotation has vert_dist=0 (lowest possible)."""
+        import fitz
+        from src.extractor import _extract_anchor_text
+
+        profile = self._make_profile_with_anchor_config(
+            left_column_tolerance_px=50.0,
+            exclude_patterns=[],
+        )
+        annot_rect = fitz.Rect(50, 100, 250, 130)
+        text_blocks = [
+            TextBlock(text="Overlapping Label", font_size=10.0, bold=False,
+                      rect=[50, 95, 200, 135]),    # overlaps annotation vertically → vert_dist=0
+            TextBlock(text="Non-overlapping", font_size=10.0, bold=False,
+                      rect=[50, 140, 200, 160]),   # below annotation — small gap
+        ]
+        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        assert result == "Overlapping Label"
 
 
 class TestEdgeCases:

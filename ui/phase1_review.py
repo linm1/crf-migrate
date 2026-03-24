@@ -5,7 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.csv_handler import export_annotations_csv, import_annotations_csv
-from src.extractor import extract_annotations
+from src.extractor import extract_annotations, get_page_text_blocks
 from src.models import AnnotationRecord
 from ui.components import (
     get_pdf_page_count,
@@ -34,6 +34,7 @@ def render_phase1(profiles_dir: Path) -> None:
         return
 
     _render_summary(annotations)
+    _render_parsed_crf_text()
     _render_page_view(annotations, session)
     _render_add_annotation(annotations, session)
     _render_reclassify(annotations, session, rule_engine)
@@ -95,7 +96,45 @@ def _render_summary(annotations: list[AnnotationRecord]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# C. Page navigator + cards
+# C. Parsed CRF Text (annotation-free)
+# ---------------------------------------------------------------------------
+
+def _render_parsed_crf_text() -> None:
+    """Render a collapsible expander per page showing clean CRF text blocks.
+
+    Opens the source PDF, strips all annotations from a temporary copy of each
+    page via _make_clean_page, then extracts text via _get_text_blocks.  This
+    confirms to the user that SDTM annotation content is excluded from the text
+    used for form-name, visit, and anchor-text extraction.
+    """
+    source_pdf_path = st.session_state.get("source_pdf_path")
+    if not source_pdf_path or not source_pdf_path.exists():
+        return
+
+    with st.expander("Parsed CRF Text (annotation-free)", expanded=False):
+        st.caption(
+            "Text blocks extracted from each page after removing all SDTM annotations. "
+            "These are the blocks used for form name, visit, and anchor text extraction."
+        )
+        try:
+            page_count = get_pdf_page_count(source_pdf_path)
+            for page_num in range(1, page_count + 1):
+                blocks = get_page_text_blocks(source_pdf_path, page_num)
+                with st.expander(f"Page {page_num}", expanded=False):
+                    if blocks:
+                        for block in blocks:
+                            st.text(
+                                f"[y={block['rect'][1]:.0f} size={block['font_size']:.1f}] "
+                                f"{block['text']}"
+                            )
+                    else:
+                        st.info("No text blocks found on this page.")
+        except Exception as e:
+            st.error(f"Could not extract CRF text: {e}")
+
+
+# ---------------------------------------------------------------------------
+# D. Page navigator + cards
 # ---------------------------------------------------------------------------
 
 def _render_page_view(annotations: list[AnnotationRecord], session) -> None:

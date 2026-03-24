@@ -150,10 +150,10 @@ def _render_domain_codes_tab(draft: dict) -> None:
     cols_per_row = 6
     rows = [codes[i:i + cols_per_row] for i in range(0, len(codes), cols_per_row)]
     to_delete = None
-    for row in rows:
+    for row_index, row in enumerate(rows):
         row_cols = st.columns(cols_per_row)
         for j, code in enumerate(row):
-            global_idx = codes.index(code)
+            global_idx = row_index * cols_per_row + j
             with row_cols[j]:
                 color = "#cce5ff"
                 st.markdown(
@@ -284,6 +284,30 @@ def _render_form_name_tab(draft: dict) -> None:
         "Min Font Size", value=float(config.get("min_font_size", 12.0)),
         min_value=1.0, step=0.5, key="fnr_min_font"
     )
+
+    # top_region_fraction: optional float, enabled via checkbox
+    trf_enabled = config.get("top_region_fraction") is not None
+    use_trf = st.checkbox(
+        "Restrict to top region of page", value=trf_enabled, key="fnr_trf_enabled",
+        help="Only consider text blocks in the top N% of page height when selecting the form name."
+    )
+    if use_trf:
+        config["top_region_fraction"] = st.number_input(
+            "Top Region Fraction", value=float(config.get("top_region_fraction") or 0.25),
+            min_value=0.05, max_value=1.0, step=0.05, key="fnr_trf_value",
+            help="Fraction of page height (0.05–1.0). E.g. 0.25 = top quarter of page."
+        )
+    else:
+        config["top_region_fraction"] = None
+
+    # label_prefix: optional string
+    raw_prefix = config.get("label_prefix") or ""
+    entered = st.text_input(
+        "Label Prefix", value=raw_prefix, key="fnr_label_prefix",
+        help='If set, scans blocks for "<prefix>: <value>" and returns the value. E.g. "Form:" for Medidata Rave.'
+    )
+    config["label_prefix"] = entered if entered.strip() else None
+
     patterns = config.get("exclude_patterns", [])
     st.write("Exclude Patterns:")
     to_delete = None

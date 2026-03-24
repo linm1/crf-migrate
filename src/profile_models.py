@@ -36,6 +36,8 @@ class FormNameConfig(BaseModel):
     strategy: str = "largest_bold_text"
     min_font_size: float = 12.0
     exclude_patterns: list[str] = []
+    top_region_fraction: float | None = None
+    label_prefix: str | None = None
 
 
 class VisitRule(BaseModel):
@@ -56,6 +58,7 @@ class AnchorTextConfig(BaseModel):
     radius_px: float = 100.0
     prefer_direction: list[str] = ["left", "above"]
     exclude_patterns: list[str] = []
+    left_column_tolerance_px: float = 50.0
 
 
 class AnnotationFilter(BaseModel):
