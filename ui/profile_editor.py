@@ -230,11 +230,28 @@ def _render_domain_codes_tab(draft: dict) -> None:
 
 def _render_classification_rules_tab(draft: dict) -> None:
     rules = draft.get("classification_rules", [])
-    st.subheader("Classification Rules")
+    st.markdown('<p class="pe-section-title">Classification Rules</p>', unsafe_allow_html=True)
     to_delete = None
     to_move_up = None
     for i, rule in enumerate(rules):
         cond = rule.get("conditions", {})
+        cat = rule.get("category", "sdtm_mapping")
+        _BADGE_COLORS = {
+            "sdtm_mapping": "#cce5ff",
+            "domain_label": "#d4edda",
+            "not_submitted": "#fff3cd",
+            "note": "#d1ecf1",
+            "_exclude": "#f8d7da",
+        }
+        bg = _BADGE_COLORS.get(cat, "#e2e3e5")
+        st.markdown(
+            f'<div style="background:{bg};padding:6px 12px;display:flex;gap:8px;'
+            f'align-items:center;border-left:3px solid #383838;margin-bottom:2px">'
+            f'<span class="pe-cat-badge">{cat}</span>'
+            f'<span style="font-size:12px;color:#6c757d">{_cond_summary(cond)}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         with st.expander(f"Rule {i + 1}: {rule.get('category', '')} — {_cond_summary(cond)}"):
             col1, col2 = st.columns(2)
             with col1:
@@ -270,7 +287,6 @@ def _render_classification_rules_tab(draft: dict) -> None:
                 cond["fallback"] = fallback or None
 
             categories = ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]
-            cat = rule.get("category", "sdtm_mapping")
             cat_idx = categories.index(cat) if cat in categories else 0
             new_cat = st.selectbox("Category", categories, index=cat_idx, key=f"rule_{i}_cat")
             rule["category"] = new_cat
@@ -290,10 +306,12 @@ def _render_classification_rules_tab(draft: dict) -> None:
         rules[to_move_up - 1], rules[to_move_up] = rules[to_move_up], rules[to_move_up - 1]
         draft["classification_rules"] = rules
 
-    if st.button("Add Rule"):
+    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
+    if st.button("Add Rule", key="add_rule_btn", use_container_width=True):
         draft["classification_rules"] = rules + [
             {"conditions": {"fallback": True}, "category": "sdtm_mapping"}
         ]
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _cond_summary(cond: dict) -> str:
@@ -352,7 +370,7 @@ def _render_visit_rules_tab(draft: dict) -> None:
 
 def _render_form_name_tab(draft: dict) -> None:
     config = draft.get("form_name_rules", {})
-    st.subheader("Form Name Rules")
+    st.markdown('<p class="pe-section-title">Form Name Rules</p>', unsafe_allow_html=True)
     strategies = ["largest_bold_text"]
     strat = config.get("strategy", "largest_bold_text")
     strat_idx = strategies.index(strat) if strat in strategies else 0
@@ -361,6 +379,8 @@ def _render_form_name_tab(draft: dict) -> None:
         "Min Font Size", value=float(config.get("min_font_size", 12.0)),
         min_value=1.0, step=0.5, key="fnr_min_font"
     )
+
+    st.divider()
 
     # top_region_fraction: optional float, enabled via checkbox
     trf_enabled = config.get("top_region_fraction") is not None
@@ -377,6 +397,8 @@ def _render_form_name_tab(draft: dict) -> None:
     else:
         config["top_region_fraction"] = None
 
+    st.divider()
+
     # label_prefix: optional string
     raw_prefix = config.get("label_prefix") or ""
     entered = st.text_input(
@@ -385,8 +407,10 @@ def _render_form_name_tab(draft: dict) -> None:
     )
     config["label_prefix"] = entered if entered.strip() else None
 
+    st.divider()
+
     patterns = config.get("exclude_patterns", [])
-    st.write("Exclude Patterns:")
+    st.markdown('<p style="font-size:13px;font-weight:600;color:#383838;margin:0 0 4px 0">Exclude Patterns</p>', unsafe_allow_html=True)
     to_delete = None
     for i, pat in enumerate(patterns):
         col1, col2 = st.columns([5, 1])
@@ -400,8 +424,10 @@ def _render_form_name_tab(draft: dict) -> None:
         config["exclude_patterns"] = [p for j, p in enumerate(patterns) if j != to_delete]
     else:
         config["exclude_patterns"] = patterns
-    if st.button("Add Exclude Pattern"):
+    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
+    if st.button("Add Exclude Pattern", key="add_exclude_pat", use_container_width=True):
         config["exclude_patterns"] = patterns + [""]
+    st.markdown('</div>', unsafe_allow_html=True)
     draft["form_name_rules"] = config
 
 
