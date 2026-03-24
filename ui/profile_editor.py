@@ -190,34 +190,42 @@ def _import_yaml(profiles_dir: Path, uploaded) -> None:
 # ---------------------------------------------------------------------------
 
 def _render_domain_codes_tab(draft: dict) -> None:
-    codes = draft.get("domain_codes", [])
-    st.subheader("Domain Codes")
-    cols_per_row = 6
-    rows = [codes[i:i + cols_per_row] for i in range(0, len(codes), cols_per_row)]
-    to_delete = None
-    for row_index, row in enumerate(rows):
-        row_cols = st.columns(cols_per_row)
-        for j, code in enumerate(row):
-            global_idx = row_index * cols_per_row + j
-            with row_cols[j]:
-                color = "#cce5ff"
-                st.markdown(
-                    f'<span style="background:{color};padding:2px 6px;border-radius:4px">{code}</span>',
-                    unsafe_allow_html=True,
-                )
-                if st.button("✕", key=f"del_code_{global_idx}"):
-                    to_delete = global_idx
-    if to_delete is not None:
-        draft["domain_codes"] = [c for i, c in enumerate(codes) if i != to_delete]
-    col_input, col_add = st.columns([3, 1])
-    with col_input:
-        new_code = st.text_input("New domain code", key="new_domain_code")
-    with col_add:
-        st.write("")
-        st.write("")
-        if st.button("Add Code") and new_code.strip():
-            if new_code.strip().upper() not in draft["domain_codes"]:
-                draft["domain_codes"] = draft["domain_codes"] + [new_code.strip().upper()]
+    codes: list[str] = draft.get("domain_codes", [])
+
+    # Header row: title | spacer | input | add button
+    h_title, _sp, h_input, h_add = st.columns([3, 2, 2, 1])
+    with h_title:
+        st.markdown('<p class="pe-section-title">Domain Codes</p>', unsafe_allow_html=True)
+    with h_input:
+        new_code = st.text_input(
+            "", placeholder="New domain code...",
+            key="new_domain_code", label_visibility="collapsed",
+        )
+    with h_add:
+        if st.button("+ Add", key="add_domain_code"):
+            val = new_code.strip().upper()
+            if val and val not in codes:
+                draft["domain_codes"] = codes + [val]
+                st.rerun()
+
+    # Chips with inline delete buttons
+    if codes:
+        cols_per_row = 8
+        to_delete = None
+        for row_start in range(0, len(codes), cols_per_row):
+            row_codes = codes[row_start : row_start + cols_per_row]
+            row_cols = st.columns(len(row_codes))
+            for j, code in enumerate(row_codes):
+                g_idx = row_start + j
+                with row_cols[j]:
+                    st.markdown(f'<span class="pe-chip">{code}</span>', unsafe_allow_html=True)
+                    if st.button("✕", key=f"del_code_{g_idx}", help=f"Remove {code}"):
+                        to_delete = g_idx
+        if to_delete is not None:
+            draft["domain_codes"] = [c for i, c in enumerate(codes) if i != to_delete]
+            st.rerun()
+    else:
+        st.markdown('<p class="pe-help-text">No domain codes defined.</p>', unsafe_allow_html=True)
 
 
 def _render_classification_rules_tab(draft: dict) -> None:
@@ -297,25 +305,49 @@ def _cond_summary(cond: dict) -> str:
 
 
 def _render_visit_rules_tab(draft: dict) -> None:
-    rules = draft.get("visit_rules", [])
-    st.subheader("Visit Rules")
+    rules: list[dict] = draft.get("visit_rules", [])
+
+    st.markdown('<p class="pe-section-title">Visit Rules</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="pe-help-text">Map regex patterns to visit names</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Column headers
+    hc1, hc2, _hc3 = st.columns([3, 3, 1])
+    hc1.markdown('<div class="pe-table-header">Regex Pattern</div>', unsafe_allow_html=True)
+    hc2.markdown('<div class="pe-table-header">Visit Value</div>', unsafe_allow_html=True)
+
     to_delete = None
     for i, rule in enumerate(rules):
-        col1, col2, col3 = st.columns([3, 3, 1])
-        with col1:
-            new_regex = st.text_input("Regex", value=rule.get("regex", ""), key=f"visit_regex_{i}")
-            rule["regex"] = new_regex
-        with col2:
-            new_val = st.text_input("Value", value=rule.get("value", ""), key=f"visit_val_{i}")
-            rule["value"] = new_val
-        with col3:
-            st.write("")
-            if st.button("✕", key=f"visit_del_{i}"):
+        c1, c2, c3 = st.columns([3, 3, 1])
+        with c1:
+            rules[i]["regex"] = st.text_input(
+                "", value=rule.get("regex", ""),
+                key=f"vr_regex_{i}", label_visibility="collapsed",
+            )
+        with c2:
+            rules[i]["value"] = st.text_input(
+                "", value=rule.get("value", ""),
+                key=f"vr_value_{i}", label_visibility="collapsed",
+            )
+        with c3:
+            st.markdown('<div class="pe-btn-danger">', unsafe_allow_html=True)
+            if st.button("🗑", key=f"del_vr_{i}"):
                 to_delete = i
+            st.markdown('</div>', unsafe_allow_html=True)
+
     if to_delete is not None:
-        draft["visit_rules"] = [r for j, r in enumerate(rules) if j != to_delete]
-    if st.button("Add Visit Rule"):
+        draft["visit_rules"] = [r for i, r in enumerate(rules) if i != to_delete]
+        st.rerun()
+    else:
+        draft["visit_rules"] = rules
+
+    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
+    if st.button("+ Add Visit Rule", key="add_visit_rule", use_container_width=True):
         draft["visit_rules"] = rules + [{"regex": "", "value": ""}]
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _render_form_name_tab(draft: dict) -> None:
