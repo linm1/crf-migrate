@@ -9,8 +9,55 @@ from src.profile_models import Profile
 from src.rule_engine import RuleEngine
 
 
+def _inject_page_css() -> None:
+    """Inject Profile Editor page-scoped CSS classes."""
+    st.markdown(
+        """
+        <style>
+        .pe-section-title { font-family: Inter, sans-serif; font-size: 15px;
+            font-weight: 700; color: #1E293B; margin: 0 0 4px 0; }
+        .pe-help-text { font-size: 12px; color: #8A847F;
+            font-family: Inter, sans-serif; margin: -4px 0 8px 0; }
+        .pe-chip { display: inline-flex; align-items: center;
+            background: rgba(0,122,255,0.2); height: 28px; padding: 0 12px;
+            font-size: 13px; color: #004085; font-family: Inter, sans-serif; margin: 2px; }
+        .pe-cat-badge { display: inline-block; background: rgba(255,215,0,0.2);
+            padding: 2px 8px; font-size: 11px; font-weight: 600;
+            color: #383838; font-family: Inter, monospace; }
+        .pe-table-header { font-family: Inter, sans-serif; font-size: 11px;
+            font-weight: 700; color: #8A847F; text-transform: uppercase;
+            letter-spacing: 0.5px; padding: 4px 0 8px 0; }
+        .pe-btn-dark > div[data-testid="stButton"] > button {
+            background: #383838 !important; color: #FFFFFF !important;
+            border: 1px solid #383838 !important;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.13) !important;
+            font-weight: 600 !important; }
+        .pe-btn-dark > div[data-testid="stButton"] > button:hover {
+            box-shadow: 6px 6px 0 rgba(0,0,0,0.18) !important; }
+        .pe-btn-danger > div[data-testid="stButton"] > button {
+            background: #dc3545 !important; color: #FFFFFF !important;
+            border: 1px solid #dc3545 !important; }
+        .pe-slider-badge { display: inline-block; background: #383838;
+            color: #FFFFFF; font-size: 11px;
+            font-family: ui-monospace, Consolas, monospace;
+            padding: 2px 8px; min-width: 40px; text-align: center; }
+        .pe-swatch { display: inline-block; width: 20px; height: 20px;
+            border: 1px solid #383838; vertical-align: middle; margin-left: 8px; }
+        .pe-yaml-terminal { background: #1E293B; color: #94A3B8;
+            font-family: ui-monospace, Consolas, 'Courier New', monospace;
+            font-size: 12px; padding: 16px; min-height: 300px;
+            overflow-x: auto; white-space: pre-wrap; }
+        .pe-yaml-filename { font-size: 10px; color: #64748B;
+            font-family: ui-monospace, monospace; text-align: right; padding: 4px 0; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_profile_editor(profiles_dir: Path) -> None:
     """Render the full profile editor page."""
+    _inject_page_css()
     st.header("Profile Editor")
 
     profile_names = list_profiles(profiles_dir)
