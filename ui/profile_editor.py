@@ -61,40 +61,40 @@ _inject_page_css()
 
 def render_profile_editor(profiles_dir: Path) -> None:
     """Render the full profile editor page."""
-    st.header("Profile Editor")
-
     profile_names = list_profiles(profiles_dir)
     if not profile_names:
         st.warning("No profiles found in profiles/ directory.")
         return
 
-    # Profile selector + actions
-    col1, col2, col3 = st.columns([3, 1, 2])
-    with col1:
-        current_name = st.session_state.get("profile_name", profile_names[0])
-        if current_name not in profile_names:
-            current_name = profile_names[0]
-        selected = st.selectbox(
-            "Active Profile", profile_names,
-            index=profile_names.index(current_name),
-            key="profile_selector",
-        )
-        if selected != st.session_state.get("profile_name"):
-            _load_profile_into_state(profiles_dir, selected)
-            st.rerun()
+    # Derive selected profile
+    selected = st.session_state.get("profile_name", profile_names[0])
+    if selected not in profile_names:
+        selected = profile_names[0]
 
-    with col2:
-        if st.button("Duplicate"):
+    # Toolbar: title left, action buttons right
+    tb_left, _tb_spacer, tb_dup, tb_imp, tb_save = st.columns([4, 2, 1, 1, 1])
+    with tb_left:
+        st.markdown(
+            '<p class="pe-section-title" style="font-size:18px;margin-top:6px">Profile Editor</p>',
+            unsafe_allow_html=True,
+        )
+    with tb_dup:
+        if st.button("Duplicate", key="pe_dup"):
             _duplicate_profile(profiles_dir, selected)
             st.rerun()
-
-    with col3:
+    with tb_imp:
         uploaded_yaml = st.file_uploader(
-            "Import YAML", type=["yaml", "yml"], key="profile_import"
+            "", type=["yaml", "yml"], key="profile_import", label_visibility="collapsed"
         )
         if uploaded_yaml is not None:
             _import_yaml(profiles_dir, uploaded_yaml)
             st.rerun()
+    with tb_save:
+        st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
+        if st.button("Save Profile", key="pe_save_top"):
+            if "draft_profile_data" in st.session_state:
+                _save_profile(profiles_dir, selected, st.session_state["draft_profile_data"])
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Ensure draft data is initialized
     if "draft_profile_data" not in st.session_state:
@@ -131,10 +131,6 @@ def render_profile_editor(profiles_dir: Path) -> None:
 
     st.divider()
     _render_rule_tester()
-
-    st.divider()
-    if st.button("Save Profile", type="primary"):
-        _save_profile(profiles_dir, selected, draft)
 
 
 # ---------------------------------------------------------------------------
