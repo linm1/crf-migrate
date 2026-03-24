@@ -10,6 +10,7 @@ from pathlib import Path
 import fitz  # PyMuPDF
 
 from src.models import AnnotationRecord, StyleInfo
+from src.pdf_utils import get_text_blocks, make_clean_page
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
 
@@ -42,24 +43,32 @@ def extract_annotations(
     return records
 
 
-def _make_clean_page(page: fitz.Page) -> tuple[fitz.Document, fitz.Page]:
-    """Create an in-memory single-page copy with all annotations removed.
+def get_page_text_blocks(pdf_path: Path, page_num: int) -> list[TextBlock]:
+    """Return annotation-free text blocks for one page of a PDF.
 
-    PyMuPDF includes FreeText annotation content in the page text stream.
-    Deleting annotations from a temporary copy is the only reliable way to
-    obtain pure CRF text (form names, field labels) without annotation
-    contamination — geometric bbox heuristics are fragile because rendered
-    span boundaries do not reliably align with annotation rect boundaries.
+    Opens pdf_path, creates a temporary annotation-free copy of the requested
+    page, and returns the extracted text blocks. Intended for the UI to preview
+    the clean CRF text used for form-name and anchor-text extraction.
 
-    Returns (temp_doc, clean_page). Caller MUST close temp_doc when done.
-    The original page and its parent document are never mutated.
+    Args:
+        pdf_path: Path to the source PDF.
+        page_num: 1-based page number.
     """
-    temp_doc = fitz.open()
-    temp_doc.insert_pdf(page.parent, from_page=page.number, to_page=page.number)
-    clean_page = temp_doc[0]
-    for annot in list(clean_page.annots()):
-        clean_page.delete_annot(annot)
-    return temp_doc, clean_page
+    doc = fitz.open(str(pdf_path))
+    try:
+        page = doc[page_num - 1]
+        temp_doc, clean_page = make_clean_page(page)
+        try:
+            return get_text_blocks(clean_page)
+        finally:
+            temp_doc.close()
+    finally:
+        doc.close()
+
+
+def _make_clean_page(page: fitz.Page) -> tuple[fitz.Document, fitz.Page]:
+    """Delegate to pdf_utils.make_clean_page (kept for backwards compatibility)."""
+    return make_clean_page(page)
 
 
 def _process_page(
@@ -133,7 +142,10 @@ def _process_annotation(
     if category == "_exclude":
         return None
 
-    anchor_text = _extract_anchor_text(annot.rect, profile, text_blocks)
+    anchor_text = _extract_anchor_text(
+        annot.rect, profile, text_blocks,
+        exclude_patterns=rule_engine.anchor_exclude_patterns,
+    )
 
     return AnnotationRecord(
         id=str(uuid.uuid4()),
@@ -206,44 +218,19 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
 
 
 def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
-    """Extract all non-empty text spans from a page as TextBlock dicts.
+    """Delegate to pdf_utils.get_text_blocks (kept for backwards compatibility).
 
-    Uses PyMuPDF's 'dict' text extraction mode to capture per-span font
-    metadata.  Call this on a clean page produced by _make_clean_page() so
-    that annotation-rendered text has already been removed at the PDF level.
-    Silently returns an empty list on extraction failure.
+    Call on a clean page produced by _make_clean_page() so that
+    annotation-rendered text has already been removed at the PDF level.
     """
-    blocks: list[TextBlock] = []
-    try:
-        raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-        for block in raw.get("blocks", []):
-            if block.get("type") != 0:  # 0 = text block; 1 = image block
-                continue
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    text = span.get("text", "").strip()
-                    if not text:
-                        continue
-                    bbox = span.get("bbox", [0.0, 0.0, 0.0, 0.0])
-                    flags = span.get("flags", 0)
-                    bold = bool(flags & 16)  # bit 4 is the bold flag in PDF spec
-                    blocks.append(
-                        TextBlock(
-                            text=text,
-                            font_size=span.get("size", 10.0),
-                            bold=bold,
-                            rect=list(bbox),
-                        )
-                    )
-    except Exception:
-        pass
-    return blocks
+    return get_text_blocks(page)
 
 
 def _extract_anchor_text(
     annot_rect: fitz.Rect,
     profile: Profile,
     text_blocks: list[TextBlock],
+    exclude_patterns: list[re.Pattern[str]] | None = None,
 ) -> str:
     """Find the anchor text for an annotation using the left-column + vertical-distance algorithm.
 
@@ -261,11 +248,16 @@ def _extract_anchor_text(
     This approach is robust to multi-column CRF layouts where annotations sit
     to the right of field labels: only the leftmost column (where labels live)
     is considered, and vertical proximity determines the best match.
+
+    Args:
+        exclude_patterns: Pre-compiled patterns from RuleEngine.anchor_exclude_patterns.
+            When None, patterns are compiled from profile on each call (legacy path).
     """
     config = profile.anchor_text_config
-    exclude_patterns = [
-        re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
-    ]
+    if exclude_patterns is None:
+        exclude_patterns = [
+            re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
+        ]
 
     if not text_blocks:
         return ""

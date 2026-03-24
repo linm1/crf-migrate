@@ -150,10 +150,10 @@ def _render_domain_codes_tab(draft: dict) -> None:
     cols_per_row = 6
     rows = [codes[i:i + cols_per_row] for i in range(0, len(codes), cols_per_row)]
     to_delete = None
-    for row in rows:
+    for row_index, row in enumerate(rows):
         row_cols = st.columns(cols_per_row)
         for j, code in enumerate(row):
-            global_idx = codes.index(code)
+            global_idx = row_index * cols_per_row + j
             with row_cols[j]:
                 color = "#cce5ff"
                 st.markdown(

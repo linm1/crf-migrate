@@ -21,6 +21,14 @@ class RuleEngine:
 
     def __init__(self, profile: Profile) -> None:
         self._profile = profile
+        self._form_name_excludes: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE)
+            for p in profile.form_name_rules.exclude_patterns
+        ]
+        self._anchor_excludes: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE)
+            for p in profile.anchor_text_config.exclude_patterns
+        ]
 
     # ------------------------------------------------------------------
     # Public API
@@ -85,9 +93,6 @@ class RuleEngine:
             eligible = list(text_blocks)
 
         # --- 3. Top-to-bottom scan ---
-        compiled_excludes = [
-            re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
-        ]
         sorted_blocks = sorted(eligible, key=lambda b: b["rect"][1])
         for block in sorted_blocks:
             text = block["text"].strip()
@@ -95,7 +100,7 @@ class RuleEngine:
                 continue
             if block["font_size"] < config.min_font_size:
                 continue
-            if any(pat.search(text) for pat in compiled_excludes):
+            if any(pat.search(text) for pat in self._form_name_excludes):
                 continue
             return text
 
@@ -116,6 +121,11 @@ class RuleEngine:
                 return value
 
         return ""
+
+    @property
+    def anchor_exclude_patterns(self) -> list[re.Pattern[str]]:
+        """Pre-compiled exclude patterns for anchor text extraction."""
+        return self._anchor_excludes
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -171,9 +181,6 @@ class RuleEngine:
             if not groups or groups[0] not in self._profile.domain_codes:
                 return False
 
-        # --- fallback: always True (acts as an unconditional catch-all) ---
-        # Evaluated last so that it cannot short-circuit other conditions when
-        # combined with other fields (though in practice fallback is used alone).
         if cond.fallback:
             return True
 

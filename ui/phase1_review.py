@@ -5,7 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.csv_handler import export_annotations_csv, import_annotations_csv
-from src.extractor import extract_annotations, _make_clean_page, _get_text_blocks
+from src.extractor import extract_annotations, get_page_text_blocks
 from src.models import AnnotationRecord
 from ui.components import (
     get_pdf_page_count,
@@ -117,28 +117,18 @@ def _render_parsed_crf_text() -> None:
             "These are the blocks used for form name, visit, and anchor text extraction."
         )
         try:
-            import fitz
-            doc = fitz.open(str(source_pdf_path))
-            try:
-                for page_index in range(doc.page_count):
-                    page = doc[page_index]
-                    page_num = page_index + 1
-                    temp_doc, clean_page = _make_clean_page(page)
-                    try:
-                        blocks = _get_text_blocks(clean_page)
-                    finally:
-                        temp_doc.close()
-                    with st.expander(f"Page {page_num}", expanded=False):
-                        if blocks:
-                            for block in blocks:
-                                st.text(
-                                    f"[y={block['rect'][1]:.0f} size={block['font_size']:.1f}] "
-                                    f"{block['text']}"
-                                )
-                        else:
-                            st.info("No text blocks found on this page.")
-            finally:
-                doc.close()
+            page_count = get_pdf_page_count(source_pdf_path)
+            for page_num in range(1, page_count + 1):
+                blocks = get_page_text_blocks(source_pdf_path, page_num)
+                with st.expander(f"Page {page_num}", expanded=False):
+                    if blocks:
+                        for block in blocks:
+                            st.text(
+                                f"[y={block['rect'][1]:.0f} size={block['font_size']:.1f}] "
+                                f"{block['text']}"
+                            )
+                    else:
+                        st.info("No text blocks found on this page.")
         except Exception as e:
             st.error(f"Could not extract CRF text: {e}")
 
