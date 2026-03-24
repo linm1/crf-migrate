@@ -14,7 +14,7 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
-        .pe-section-title { font-family: Inter, sans-serif; font-size: 15px;
+        .pe-section-title { font-family: Inter, sans-serif; font-size: 18px;
             font-weight: 700; color: #1E293B; margin: 0 0 4px 0; }
         .pe-help-text { font-size: 12px; color: #8A847F;
             font-family: Inter, sans-serif; margin: -4px 0 8px 0; }
@@ -55,12 +55,9 @@ def _inject_page_css() -> None:
     )
 
 
-# Inject CSS at module level (once when module is first imported)
-_inject_page_css()
-
-
 def render_profile_editor(profiles_dir: Path) -> None:
     """Render the full profile editor page."""
+    _inject_page_css()
     profile_names = list_profiles(profiles_dir)
     if not profile_names:
         st.warning("No profiles found in profiles/ directory.")
@@ -75,7 +72,7 @@ def render_profile_editor(profiles_dir: Path) -> None:
     tb_left, _tb_spacer, tb_dup, tb_imp, tb_save = st.columns([4, 2, 1, 1, 1])
     with tb_left:
         st.markdown(
-            '<p class="pe-section-title" style="font-size:18px;margin-top:6px">Profile Editor</p>',
+            '<p class="pe-section-title" style="margin-top:6px">Profile Editor</p>',
             unsafe_allow_html=True,
         )
     with tb_dup:
@@ -94,6 +91,8 @@ def render_profile_editor(profiles_dir: Path) -> None:
         if st.button("Save Profile", key="pe_save_top"):
             if "draft_profile_data" in st.session_state:
                 _save_profile(profiles_dir, selected, st.session_state["draft_profile_data"])
+            else:
+                st.warning("No draft to save — try reloading the profile.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # Ensure draft data is initialized
@@ -474,3 +473,4 @@ def _save_profile(profiles_dir: Path, name: str, draft: dict) -> None:
     st.session_state["profile"] = profile
     st.session_state["rule_engine"] = RuleEngine(profile)
     st.success(f"Profile '{name}' saved.")
+    st.rerun()
