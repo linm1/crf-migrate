@@ -236,14 +236,7 @@ def _render_classification_rules_tab(draft: dict) -> None:
     for i, rule in enumerate(rules):
         cond = rule.get("conditions", {})
         cat = rule.get("category", "sdtm_mapping")
-        _BADGE_COLORS = {
-            "sdtm_mapping": "#cce5ff",
-            "domain_label": "#d4edda",
-            "not_submitted": "#fff3cd",
-            "note": "#d1ecf1",
-            "_exclude": "#f8d7da",
-        }
-        bg = _BADGE_COLORS.get(cat, "#e2e3e5")
+        bg = _RULE_BADGE_COLORS.get(cat, "#e2e3e5")
         st.markdown(
             f'<div style="background:{bg};padding:6px 12px;display:flex;gap:8px;'
             f'align-items:center;border-left:3px solid #383838;margin-bottom:2px">'
@@ -303,8 +296,9 @@ def _render_classification_rules_tab(draft: dict) -> None:
     if to_delete is not None:
         draft["classification_rules"] = [r for j, r in enumerate(rules) if j != to_delete]
     elif to_move_up is not None:
-        rules[to_move_up - 1], rules[to_move_up] = rules[to_move_up], rules[to_move_up - 1]
-        draft["classification_rules"] = rules
+        new_rules = list(rules)
+        new_rules[to_move_up - 1], new_rules[to_move_up] = new_rules[to_move_up], new_rules[to_move_up - 1]
+        draft["classification_rules"] = new_rules
 
     st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
     if st.button("Add Rule", key="add_rule_btn", use_container_width=True):
@@ -312,6 +306,15 @@ def _render_classification_rules_tab(draft: dict) -> None:
             {"conditions": {"fallback": True}, "category": "sdtm_mapping"}
         ]
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+_RULE_BADGE_COLORS = {
+    "sdtm_mapping": "#cce5ff",
+    "domain_label": "#d4edda",
+    "not_submitted": "#fff3cd",
+    "note": "#d1ecf1",
+    "_exclude": "#f8d7da",
+}
 
 
 def _cond_summary(cond: dict) -> str:

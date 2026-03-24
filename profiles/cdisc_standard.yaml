@@ -77,7 +77,7 @@ classification_rules:
 - conditions:
     contains: null
     starts_with: null
-    regex: ^([A-Z]{2,4})=(.+)$
+    regex: ^([A-Z]{2,4}) (.+)$
     domain_in: domain_codes
     multi_line: null
     max_length: null
