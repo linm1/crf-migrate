@@ -63,7 +63,7 @@ def _process_page(
     """
     text_blocks = _get_text_blocks(page)
     page_text = " ".join(b["text"] for b in text_blocks)
-    form_name = rule_engine.extract_form_name(text_blocks)
+    form_name = rule_engine.extract_form_name(text_blocks, page_height=page.rect.height)
     visit = rule_engine.extract_visit(page_text) or ""
 
     records: list[FieldRecord] = []

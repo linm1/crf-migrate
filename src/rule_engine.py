@@ -40,17 +40,28 @@ class RuleEngine:
 
         return "sdtm_mapping", "Rule N: ultimate fallback (no rule matched)"
 
-    def extract_form_name(self, text_blocks: list[TextBlock]) -> str:
+    def extract_form_name(
+        self,
+        text_blocks: list[TextBlock],
+        page_height: float | None = None,
+    ) -> str:
         """Apply form_name_rules to identify the CRF form title.
 
         Evaluation order:
           1. label_prefix: scan blocks for '<prefix>: <value>', return value.
-             Falls through to strategy if no block matches.
-          2. top_region_fraction: restrict candidates to top N% of page height
-             (estimated from max y1 across all blocks).
-          3. Strategy 'largest_bold_text': select block with largest font_size
-             (bold as tiebreaker) from candidates passing min_font_size and
-             exclude_patterns filters.
+             Falls through to top-to-bottom scan if no block matches.
+          2. top_region_fraction pre-filter: when page_height is provided and
+             top_region_fraction is set, restrict candidates to blocks whose y0
+             is within the top N% of the true page height.  This prevents footer
+             text (stored at low y in some PDFs) from being picked up.
+          3. Top-to-bottom scan: sort remaining blocks by y0 (ascending) and
+             return the first block that passes min_font_size and exclude_patterns.
+
+        Args:
+            text_blocks: Text blocks extracted from a clean (annotation-free) page.
+            page_height: True page height in PDF points from page.rect.height.
+                         Used to anchor top_region_fraction against a reliable
+                         denominator rather than the max y of text blocks.
         """
         config = self._profile.form_name_rules
 
@@ -64,32 +75,31 @@ class RuleEngine:
                 m = prefix_pat.match(block["text"].strip())
                 if m:
                     return m.group(1).strip()
-            # No block matched — fall through to strategy
+            # No block matched — fall through to top-to-bottom scan
 
-        # --- 2. top_region_fraction pre-filter ---
-        if config.top_region_fraction is not None and text_blocks:
-            max_y = max(b["rect"][3] for b in text_blocks)
-            cutoff = config.top_region_fraction * max_y
+        # --- 2. top_region_fraction pre-filter (uses true page height) ---
+        if config.top_region_fraction is not None and page_height and page_height > 0:
+            cutoff = config.top_region_fraction * page_height
             eligible = [b for b in text_blocks if b["rect"][1] <= cutoff]
         else:
             eligible = list(text_blocks)
 
-        # --- 3. largest_bold_text strategy ---
+        # --- 3. Top-to-bottom scan ---
         compiled_excludes = [
             re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
         ]
-        candidates = [
-            block for block in eligible
-            if block["text"].strip()
-            and block["font_size"] >= config.min_font_size
-            and not any(pat.search(block["text"]) for pat in compiled_excludes)
-        ]
+        sorted_blocks = sorted(eligible, key=lambda b: b["rect"][1])
+        for block in sorted_blocks:
+            text = block["text"].strip()
+            if not text:
+                continue
+            if block["font_size"] < config.min_font_size:
+                continue
+            if any(pat.search(text) for pat in compiled_excludes):
+                continue
+            return text
 
-        if not candidates:
-            return ""
-
-        best = max(candidates, key=lambda b: (b["font_size"], b["bold"]))
-        return best["text"].strip()
+        return ""
 
     def extract_visit(self, page_text: str) -> str:
         """Apply visit_rules to detect the visit label from page text.
