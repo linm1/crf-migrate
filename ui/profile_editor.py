@@ -246,6 +246,7 @@ def _render_classification_rules_tab(draft: dict) -> None:
             unsafe_allow_html=True,
         )
         with st.expander(f"Rule {i + 1}: {rule.get('category', '')} — {_cond_summary(cond)}"):
+            new_cond: dict = {}
             col1, col2 = st.columns(2)
             with col1:
                 for field in ["contains", "starts_with", "regex", "subject_is", "domain_in"]:
@@ -253,7 +254,7 @@ def _render_classification_rules_tab(draft: dict) -> None:
                         field, value=cond.get(field) or "",
                         key=f"rule_{i}_{field}"
                     )
-                    cond[field] = val if val.strip() else None
+                    new_cond[field] = val if val.strip() else None
             with col2:
                 for field in ["max_length", "min_length"]:
                     raw_val = cond.get(field)
@@ -263,27 +264,26 @@ def _render_classification_rules_tab(draft: dict) -> None:
                     )
                     if entered.strip():
                         try:
-                            cond[field] = int(entered)
+                            new_cond[field] = int(entered)
                         except ValueError:
-                            cond[field] = None
+                            new_cond[field] = None
                     else:
-                        cond[field] = None
+                        new_cond[field] = None
                 multi_line = st.checkbox(
                     "multi_line", value=bool(cond.get("multi_line")),
                     key=f"rule_{i}_multi_line"
                 )
-                cond["multi_line"] = multi_line or None
+                new_cond["multi_line"] = multi_line or None
                 fallback = st.checkbox(
                     "fallback", value=bool(cond.get("fallback")),
                     key=f"rule_{i}_fallback"
                 )
-                cond["fallback"] = fallback or None
+                new_cond["fallback"] = fallback or None
 
             categories = ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]
             cat_idx = categories.index(cat) if cat in categories else 0
             new_cat = st.selectbox("Category", categories, index=cat_idx, key=f"rule_{i}_cat")
-            rule["category"] = new_cat
-            rule["conditions"] = cond
+            rules[i] = {**rule, "category": new_cat, "conditions": new_cond}
 
             btn_col1, btn_col2, _ = st.columns([1, 1, 4])
             with btn_col1:
@@ -444,13 +444,13 @@ def _render_matching_tab(draft: dict) -> None:
         ("fuzzy_cross_form_threshold",   "Fuzzy Cross-Form Threshold",   0.90),
         ("position_fallback_confidence", "Position Fallback Confidence", 0.50),
     ]
-    new_config: dict = {}
+    new_config: dict = dict(config)
     for key, label, default in _SLIDERS:
         current_val = float(config.get(key, default))
         lbl_col, badge_col = st.columns([8, 1])
         with lbl_col:
             st.markdown(
-                f'<p style="font-size:13px;margin:0;color:#383838">{label}</p>',
+                f'<p class="pe-section-title">{label}</p>',
                 unsafe_allow_html=True,
             )
         with badge_col:
@@ -469,9 +469,9 @@ def _render_matching_tab(draft: dict) -> None:
 def _rgb_to_hex(r: float, g: float, b: float) -> str:
     """Convert 0.0–1.0 RGB floats to #RRGGBB hex string."""
     return "#{:02x}{:02x}{:02x}".format(
-        max(0, min(255, int(r * 255))),
-        max(0, min(255, int(g * 255))),
-        max(0, min(255, int(b * 255))),
+        max(0, min(255, round(r * 255))),
+        max(0, min(255, round(g * 255))),
+        max(0, min(255, round(b * 255))),
     )
 
 
@@ -479,7 +479,7 @@ def _render_style_tab(draft: dict) -> None:
     config: dict = draft.get("style_defaults", {})
     st.markdown('<p class="pe-section-title">Style Defaults</p>', unsafe_allow_html=True)
 
-    new_config: dict = {}
+    new_config: dict = dict(config)
     new_config["font"] = st.text_input(
         "Font", value=config.get("font", "Arial,BoldItalic"), key="style_font",
     )
@@ -489,6 +489,8 @@ def _render_style_tab(draft: dict) -> None:
     )
 
     tc = list(config.get("text_color", [0.0, 0.0, 0.0]))
+    if len(tc) < 3:
+        tc = list(tc) + [0.0] * (3 - len(tc))
     tc_hex = _rgb_to_hex(float(tc[0]), float(tc[1]), float(tc[2]))
     st.markdown(
         f'Text Color (R, G, B): <span class="pe-swatch" style="background:{tc_hex}"></span>',
@@ -503,6 +505,8 @@ def _render_style_tab(draft: dict) -> None:
     new_config["text_color"] = new_tc
 
     bc = list(config.get("border_color", [0.75, 1.0, 1.0]))
+    if len(bc) < 3:
+        bc = list(bc) + [0.0] * (3 - len(bc))
     bc_hex = _rgb_to_hex(float(bc[0]), float(bc[1]), float(bc[2]))
     st.markdown(
         f'Border Color (R, G, B): <span class="pe-swatch" style="background:{bc_hex}"></span>',
