@@ -54,12 +54,16 @@ st.markdown(
         transition: transform 0.15s ease, box-shadow 0.15s ease;
         font-family: ui-monospace, Consolas, monospace !important;
         text-transform: uppercase;
-        font-size: 0.72rem;
         letter-spacing: 0.5px;
     }
+
     .stButton > button:hover {
-        transform: translate(-2px, -2px);
-        box-shadow: 6px 6px 0 rgba(0,0,0,0.15);
+        background: #383838 !important;
+        color: #FFFFFF !important;
+        transform: translate(-1px, -1px);
+        font-family: ui-monospace, Consolas, monospace !important;
+        text-transform: uppercase;
+        box-shadow: 3px 3px 0 rgba(0,0,0,0.12);
     }
 
     /* Hard shadow on bordered containers */
@@ -92,6 +96,36 @@ st.markdown(
     details[data-testid="stExpander"] {
         border: 1px solid #383838 !important;
         box-shadow: 4px 4px 0 rgba(0,0,0,0.08);
+    }
+
+    /* Full-width canvas: remove Streamlit max-width constraint */
+    .main .block-container {
+        max-width: 100% !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
+    }
+
+    /* Sidebar nav: bold text */
+    section[data-testid="stSidebar"] .stButton > button p {
+        font-weight: 700 !important;
+    }
+    /* Sidebar nav: active button = yellow fill */
+    section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+    section[data-testid="stSidebar"] .stButton > button[kind="primary"]:focus,
+    section[data-testid="stSidebar"] .stButton > button[kind="primary"]:active {
+        background-color: #FFD700 !important;
+        border-color: #FFD700 !important;
+        color: #383838 !important;
+        box-shadow: 2px 2px 0 #383838 !important;
+    }
+    /* Sidebar nav: hover on any sidebar button = yellow + #383838 shadow */
+    section[data-testid="stSidebar"] .stButton > button:hover,
+    section[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+        background-color: #FFD700 !important;
+        border-color: #FFD700 !important;
+        color: #383838 !important;
+        transform: none !important;
+        box-shadow: 3px 3px 0 #383838 !important;
     }
     </style>
     """,
@@ -128,8 +162,8 @@ st.markdown(
         border: 1px solid #D4CEC8 !important;
         border-radius: 0px !important;
         height: 32px !important;
-        padding: 0 14px !important;
-        font-size: 13px !important;
+        padding: 0 10px !important;
+        font-size: 12px !important;
         font-weight: normal !important;
         color: #383838 !important;
         font-family: Inter, ui-sans-serif, sans-serif !important;
@@ -143,7 +177,7 @@ st.markdown(
         border: 1px solid #FFD700 !important;
         color: #383838 !important;
         font-weight: bold !important;
-        box-shadow: 4px 4px 0 rgba(0,0,0,0.13) !important;
+        box-shadow: 4px 4px 0 #383838 !important;
     }
     div[data-testid="stTabs"] button[role="tab"]::after,
     div[data-testid="stTabs"] button[role="tab"][aria-selected="true"]::after {
@@ -305,22 +339,27 @@ def main() -> None:
     _init_session_state()
     _render_sidebar()
 
-    phases = st.session_state.get("phases_complete", {})
-    render_phase_status_bar(phases)
-    st.divider()
-
     current_page = st.session_state.get("current_page", "Profile Editor")
+    phases = st.session_state.get("phases_complete", {})
 
     match current_page:
         case "Profile Editor":
             render_profile_editor(PROFILES_DIR)
         case "Phase 1: Extract Annotations":
+            render_phase_status_bar(phases)
+            st.divider()
             render_phase1(PROFILES_DIR)
         case "Phase 2: Extract Fields":
+            render_phase_status_bar(phases)
+            st.divider()
             render_phase2(PROFILES_DIR)
         case "Phase 3: Match":
+            render_phase_status_bar(phases)
+            st.divider()
             render_phase3()
         case "Phase 4: Output":
+            render_phase_status_bar(phases)
+            st.divider()
             render_phase4()
         case _:
             render_profile_editor(PROFILES_DIR)

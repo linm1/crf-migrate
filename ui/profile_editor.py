@@ -100,18 +100,44 @@ def _inject_page_css() -> None:
             background: #F0EEE8 !important;
             border-color: #B0ADA8 !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button {
-            background: transparent !important;
+            background: #FFFFFF !important;
             border: none !important;
             color: #C0392B !important;
-            font-size: 16px !important;
-            padding: 0 4px !important;
+            font-size: 14px !important;
+            padding: 0 !important;
+            width: 24px !important;
+            height: 24px !important;
             min-height: 0 !important;
-            height: auto !important;
-            line-height: 1 !important;
-            box-shadow: none !important; }
+            line-height: 24px !important;
+            box-shadow: none !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button:hover {
             color: #E74C3C !important;
-            background: rgba(192,57,43,0.08) !important; }
+            background: #FFFFFF !important; }
+        /* Right-align the delete button within its column */
+        [class*="st-key-list_row_"] [class*="st-key-del_row_"] {
+            min-width: 0 !important;
+            padding: 0 !important; }
+        /* stColumn grandparent: flex row, push content to right */
+        [class*="st-key-list_row_"] .stColumn:has([class*="st-key-del_row_"]) {
+            flex: 0 0 30px !important;
+            max-width: 30px !important;
+            min-width: 0 !important;
+            display: flex !important;
+            justify-content: flex-end !important;
+            align-items: center !important;
+            padding-right: 8px !important; }
+        /* stVerticalBlock inside that column: shrink to content and push right */
+        [class*="st-key-list_row_"] .stColumn:has([class*="st-key-del_row_"]) .stVerticalBlock {
+            width: fit-content !important;
+            margin-left: auto !important; }
+        [class*="st-key-list_row_"] [class*="st-key-del_row_"] div[data-testid="stButton"] {
+            display: flex !important;
+            justify-content: flex-end !important; }
+        [class*="st-key-list_row_"] [class*="st-key-del_row_"] div[data-testid="stButton"] button {
+            margin-left: auto !important; }
         /* Muted labels inside classification rule drawers */
         [class*="st-key-rule_"] label p,
         [class*="st-key-rule_"] .stCheckbox label p {
@@ -412,6 +438,7 @@ def _render_list_row(
     content_fn,
     del_key: str,
     col_ratio: list | None = None,
+    prefix: str = "row",
 ) -> bool:
     """Render a full-width styled row with a delete icon on the right.
 
@@ -420,13 +447,13 @@ def _render_list_row(
     Returns True if delete was clicked.
     """
     if col_ratio is None:
-        col_ratio = [6, 1]
-    with st.container(key=f"list_row_{index}"):
+        col_ratio = [20, 1]
+    with st.container(key=f"list_row_{prefix}_{index}"):
         cols = st.columns(col_ratio, gap="small", vertical_alignment="center")
         with cols[0]:
             content_fn()
         with cols[-1]:
-            return st.button("🗑", key=del_key, use_container_width=True)
+            return st.button("✕", key=del_key, use_container_width=False)
     return False  # unreachable; satisfies type checkers
 
 
@@ -439,39 +466,26 @@ def _render_visit_rules_tab(draft: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    # Column headers
-    hc1, hc2, _hc3 = st.columns([3, 3, 1])
-    hc1.markdown('<div class="pe-table-header">Regex Pattern</div>', unsafe_allow_html=True)
-    hc2.markdown('<div class="pe-table-header">Visit Value</div>', unsafe_allow_html=True)
-
+    orig_rules = list(rules)
     to_delete = None
-    for i, rule in enumerate(rules):
-        c1, c2, c3 = st.columns([3, 3, 1])
-        with c1:
+    for i, rule in enumerate(orig_rules):
+        def _rule_content(i=i, rule=rule):
             rules[i]["regex"] = st.text_input(
                 "", value=rule.get("regex", ""),
                 key=f"vr_regex_{i}", label_visibility="collapsed",
             )
-        with c2:
-            rules[i]["value"] = st.text_input(
-                "", value=rule.get("value", ""),
-                key=f"vr_value_{i}", label_visibility="collapsed",
-            )
-        with c3:
-            st.markdown('<div class="pe-btn-danger">', unsafe_allow_html=True)
-            if st.button("🗑", key=f"del_vr_{i}"):
-                to_delete = i
-            st.markdown('</div>', unsafe_allow_html=True)
+        if _render_list_row(i, _rule_content, del_key=f"del_row_vr_{i}", col_ratio=[20, 1], prefix="vr"):
+            to_delete = i
 
     if to_delete is not None:
-        draft["visit_rules"] = [r for i, r in enumerate(rules) if i != to_delete]
+        draft["visit_rules"] = [r for i, r in enumerate(orig_rules) if i != to_delete]
         st.rerun()
     else:
         draft["visit_rules"] = rules
 
     st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
     if st.button("+ Add Visit Rule", key="add_visit_rule", use_container_width=True):
-        draft["visit_rules"] = rules + [{"regex": "", "value": ""}]
+        draft["visit_rules"] = rules + [{"regex": ""}]
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -527,7 +541,7 @@ def _render_form_name_tab(draft: dict) -> None:
                 "", value=pat, key=f"fnr_pat_{i}", label_visibility="collapsed"
             )
             patterns[i] = new_pat
-        if _render_list_row(i, _pat_content, del_key=f"del_row_fnr_{i}", col_ratio=[6, 1]):
+        if _render_list_row(i, _pat_content, del_key=f"del_row_fnr_{i}", col_ratio=[6, 1], prefix="fnr"):
             to_delete = i
     if to_delete is not None:
         config["exclude_patterns"] = [p for j, p in enumerate(orig_patterns) if j != to_delete]
