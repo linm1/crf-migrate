@@ -18,25 +18,51 @@ def _inject_page_css() -> None:
             font-weight: 700; color: #1E293B; margin: 0 0 4px 0; }
         .pe-help-text { font-size: 12px; color: #8A847F;
             font-family: Inter, sans-serif; margin: -4px 0 8px 0; }
+        .pe-field-label { font-size: 13px; font-weight: 600; color: #383838;
+            font-family: Inter, sans-serif; margin: 0 0 2px 0; }
+        .pe-yaml-header { background: #2D3B4E; display: flex; align-items: center;
+            justify-content: space-between; padding: 8px 12px; }
+        .pe-yaml-dots { display: flex; gap: 6px; align-items: center; }
+        .pe-yaml-dot { display: inline-block; width: 12px; height: 12px;
+            border-radius: 50% !important; }
+        /* Hide native slider min/max tick labels (we show our own badge) */
+        div[data-testid="stSlider"] [data-testid="stTickBarMin"],
+        div[data-testid="stSlider"] [data-testid="stTickBarMax"] {
+            display: none !important; }
+        /* YAML st.code block: remove extra margin, match terminal aesthetic */
+        div[data-testid="stCode"] {
+            margin-top: 0 !important;
+            border-radius: 0 !important; }
         .pe-chip { display: inline-flex; align-items: center;
             background: rgba(0,122,255,0.2); height: 28px; padding: 0 12px;
             font-size: 13px; color: #004085; font-family: Inter, sans-serif; margin: 2px; }
+        /* Domain code badge-buttons: pill shape with inline × */
+        [class*="st-key-del_code_"] button {
+            background: rgba(0,122,255,0.15) !important;
+            color: #004085 !important;
+            border: 1px solid rgba(0,122,255,0.3) !important;
+            border-radius: 0 !important;
+            padding: 2px 10px !important;
+            font-size: 12px !important;
+            font-family: Inter, ui-monospace, monospace !important;
+            font-weight: 600 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            line-height: 1.4 !important;
+            white-space: nowrap !important;
+            width: auto !important;
+            outline: none !important; }
+        [class*="st-key-del_code_"] button:hover {
+            background: rgba(0,122,255,0.28) !important;
+            border-color: rgba(0,122,255,0.5) !important; }
+        [class*="st-key-del_code_"] { padding: 2px !important; }
+
         .pe-cat-badge { display: inline-block; background: rgba(255,215,0,0.2);
             padding: 2px 8px; font-size: 11px; font-weight: 600;
             color: #383838; font-family: Inter, monospace; }
         .pe-table-header { font-family: Inter, sans-serif; font-size: 11px;
             font-weight: 700; color: #8A847F; text-transform: uppercase;
             letter-spacing: 0.5px; padding: 4px 0 8px 0; }
-        .pe-btn-dark > div[data-testid="stButton"] > button {
-            background: #383838 !important; color: #FFFFFF !important;
-            border: 1px solid #383838 !important;
-            box-shadow: 4px 4px 0 rgba(0,0,0,0.13) !important;
-            font-weight: 600 !important; }
-        .pe-btn-dark > div[data-testid="stButton"] > button:hover {
-            box-shadow: 6px 6px 0 rgba(0,0,0,0.18) !important; }
-        .pe-btn-danger > div[data-testid="stButton"] > button {
-            background: #dc3545 !important; color: #FFFFFF !important;
-            border: 1px solid #dc3545 !important; }
         .pe-slider-badge { display: inline-block; background: #383838;
             color: #FFFFFF; font-size: 11px;
             font-family: ui-monospace, Consolas, monospace;
@@ -46,9 +72,51 @@ def _inject_page_css() -> None:
         .pe-yaml-terminal { background: #1E293B; color: #94A3B8;
             font-family: ui-monospace, Consolas, 'Courier New', monospace;
             font-size: 12px; padding: 16px; min-height: 300px;
-            overflow-x: auto; white-space: pre-wrap; }
-        .pe-yaml-filename { font-size: 10px; color: #64748B;
-            font-family: ui-monospace, monospace; text-align: right; padding: 4px 0; }
+            overflow-x: auto; white-space: pre; margin: 0;
+            list-style: none !important; }
+        .pe-yaml-filename { font-size: 11px; color: #94A3B8;
+            font-family: ui-monospace, monospace; }
+        /* Profile editor buttons: toolbar (pe_*), row actions (rule_*), add buttons */
+        .st-key-pe_dup button p, .st-key-pe_imp_toggle button p, .st-key-pe_save_top button p,
+        .st-key-add_rule_btn button p, .st-key-add_visit_rule button p,
+        .st-key-add_exclude_pat button p, .st-key-yaml_download button p,
+        .st-key-add_domain_code button p,
+        [class*="st-key-rule_"][class*="_save"] button p,
+        [class*="st-key-rule_"][class*="_del"] button p,
+        [class*="st-key-rule_"][class*="_up"] button p {
+            font-size: 12px !important;
+            font-weight: 700 !important; }
+        /* Rule tester TEST button */
+        .st-key-rt_test_btn button p {
+            font-size: 12px !important;
+            font-weight: 700 !important; }
+        /* Full-width list rows with delete icon */
+        [class*="st-key-list_row_"] {
+            background: #F8F7F6 !important;
+            border: 1px solid #D0CEC9 !important;
+            padding: 4px 8px !important;
+            margin-bottom: 4px !important; }
+        [class*="st-key-list_row_"]:hover {
+            background: #F0EEE8 !important;
+            border-color: #B0ADA8 !important; }
+        [class*="st-key-list_row_"] [class*="st-key-del_row_"] button {
+            background: transparent !important;
+            border: none !important;
+            color: #C0392B !important;
+            font-size: 16px !important;
+            padding: 0 4px !important;
+            min-height: 0 !important;
+            height: auto !important;
+            line-height: 1 !important;
+            box-shadow: none !important; }
+        [class*="st-key-list_row_"] [class*="st-key-del_row_"] button:hover {
+            color: #E74C3C !important;
+            background: rgba(192,57,43,0.08) !important; }
+        /* Muted labels inside classification rule drawers */
+        [class*="st-key-rule_"] label p,
+        [class*="st-key-rule_"] .stCheckbox label p {
+            color: #8A847F !important;
+            font-size: 12px !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -68,32 +136,35 @@ def render_profile_editor(profiles_dir: Path) -> None:
     if selected not in profile_names:
         selected = profile_names[0]
 
-    # Toolbar: title left, action buttons right
-    tb_left, _tb_spacer, tb_dup, tb_imp, tb_save = st.columns([4, 2, 1, 1, 1])
-    with tb_left:
-        st.markdown(
-            '<p class="pe-section-title" style="margin-top:6px">Profile Editor</p>',
-            unsafe_allow_html=True,
-        )
+    # Title row
+    st.header("Profile Editor")
+
+    # Toolbar row: buttons sized to content
+    _, tb_dup, tb_imp_btn, tb_save = st.columns([5, 1, 1, 1], gap="small")
     with tb_dup:
-        if st.button("Duplicate", key="pe_dup"):
+        if st.button("Duplicate", key="pe_dup", use_container_width=True):
             _duplicate_profile(profiles_dir, selected)
             st.rerun()
-    with tb_imp:
-        uploaded_yaml = st.file_uploader(
-            "", type=["yaml", "yml"], key="profile_import", label_visibility="collapsed"
-        )
-        if uploaded_yaml is not None:
-            _import_yaml(profiles_dir, uploaded_yaml)
-            st.rerun()
+    with tb_imp_btn:
+        if st.button("Import", key="pe_imp_toggle", use_container_width=True):
+            st.session_state["pe_show_import"] = not st.session_state.get("pe_show_import", False)
     with tb_save:
-        st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
-        if st.button("Save Profile", key="pe_save_top"):
+        if st.button("Save", key="pe_save_top", use_container_width=True):
             if "draft_profile_data" in st.session_state:
                 _save_profile(profiles_dir, selected, st.session_state["draft_profile_data"])
             else:
                 st.warning("No draft to save — try reloading the profile.")
-        st.markdown('</div>', unsafe_allow_html=True)
+
+    # File uploader: toggle-revealed below toolbar
+    if st.session_state.get("pe_show_import", False):
+        uploaded_yaml = st.file_uploader(
+            "Upload YAML profile", type=["yaml", "yml"],
+            key="profile_import", label_visibility="visible",
+        )
+        if uploaded_yaml is not None:
+            _import_yaml(profiles_dir, uploaded_yaml)
+            st.session_state["pe_show_import"] = False
+            st.rerun()
 
     # Ensure draft data is initialized
     if "draft_profile_data" not in st.session_state:
@@ -103,7 +174,7 @@ def render_profile_editor(profiles_dir: Path) -> None:
 
     # Tabs
     tabs = st.tabs([
-        "Domain Codes", "Classification Rules", "Visit Rules",
+        "Domains", "Classification", "Visits",
         "Form Name", "Matching", "Style", "YAML"
     ])
 
@@ -111,7 +182,9 @@ def render_profile_editor(profiles_dir: Path) -> None:
         _render_domain_codes_tab(draft)
 
     with tabs[1]:
-        _render_classification_rules_tab(draft)
+        _render_classification_rules_tab(draft, profiles_dir, selected)
+        st.divider()
+        _render_rule_tester()
 
     with tabs[2]:
         _render_visit_rules_tab(draft)
@@ -128,8 +201,7 @@ def render_profile_editor(profiles_dir: Path) -> None:
     with tabs[6]:
         _render_yaml_tab(draft, profiles_dir, selected)
 
-    st.divider()
-    _render_rule_tester()
+
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +262,7 @@ def _import_yaml(profiles_dir: Path, uploaded) -> None:
 # ---------------------------------------------------------------------------
 
 def _render_domain_codes_tab(draft: dict) -> None:
-    codes: list[str] = draft.get("domain_codes", [])
+    codes: list[str] = sorted(draft.get("domain_codes", []))
 
     # Header row: title | spacer | input | add button
     h_title, _sp, h_input, h_add = st.columns([3, 2, 2, 1])
@@ -205,30 +277,29 @@ def _render_domain_codes_tab(draft: dict) -> None:
         if st.button("+ Add", key="add_domain_code"):
             val = new_code.strip().upper()
             if val and val not in codes:
-                draft["domain_codes"] = codes + [val]
+                draft["domain_codes"] = sorted(codes + [val])
                 st.rerun()
 
-    # Chips with inline delete buttons
+    # Badge-buttons: 10 per row, left-aligned, alphabetically sorted
     if codes:
-        cols_per_row = 8
+        cols_per_row = 10
         to_delete = None
         for row_start in range(0, len(codes), cols_per_row):
             row_codes = codes[row_start : row_start + cols_per_row]
-            row_cols = st.columns(len(row_codes))
+            row_cols = st.columns(cols_per_row)
             for j, code in enumerate(row_codes):
                 g_idx = row_start + j
                 with row_cols[j]:
-                    st.markdown(f'<span class="pe-chip">{code}</span>', unsafe_allow_html=True)
-                    if st.button("✕", key=f"del_code_{g_idx}", help=f"Remove {code}"):
+                    if st.button(f"{code} ×", key=f"del_code_{g_idx}", help=f"Remove {code}"):
                         to_delete = g_idx
         if to_delete is not None:
-            draft["domain_codes"] = [c for i, c in enumerate(codes) if i != to_delete]
+            draft["domain_codes"] = sorted(c for i, c in enumerate(codes) if i != to_delete)
             st.rerun()
     else:
         st.markdown('<p class="pe-help-text">No domain codes defined.</p>', unsafe_allow_html=True)
 
 
-def _render_classification_rules_tab(draft: dict) -> None:
+def _render_classification_rules_tab(draft: dict, profiles_dir: Path, selected: str) -> None:
     rules = draft.get("classification_rules", [])
     st.markdown('<p class="pe-section-title">Classification Rules</p>', unsafe_allow_html=True)
     to_delete = None
@@ -236,84 +307,95 @@ def _render_classification_rules_tab(draft: dict) -> None:
     for i, rule in enumerate(rules):
         cond = rule.get("conditions", {})
         cat = rule.get("category", "sdtm_mapping")
-        bg = _RULE_BADGE_COLORS.get(cat, "#e2e3e5")
+        color = _RULE_LABEL_COLORS.get(cat, "gray")
+        bg = _RULE_BG_COLORS.get(cat, "rgba(238,238,238,0.18)")
+        expander_label = f":{color}[**{cat}**] - :gray[*{_cond_summary(cond) or '(empty rule)'}*]"
         st.markdown(
-            f'<div style="background:{bg};padding:6px 12px;display:flex;gap:8px;'
-            f'align-items:center;border-left:3px solid #383838;margin-bottom:2px">'
-            f'<span class="pe-cat-badge">{cat}</span>'
-            f'<span style="font-size:12px;color:#6c757d">{_cond_summary(cond)}</span>'
-            f'</div>',
+            f'<style>.st-key-rule_exp_{i} details{{background:{bg} !important}}</style>',
             unsafe_allow_html=True,
         )
-        with st.expander(f"Rule {i + 1}: {rule.get('category', '')} — {_cond_summary(cond)}"):
-            new_cond: dict = {}
-            col1, col2 = st.columns(2)
-            with col1:
-                for field in ["contains", "starts_with", "regex", "subject_is", "domain_in"]:
-                    val = st.text_input(
-                        field, value=cond.get(field) or "",
-                        key=f"rule_{i}_{field}"
-                    )
-                    new_cond[field] = val if val.strip() else None
-            with col2:
-                for field in ["max_length", "min_length"]:
-                    raw_val = cond.get(field)
-                    val_str = str(raw_val) if raw_val is not None else ""
-                    entered = st.text_input(
-                        field, value=val_str, key=f"rule_{i}_{field}"
-                    )
-                    if entered.strip():
-                        try:
-                            new_cond[field] = int(entered)
-                        except ValueError:
+        with st.container(key=f"rule_exp_{i}"):
+            with st.expander(expander_label):
+                new_cond: dict = {}
+                col1, col2 = st.columns(2)
+                with col1:
+                    for field in ["contains", "starts_with", "regex", "subject_is", "domain_in"]:
+                        val = st.text_input(
+                            field, value=cond.get(field) or "",
+                            key=f"rule_{i}_{field}"
+                        )
+                        new_cond[field] = val if val.strip() else None
+                with col2:
+                    for field in ["max_length", "min_length"]:
+                        raw_val = cond.get(field)
+                        val_str = str(raw_val) if raw_val is not None else ""
+                        entered = st.text_input(
+                            field, value=val_str, key=f"rule_{i}_{field}"
+                        )
+                        if entered.strip():
+                            try:
+                                new_cond[field] = int(entered)
+                            except ValueError:
+                                new_cond[field] = None
+                        else:
                             new_cond[field] = None
-                    else:
-                        new_cond[field] = None
-                multi_line = st.checkbox(
-                    "multi_line", value=bool(cond.get("multi_line")),
-                    key=f"rule_{i}_multi_line"
-                )
-                new_cond["multi_line"] = multi_line or None
-                fallback = st.checkbox(
-                    "fallback", value=bool(cond.get("fallback")),
-                    key=f"rule_{i}_fallback"
-                )
-                new_cond["fallback"] = fallback or None
+                    multi_line = st.checkbox(
+                        "multi_line", value=bool(cond.get("multi_line")),
+                        key=f"rule_{i}_multi_line"
+                    )
+                    new_cond["multi_line"] = multi_line or None
+                    fallback = st.checkbox(
+                        "fallback", value=bool(cond.get("fallback")),
+                        key=f"rule_{i}_fallback"
+                    )
+                    new_cond["fallback"] = fallback or None
 
-            categories = ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]
-            cat_idx = categories.index(cat) if cat in categories else 0
-            new_cat = st.selectbox("Category", categories, index=cat_idx, key=f"rule_{i}_cat")
-            rules[i] = {**rule, "category": new_cat, "conditions": new_cond}
+                categories = ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]
+                cat_idx = categories.index(cat) if cat in categories else 0
+                new_cat = st.selectbox("Category", categories, index=cat_idx, key=f"rule_{i}_cat")
+                rules[i] = {**rule, "category": new_cat, "conditions": new_cond}
 
-            btn_col1, btn_col2, _ = st.columns([1, 1, 4])
-            with btn_col1:
-                if i > 0 and st.button("Move Up", key=f"rule_{i}_up"):
-                    to_move_up = i
-            with btn_col2:
-                if st.button("Delete", key=f"rule_{i}_del"):
-                    to_delete = i
+                btn_save, btn_del, btn_up, _ = st.columns([1, 1, 1, 3], gap="small")
+                with btn_save:
+                    if st.button("Save", key=f"rule_{i}_save", use_container_width=True):
+                        draft["classification_rules"] = list(rules)
+                        _save_profile(profiles_dir, selected, draft)
+                with btn_del:
+                    if st.button("Delete", key=f"rule_{i}_del", use_container_width=True):
+                        to_delete = i
+                with btn_up:
+                    if i > 0 and st.button("↑ Up", key=f"rule_{i}_up", use_container_width=True):
+                        to_move_up = i
 
     if to_delete is not None:
         draft["classification_rules"] = [r for j, r in enumerate(rules) if j != to_delete]
+        st.rerun()
     elif to_move_up is not None:
         new_rules = list(rules)
         new_rules[to_move_up - 1], new_rules[to_move_up] = new_rules[to_move_up], new_rules[to_move_up - 1]
         draft["classification_rules"] = new_rules
-
-    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
-    if st.button("Add Rule", key="add_rule_btn", use_container_width=True):
+        st.rerun()
+    if st.button("＋ Add Rule", key="add_rule_btn", use_container_width=True):
         draft["classification_rules"] = rules + [
             {"conditions": {"fallback": True}, "category": "sdtm_mapping"}
         ]
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.rerun()
 
 
-_RULE_BADGE_COLORS = {
-    "sdtm_mapping": "#cce5ff",
-    "domain_label": "#d4edda",
-    "not_submitted": "#fff3cd",
-    "note": "#d1ecf1",
-    "_exclude": "#f8d7da",
+_RULE_LABEL_COLORS = {
+    "sdtm_mapping":  "blue",    # link-blue #007AFF
+    "domain_label":  "orange",  # duck-yellow #FFD700
+    "not_submitted": "green",   # terminal-green #27C93F
+    "note":          "gray",    # terminal-gray #EEEEEE
+    "_exclude":      "red",     # terminal-red #FF5F56
+}
+
+_RULE_BG_COLORS = {
+    "sdtm_mapping":  "rgba(0,122,255,0.06)",    # link-blue tint
+    "domain_label":  "rgba(255,215,0,0.10)",    # duck-yellow tint
+    "not_submitted": "rgba(39,201,63,0.07)",     # terminal-green tint
+    "note":          "rgba(238,238,238,0.35)",   # terminal-gray tint
+    "_exclude":      "rgba(255,95,86,0.07)",     # terminal-red tint
 }
 
 
@@ -323,6 +405,29 @@ def _cond_summary(cond: dict) -> str:
         if v is not None and v is not False:
             parts.append(f"{k}={v!r}")
     return ", ".join(parts[:3]) or "(empty)"
+
+
+def _render_list_row(
+    index: int,
+    content_fn,
+    del_key: str,
+    col_ratio: list | None = None,
+) -> bool:
+    """Render a full-width styled row with a delete icon on the right.
+
+    Wraps content_fn in a keyed container (targeted by CSS .st-key-list_row_*)
+    and places a delete icon button in the last column.
+    Returns True if delete was clicked.
+    """
+    if col_ratio is None:
+        col_ratio = [6, 1]
+    with st.container(key=f"list_row_{index}"):
+        cols = st.columns(col_ratio, gap="small", vertical_alignment="center")
+        with cols[0]:
+            content_fn()
+        with cols[-1]:
+            return st.button("🗑", key=del_key, use_container_width=True)
+    return False  # unreachable; satisfies type checkers
 
 
 def _render_visit_rules_tab(draft: dict) -> None:
@@ -412,25 +517,24 @@ def _render_form_name_tab(draft: dict) -> None:
 
     st.divider()
 
-    patterns = config.get("exclude_patterns", [])
+    orig_patterns = list(config.get("exclude_patterns", []))
+    patterns = list(orig_patterns)
     st.markdown('<p style="font-size:13px;font-weight:600;color:#383838;margin:0 0 4px 0">Exclude Patterns</p>', unsafe_allow_html=True)
     to_delete = None
-    for i, pat in enumerate(patterns):
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            new_pat = st.text_input("Pattern", value=pat, key=f"fnr_pat_{i}", label_visibility="collapsed")
+    for i, pat in enumerate(orig_patterns):
+        def _pat_content(i=i, pat=pat):
+            new_pat = st.text_input(
+                "", value=pat, key=f"fnr_pat_{i}", label_visibility="collapsed"
+            )
             patterns[i] = new_pat
-        with col2:
-            if st.button("✕", key=f"fnr_pat_del_{i}"):
-                to_delete = i
+        if _render_list_row(i, _pat_content, del_key=f"del_row_fnr_{i}", col_ratio=[6, 1]):
+            to_delete = i
     if to_delete is not None:
-        config["exclude_patterns"] = [p for j, p in enumerate(patterns) if j != to_delete]
+        config["exclude_patterns"] = [p for j, p in enumerate(orig_patterns) if j != to_delete]
     else:
         config["exclude_patterns"] = patterns
-    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
-    if st.button("Add Exclude Pattern", key="add_exclude_pat", use_container_width=True):
+    if st.button("＋ Add Exclude Pattern", key="add_exclude_pat", use_container_width=True):
         config["exclude_patterns"] = patterns + [""]
-    st.markdown('</div>', unsafe_allow_html=True)
     draft["form_name_rules"] = config
 
 
@@ -446,23 +550,21 @@ def _render_matching_tab(draft: dict) -> None:
     ]
     new_config: dict = dict(config)
     for key, label, default in _SLIDERS:
-        current_val = float(config.get(key, default))
-        lbl_col, badge_col = st.columns([8, 1])
-        with lbl_col:
-            st.markdown(
-                f'<p class="pe-section-title">{label}</p>',
-                unsafe_allow_html=True,
-            )
-        with badge_col:
-            # Badge reflects the value at start of this render pass; updates on next rerun
-            st.markdown(
-                f'<span class="pe-slider-badge">{current_val:.2f}</span>',
-                unsafe_allow_html=True,
-            )
-        new_config[key] = st.slider(
-            label, 0.0, 1.0, value=current_val, step=0.01,
+        # Read live value from session state if slider already rendered, else use config/default
+        live_val = float(st.session_state.get(f"mc_{key}", config.get(key, default)))
+        st.markdown(
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'margin-bottom:2px;margin-top:8px">'
+            f'  <span class="pe-field-label">{label}</span>'
+            f'  <span class="pe-slider-badge">{live_val:.2f}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        new_val = st.slider(
+            label, 0.0, 1.0, value=live_val, step=0.01,
             key=f"mc_{key}", label_visibility="collapsed",
         )
+        new_config[key] = new_val
     draft["matching_config"] = new_config
 
 
@@ -524,25 +626,32 @@ def _render_style_tab(draft: dict) -> None:
 
 
 def _render_yaml_tab(draft: dict, profiles_dir: Path, name: str) -> None:
-    import html as _html  # noqa: PLC0415
     st.markdown('<p class="pe-section-title">YAML View</p>', unsafe_allow_html=True)
     yaml_text = yaml.dump(draft, allow_unicode=True, sort_keys=False)
-    escaped = _html.escape(yaml_text)
+    # macOS-style terminal header bar
     st.markdown(
-        f'<p class="pe-yaml-filename">{name}.yaml</p>'
-        f'<div class="pe-yaml-terminal">{escaped}</div>',
+        f'<div style="background:#F4EFEA;border:1px solid #383838;overflow:hidden;">'
+        f'  <div class="pe-yaml-header">'
+        f'    <div class="pe-yaml-dots">'
+        f'      <span class="pe-yaml-dot" style="background:#FF5F56"></span>'
+        f'      <span class="pe-yaml-dot" style="background:#FFBD2E"></span>'
+        f'      <span class="pe-yaml-dot" style="background:#27C93F"></span>'
+        f'    </div>'
+        f'    <span class="pe-yaml-filename">{name}.yaml</span>'
+        f'  </div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    st.markdown('<div class="pe-btn-dark">', unsafe_allow_html=True)
+    # Use st.code for proper IDE-style display (no markdown list parsing)
+    st.code(yaml_text, language="yaml")
     st.download_button(
-        "⬇ Download YAML",
+        "↓ Download YAML",
         data=yaml_text.encode("utf-8"),
         file_name=f"{name}.yaml",
         mime="text/yaml",
         use_container_width=True,
         key="yaml_download",
     )
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +665,7 @@ def _render_rule_tester() -> None:
         test_content = st.text_area("Content", key="rt_content", height=80)
     with col2:
         test_subject = st.text_input("Subject (domain)", key="rt_subject")
-    if st.button("Test Rule"):
+    if st.button("TEST", key="rt_test_btn"):
         engine = st.session_state.get("rule_engine")
         if engine is None:
             st.warning("No profile loaded. Save a profile first.")

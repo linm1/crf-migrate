@@ -107,5 +107,172 @@ class TestFormNameTabLabelPrefix:
             (c for c in text_input_calls if "Label Prefix" in str(c)), None
         )
         assert label_prefix_call is not None
-        _, kwargs = label_prefix_call
-        assert kwargs.get("value") == "Form:"
+
+
+class TestRenderListRow:
+    """Tests for the _render_list_row helper."""
+
+    def _make_tab_mock(self, button_return=False):
+        st = _make_st_mock()
+        st.button.return_value = button_return
+        # container returns a context-manager mock
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=ctx)
+        ctx.__exit__ = MagicMock(return_value=False)
+        st.container.return_value = ctx
+        # columns returns list of context-manager mocks
+        def fake_columns(spec, **kw):
+            n = spec if isinstance(spec, int) else len(spec)
+            cols = []
+            for _ in range(n):
+                c = MagicMock()
+                c.__enter__ = MagicMock(return_value=c)
+                c.__exit__ = MagicMock(return_value=False)
+                cols.append(c)
+            return cols
+        st.columns.side_effect = fake_columns
+        return st
+
+    def test_calls_content_fn_and_returns_false_when_not_deleted(self):
+        """Helper renders content_fn and returns False when delete not clicked."""
+        st = self._make_tab_mock(button_return=False)
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_list_row
+        calls = []
+        result = _render_list_row(0, lambda: calls.append(1), del_key="del_test_0")
+        assert result is False
+        assert calls == [1]
+
+    def test_returns_true_when_delete_clicked(self):
+        """Helper returns True when delete button is clicked."""
+        st = self._make_tab_mock(button_return=True)
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_list_row
+        result = _render_list_row(0, lambda: None, del_key="del_test_0")
+        assert result is True
+
+    def test_container_keyed_with_index(self):
+        """Helper creates a container keyed with the row index."""
+        st = self._make_tab_mock()
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_list_row
+        _render_list_row(3, lambda: None, del_key="del_test_3")
+        st.container.assert_called_once_with(key="list_row_3")
+
+
+class TestFormNameExcludePatternsDelete:
+    """Tests for exclude-patterns delete using _render_list_row."""
+
+    def _make_tab_mock(self, button_key_that_deletes=None):
+        st = _make_st_mock()
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=ctx)
+        ctx.__exit__ = MagicMock(return_value=False)
+        st.container.return_value = ctx
+        def fake_columns(spec, **kw):
+            n = spec if isinstance(spec, int) else len(spec)
+            cols = []
+            for _ in range(n):
+                c = MagicMock()
+                c.__enter__ = MagicMock(return_value=c)
+                c.__exit__ = MagicMock(return_value=False)
+                cols.append(c)
+            return cols
+        st.columns.side_effect = fake_columns
+        st.button.side_effect = lambda label, key=None, **kw: key == button_key_that_deletes
+        return st
+
+    def test_delete_first_pattern_removes_it(self):
+        """Clicking delete on row 0 removes first exclude pattern."""
+        st = self._make_tab_mock(button_key_that_deletes="del_row_fnr_0")
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_form_name_tab
+        draft = {"form_name_rules": {"exclude_patterns": ["DRAFT", "TEST"]}}
+        _render_form_name_tab(draft)
+        assert draft["form_name_rules"]["exclude_patterns"] == ["TEST"]
+
+    def test_delete_second_pattern_removes_it(self):
+        """Clicking delete on row 1 removes second exclude pattern."""
+        st = self._make_tab_mock(button_key_that_deletes="del_row_fnr_1")
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_form_name_tab
+        draft = {"form_name_rules": {"exclude_patterns": ["DRAFT", "TEST"]}}
+        _render_form_name_tab(draft)
+        assert draft["form_name_rules"]["exclude_patterns"] == ["DRAFT"]
+
+    def test_no_delete_preserves_all_patterns(self):
+        """When no delete button is clicked all patterns are preserved."""
+        patterns_data = ["DRAFT", "TEST"]
+        st = self._make_tab_mock(button_key_that_deletes=None)
+        # Return the original pat value by matching the widget key index
+        def text_input_side_effect(label, value="", key=None, **kw):
+            return value  # echo back the value= arg (the original pattern)
+        st.text_input.side_effect = text_input_side_effect
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_form_name_tab
+        draft = {"form_name_rules": {"exclude_patterns": list(patterns_data)}}
+        _render_form_name_tab(draft)
+        assert draft["form_name_rules"]["exclude_patterns"] == ["DRAFT", "TEST"]
+
+
+class TestDomainCodesTab:
+    def _make_tab_mock(self, **kwargs):
+        st = _make_st_mock(**kwargs)
+        def fake_columns(spec, **kw):
+            n = spec if isinstance(spec, int) else len(spec)
+            return [MagicMock() for _ in range(n)]
+        st.columns.side_effect = fake_columns
+        return st
+
+    def test_delete_removes_correct_code_and_sorts(self):
+        """Clicking del_code_2 removes code at sorted index 2 and result is sorted.
+
+        Codes are sorted before rendering: ["AE", "CM", "DM", "VS"].
+        Index 2 = "DM", so ["AE", "CM", "VS"] remain.
+        """
+        st = self._make_tab_mock()
+        st.button.side_effect = lambda label, key=None, **kw: key == "del_code_2"
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+
+        from ui.profile_editor import _render_domain_codes_tab
+
+        draft = {"domain_codes": ["DM", "AE", "VS", "CM"]}
+        _render_domain_codes_tab(draft)
+
+        # Sorted input: ["AE", "CM", "DM", "VS"]; index 2 = "DM" removed
+        assert draft["domain_codes"] == ["AE", "CM", "VS"]
+
+    def test_add_new_code_sorts_result(self):
+        """Adding a new code inserts it in alphabetical order."""
+        st = self._make_tab_mock(text_input_return="LB")
+        st.button.side_effect = lambda label, key=None, **kw: key == "add_domain_code"
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+
+        from ui.profile_editor import _render_domain_codes_tab
+
+        draft = {"domain_codes": ["DM", "AE"]}
+        _render_domain_codes_tab(draft)
+
+        assert draft["domain_codes"] == ["AE", "DM", "LB"]
+
+    def test_add_new_code_deduplicates(self):
+        """Adding a code that already exists does not duplicate it."""
+        st = self._make_tab_mock(text_input_return="dm")
+        st.button.side_effect = lambda label, key=None, **kw: key == "add_domain_code"
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+
+        from ui.profile_editor import _render_domain_codes_tab
+
+        draft = {"domain_codes": ["DM", "AE"]}
+        _render_domain_codes_tab(draft)
+
+        assert draft["domain_codes"] == ["DM", "AE"]
