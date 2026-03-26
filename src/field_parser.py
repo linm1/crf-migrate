@@ -28,6 +28,8 @@ _CHECKBOX_RE = re.compile(
     re.IGNORECASE,
 )
 _TEXT_FIELD_RE = re.compile(r"_{3,}")
+# Maximum vertical distance (px) for Pass B label search — approx 2.5 lines at 12pt
+_MAX_LABEL_VERT_PX = 30.0
 
 
 def extract_fields(
@@ -90,6 +92,8 @@ def _process_page(
     marker_blocks: list[tuple[TextBlock, str]] = []  # (block, field_type)
     non_marker_blocks: list[TextBlock] = []
 
+    # Priority order is deliberate: date_field > checkbox > text_field
+    # A date placeholder (MM/DD/YYYY) must not be downgraded to a plain text_field.
     for block in text_blocks:
         text = block["text"]
         if _DATE_RE.search(text):
@@ -101,9 +105,26 @@ def _process_page(
         else:
             non_marker_blocks.append(block)
 
-    records: list[FieldRecord] = []
+    headers = _collect_section_headers(
+        non_marker_blocks, page_num, form_name, visit, min_header_size
+    )
+    markers = _resolve_marker_labels(
+        marker_blocks, non_marker_blocks, page_num, form_name, visit,
+        left_col_tol, exclude_patterns,
+    )
+    return headers + markers
 
-    # --- Section headers: non-marker blocks with large font ---
+
+def _collect_section_headers(
+    non_marker_blocks: list[TextBlock],
+    page_num: int,
+    form_name: str,
+    visit: str,
+    min_header_size: float,
+) -> list[FieldRecord]:
+    """Return a FieldRecord for every non-marker block whose font is large enough
+    to be treated as a section header."""
+    records: list[FieldRecord] = []
     for block in non_marker_blocks:
         if block["font_size"] >= min_header_size:
             records.append(
@@ -117,29 +138,38 @@ def _process_page(
                     field_type="section_header",
                 )
             )
+    return records
 
-    # --- Pass B: for each marker, find its nearest left-column label ---
-    #
-    # ALL non-marker blocks (including large-font headers) are passed as candidates
-    # so that field labels of any font size can be found.  A max_vert_distance_px
-    # cap of 30px (≈2.5 lines of 12pt body text) prevents a distant section header
-    # that happens to be the only non-marker block on the page from being
-    # incorrectly used as a field label.  When no nearby label is found within
-    # the cap, the fallback is the marker block's own text (graceful degradation).
-    _MAX_LABEL_VERT_PX = 30.0
 
+def _resolve_marker_labels(
+    marker_blocks: list[tuple[TextBlock, str]],
+    non_marker_blocks: list[TextBlock],
+    page_num: int,
+    form_name: str,
+    visit: str,
+    left_col_tolerance: float,
+    exclude_patterns: list[str],
+) -> list[FieldRecord]:
+    """Pass B: resolve the nearest human-readable label for each marker block.
+
+    ALL non-marker blocks (including large-font headers) are passed as candidates
+    so that field labels of any font size can be found.  A max_vert_distance_px
+    cap of _MAX_LABEL_VERT_PX prevents a distant section header from being
+    incorrectly used as a field label.  When no nearby label is found, the
+    fallback is the marker block's own text (graceful degradation).
+    """
+    records: list[FieldRecord] = []
     for block, field_type in marker_blocks:
         label = find_nearest_label(
             marker_rect=block["rect"],
             text_blocks=non_marker_blocks,
-            left_column_tolerance_px=left_col_tol,
-            exclude_patterns=exclude_patterns if exclude_patterns else None,
+            left_column_tolerance_px=left_col_tolerance,
+            exclude_patterns=exclude_patterns,
             max_vert_distance_px=_MAX_LABEL_VERT_PX,
         )
         if not label:
             # Graceful degradation: use the marker text itself
             label = block["text"]
-
         records.append(
             FieldRecord(
                 id=str(uuid.uuid4()),
@@ -151,7 +181,6 @@ def _process_page(
                 field_type=field_type,
             )
         )
-
     return records
 
 
