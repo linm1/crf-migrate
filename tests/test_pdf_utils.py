@@ -54,17 +54,13 @@ class TestFindNearestLabel:
         """Tie-break by center distance: two blocks with same vert_dist, closer center wins."""
         # marker_rect y0=100, y1=102 → marker_cy=101
         # Both blocks have vert_dist=0 (they overlap the marker vertically)
-        blocks = [
-            _block("Close Center", 50.0, 99.0, 150.0, 103.0),  # center=101, center_dist=0
-            _block("Far Center", 50.0, 95.0, 150.0, 107.0),    # center=101 too — same
-        ]
         # Use blocks with different centers to force tie-break
-        blocks2 = [
+        blocks = [
             _block("Close Center", 50.0, 99.0, 150.0, 103.0),  # center=101.0, dist=0
             _block("Far Center", 50.0, 80.0, 150.0, 100.0),    # center=90.0, dist=11, vert=0
         ]
         marker_rect = [300.0, 100.0, 400.0, 102.0]
-        result = find_nearest_label(marker_rect, blocks2, left_column_tolerance_px=100.0)
+        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
         assert result == "Close Center"
 
     def test_exclude_patterns_skip_matching_blocks(self):
@@ -128,4 +124,4 @@ class TestFindNearestLabel:
         blocks = [_block("Label", 5.0, 19.0, 9.0, 21.0)]
         # Should not raise — fitz.Rect is NOT required
         result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=5.0)
-        assert isinstance(result, str)
+        assert result == "Label"
