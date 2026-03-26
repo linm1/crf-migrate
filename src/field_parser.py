@@ -78,6 +78,8 @@ def _process_page(
     text_blocks = _get_text_blocks(page)
     page_text = " ".join(b["text"] for b in text_blocks)
     form_name = rule_engine.extract_form_name(text_blocks, page_height=page.rect.height)
+    if not form_name:
+        return []
     visit = rule_engine.extract_visit(page_text) or ""
 
     min_header_size = profile.form_name_rules.min_font_size
