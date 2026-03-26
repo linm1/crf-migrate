@@ -148,7 +148,7 @@ def _resolve_marker_labels(
     form_name: str,
     visit: str,
     left_col_tolerance: float,
-    exclude_patterns: list[str],
+    exclude_patterns: list[re.Pattern[str]],
 ) -> list[FieldRecord]:
     """Pass B: resolve the nearest human-readable label for each marker block.
 

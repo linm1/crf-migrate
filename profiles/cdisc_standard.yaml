@@ -75,7 +75,7 @@ classification_rules:
 - conditions:
     contains: null
     starts_with: null
-    regex: ^([A-Z]{2,4}) (.+)$
+    regex: ^([A-Z]{2,4})=(.+)$
     subject_is: null
     domain_in: domain_codes
     max_length: null
@@ -137,7 +137,7 @@ form_name_rules:
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
   - \b\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\b
-  top_region_fraction: 0.2
+  top_region_fraction: 0.35
   label_prefix: null
 visit_rules:
 - regex: Screen(ing)?
@@ -167,9 +167,9 @@ annotation_filter:
   min_content_length: 1
 matching_config:
   exact_threshold: 1.0
-  fuzzy_same_form_threshold: 0.93
-  fuzzy_cross_form_threshold: 0.95
-  position_fallback_confidence: 0.74
+  fuzzy_same_form_threshold: 0.80
+  fuzzy_cross_form_threshold: 0.90
+  position_fallback_confidence: 0.50
   visit_boost: 5.0
 style_defaults:
   font: Arial,BoldItalic
@@ -179,6 +179,6 @@ style_defaults:
   - 0.0
   - 0.0
   border_color:
-  - 0.0
-  - 0.0
-  - 0.0
+  - 0.75
+  - 1.0
+  - 1.0
