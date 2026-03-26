@@ -108,7 +108,7 @@ def _process_page(
             non_marker_blocks.append(block)
 
     headers = _collect_section_headers(
-        non_marker_blocks, page_num, form_name, visit, min_header_size
+        non_marker_blocks, page_num, form_name, visit, min_header_size, exclude_patterns
     )
     markers = _resolve_marker_labels(
         marker_blocks, non_marker_blocks, page_num, form_name, visit,
@@ -123,23 +123,32 @@ def _collect_section_headers(
     form_name: str,
     visit: str,
     min_header_size: float,
+    exclude_patterns: list[re.Pattern[str]],
 ) -> list[FieldRecord]:
-    """Return a FieldRecord for every non-marker block whose font is large enough
-    to be treated as a section header."""
+    """Return a FieldRecord for every non-marker block that qualifies as a section header.
+
+    A block qualifies when it is bold OR has font_size >= min_header_size, AND its
+    text does not match any of the exclude_patterns.
+    """
     records: list[FieldRecord] = []
     for block in non_marker_blocks:
-        if block["font_size"] >= min_header_size:
-            records.append(
-                FieldRecord(
-                    id=str(uuid.uuid4()),
-                    page=page_num,
-                    label=block["text"],
-                    form_name=form_name,
-                    visit=visit,
-                    rect=block["rect"],
-                    field_type="section_header",
-                )
+        # Classify as section header if bold OR large font
+        if not block["bold"] and block["font_size"] < min_header_size:
+            continue
+        text = block["text"].strip()
+        if any(p.search(text) for p in exclude_patterns):
+            continue
+        records.append(
+            FieldRecord(
+                id=str(uuid.uuid4()),
+                page=page_num,
+                label=text,
+                form_name=form_name,
+                visit=visit,
+                rect=block["rect"],
+                field_type="section_header",
             )
+        )
     return records
 
 
