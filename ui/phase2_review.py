@@ -10,15 +10,45 @@ from src.models import FieldRecord
 from ui.components import (
     get_pdf_page_count,
     invalidate_phases,
-    render_field_card,
-    render_page_navigator,
+    render_page_navigator_windowed,
+)
+
+# ---------------------------------------------------------------------------
+# Color dicts (mirroring components.py, inlined to avoid coupling)
+# ---------------------------------------------------------------------------
+
+_FIELD_TYPE_COLORS = {
+    "text_field":     "blue",
+    "checkbox":       "green",
+    "date_field":     "orange",
+    "table_row":      "violet",
+    "section_header": "gray",
+}
+_FIELD_TYPE_BG_COLORS = {
+    "text_field":     "rgba(0,122,255,0.06)",
+    "checkbox":       "rgba(39,201,63,0.07)",
+    "date_field":     "rgba(255,215,0,0.10)",
+    "table_row":      "rgba(150,80,255,0.06)",
+    "section_header": "rgba(238,238,238,0.35)",
+}
+_FIELD_TYPES = ["text_field", "checkbox", "date_field", "table_row", "section_header"]
+
+_LABEL_STYLE = (
+    "font-family:Inter,sans-serif;font-size:11px;font-weight:600;"
+    "color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
+)
+_NUMBER_STYLE = (
+    "font-family:Inter,sans-serif;font-size:32px;font-weight:700;"
+    "color:#383838;line-height:1.1;margin:0 0 16px 0;"
 )
 
 
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
 def render_phase2(profiles_dir: Path) -> None:
     """Render Phase 2: Extract Fields page."""
-    st.header("Phase 2: Extract Fields")
-
     session = st.session_state.get("session")
     profile = st.session_state.get("profile")
     rule_engine = st.session_state.get("rule_engine")
@@ -27,36 +57,172 @@ def render_phase2(profiles_dir: Path) -> None:
         st.warning("No profile loaded. Go to Profile Editor to select a profile.")
         return
 
-    _render_upload_section(session, profile, rule_engine)
-
     fields = st.session_state.get("fields", [])
-    if not fields:
-        return
 
-    _render_summary(fields)
-    _render_page_view(fields, session)
-    _render_add_field(fields, session)
-    _render_csv_section(fields, session)
+    # ── Topbar ────────────────────────────────────────────────────────────────
+    _render_topbar(fields, session)
+
+    # ── Fixed-height card row CSS ─────────────────────────────────────────────
+    st.markdown(
+        """
+        <style>
+        .st-key-p2_upload_card,
+        .st-key-p2_counts_card,
+        .st-key-p2_bytype_card {
+            min-height: 220px !important;
+            height: 220px !important;
+            box-sizing: border-box !important;
+            margin-top: 0 !important;
+        }
+        .st-key-p2_upload_card > div[data-testid="stVerticalBlock"],
+        .st-key-p2_counts_card > div[data-testid="stVerticalBlock"],
+        .st-key-p2_bytype_card > div[data-testid="stVerticalBlock"] {
+            min-height: 204px !important;
+            height: 100% !important;
+        }
+        .st-key-p2_counts_card,
+        .st-key-p2_bytype_card {
+            background: #FFFFFF !important;
+        }
+        .st-key-p2_upload_card {
+            border: none !important;
+            box-shadow: none !important;
+            background: #FFFFFF !important;
+        }
+        .st-key-p2_upload_card .stButton > button {
+            background: #383838 !important;
+            color: #FFFFFF !important;
+            border: 1px solid #383838 !important;
+            font-weight: 700;
+        }
+        .st-key-p2_upload_card .stButton > button:hover {
+            background: #1a1a1a !important;
+            color: #FFFFFF !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Single HTML row for section headers ───────────────────────────────────
+    _hdr = (
+        "font-family:Inter,sans-serif;font-size:12px;font-weight:700;"
+        "color:#383838;text-transform:uppercase;letter-spacing:0.5px;"
+        "margin:0;padding:0;"
+    )
+    st.markdown(
+        f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;'
+        f'margin-bottom:6px;">'
+        f'<p style="{_hdr}">Target CRF PDF</p>'
+        f'<p style="{_hdr}">Counts</p>'
+        f'<p style="{_hdr}">By Type</p>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── 3-column top row ──────────────────────────────────────────────────────
+    c1, c2, c3 = st.columns(3, gap="large")
+    with c1:
+        _render_upload_card(session, profile, rule_engine)
+    with c2:
+        _render_counts_card(fields)
+    with c3:
+        _render_bytype_card(fields)
+
+    # ── Review panel ──────────────────────────────────────────────────────────
+    fields = st.session_state.get("fields", [])
+    if fields:
+        target_pdf_path = st.session_state.get("target_pdf_path")
+        _render_review_panel(fields, session, target_pdf_path)
 
 
 # ---------------------------------------------------------------------------
-# A. Upload + Extract
+# Topbar
 # ---------------------------------------------------------------------------
 
-def _render_upload_section(session, profile, rule_engine) -> None:
-    st.subheader("Upload & Extract")
-    uploaded = st.file_uploader("Target CRF PDF", type=["pdf"], key="phase2_upload")
-    if uploaded is not None:
-        pdf_path = session.workspace / "target_crf.pdf"
-        pdf_path.write_bytes(uploaded.read())
-        st.session_state["target_pdf_path"] = pdf_path
+def _render_topbar(fields: list[FieldRecord], session) -> None:
+    """Header + Export/Import CSV toolbar."""
+    st.header("Phase 2: Extract Fields")
 
-    target_pdf_path = st.session_state.get("target_pdf_path")
+    _, tb_export, tb_import_btn = st.columns([5, 1, 1], gap="small")
 
-    if target_pdf_path and target_pdf_path.exists():
-        st.info(f"PDF loaded: {target_pdf_path.name}")
-        if st.button("Extract Fields", type="primary"):
-            with st.spinner("Extracting fields…"):
+    with tb_export:
+        if st.button("Export CSV", key="p2_export_btn", use_container_width=True):
+            if fields and session:
+                csv_path = session.workspace / "fields_export.csv"
+                export_fields_csv(fields, csv_path)
+                st.session_state["_p2_csv_ready"] = csv_path.read_bytes()
+        if st.session_state.get("_p2_csv_ready"):
+            st.download_button(
+                "Download CSV",
+                data=st.session_state["_p2_csv_ready"],
+                file_name="fields.csv",
+                mime="text/csv",
+                key="p2_csv_dl",
+                use_container_width=True,
+            )
+
+    with tb_import_btn:
+        if st.button("Import CSV", key="p2_import_btn", use_container_width=True):
+            st.session_state["_p2_show_import"] = not st.session_state.get("_p2_show_import", False)
+
+    if st.session_state.get("_p2_show_import", False):
+        csv_upload = st.file_uploader("Import CSV file", type=["csv"], key="p2_csv_upload")
+        if csv_upload is not None and fields and session:
+            csv_path = session.workspace / "fields_import.csv"
+            csv_path.write_bytes(csv_upload.read())
+            updated, flagged = import_fields_csv(csv_path, fields)
+            if flagged:
+                st.warning(
+                    f"{len(flagged)} existing fields missing from CSV: "
+                    f"{', '.join(flagged[:5])}{'...' if len(flagged) > 5 else ''}"
+                )
+                c1, c2 = st.columns(2)
+                if c1.button("Confirm (remove missing)", key="p2_csv_confirm"):
+                    final = [r for r in updated if r.id not in flagged]
+                    session.save_fields(final)
+                    st.session_state["fields"] = final
+                    st.session_state["_p2_show_import"] = False
+                    invalidate_phases([3, 4])
+                    st.rerun()
+                if c2.button("Keep all", key="p2_csv_keep"):
+                    session.save_fields(updated)
+                    st.session_state["fields"] = updated
+                    st.session_state["_p2_show_import"] = False
+                    invalidate_phases([3, 4])
+                    st.rerun()
+            else:
+                session.save_fields(updated)
+                st.session_state["fields"] = updated
+                st.session_state["_p2_show_import"] = False
+                invalidate_phases([3, 4])
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Upload card
+# ---------------------------------------------------------------------------
+
+def _render_upload_card(session, profile, rule_engine) -> None:
+    with st.container(border=True, key="p2_upload_card"):
+        uploaded = st.file_uploader(
+            "Target CRF PDF", type=["pdf"],
+            key="phase2_upload", label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            pdf_path = session.workspace / "target_crf.pdf"
+            pdf_path.write_bytes(uploaded.read())
+            st.session_state["target_pdf_path"] = pdf_path
+
+        target_pdf_path = st.session_state.get("target_pdf_path")
+        has_pdf = bool(target_pdf_path and target_pdf_path.exists())
+        if st.button(
+            "Extract Fields",
+            use_container_width=True,
+            key="p2_extract_btn",
+            disabled=not has_pdf,
+        ):
+            with st.spinner("Extracting…"):
                 try:
                     records = extract_fields(target_pdf_path, profile, rule_engine)
                     session.save_fields(records)
@@ -64,42 +230,74 @@ def _render_upload_section(session, profile, rule_engine) -> None:
                     st.session_state["phases_complete"][2] = True
                     invalidate_phases([3, 4])
                     session.log_action("phase2_extract", {"count": len(records)})
-                    st.success(f"Extracted {len(records)} fields.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Extraction failed: {e}")
 
 
 # ---------------------------------------------------------------------------
-# B. Summary
+# Top row cards
 # ---------------------------------------------------------------------------
 
-def _render_summary(fields: list[FieldRecord]) -> None:
-    with st.expander("Summary", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Fields", len(fields))
-        by_type: dict[str, int] = {}
-        by_form: dict[str, int] = {}
-        for f in fields:
-            by_type[f.field_type] = by_type.get(f.field_type, 0) + 1
-            by_form[f.form_name or "(none)"] = by_form.get(f.form_name or "(none)", 0) + 1
-        with col2:
-            st.write("**By Type**")
-            for t, cnt in sorted(by_type.items()):
-                st.write(f"{t}: {cnt}")
-        with col3:
-            st.write("**By Form**")
-            for fm, cnt in sorted(by_form.items()):
-                st.write(f"{fm}: {cnt}")
+def _render_counts_card(fields: list[FieldRecord]) -> None:
+    """Forms count + Fields count card."""
+    forms = len({f.form_name for f in fields if f.form_name})
+
+    with st.container(border=True, key="p2_counts_card"):
+        st.markdown(
+            f'<div style="{_LABEL_STYLE}">Forms</div>'
+            f'<div style="{_NUMBER_STYLE}">{forms}</div>'
+            f'<div style="{_LABEL_STYLE}">Fields</div>'
+            f'<div style="{_NUMBER_STYLE}">{len(fields)}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def _render_bytype_card(fields: list[FieldRecord]) -> None:
+    """By field_type breakdown card."""
+    by_type: dict[str, int] = {}
+    for f in fields:
+        by_type[f.field_type] = by_type.get(f.field_type, 0) + 1
+
+    _color_hex = {
+        "blue":   ("#EEF2FF", "#C7D2FE", "#4F46E5"),
+        "green":  ("#F0FDF4", "#BBF7D0", "#16A34A"),
+        "orange": ("#FEF9C3", "#FDE68A", "#92400E"),
+        "violet": ("#F5F3FF", "#DDD6FE", "#7C3AED"),
+        "gray":   ("#F1F5F9", "#CBD5E1", "#475569"),
+    }
+    type_rows = ""
+    for ft in _FIELD_TYPES:
+        cnt = by_type.get(ft, 0)
+        color = _FIELD_TYPE_COLORS.get(ft, "gray")
+        bg_col, border_col, text_col = _color_hex.get(color, ("#F1F5F9", "#CBD5E1", "#475569"))
+        type_rows += (
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'padding:3px 0;font-family:Inter,sans-serif;font-size:12px;">'
+            f'<span style="background:{bg_col};color:{text_col};border:1px solid {border_col};'
+            f'padding:1px 7px;font-weight:600;">{ft}</span>'
+            f'<strong style="color:#383838;">{cnt}</strong>'
+            f'</div>'
+        )
+
+    with st.container(border=True, key="p2_bytype_card"):
+        st.markdown(
+            f'<div style="{_LABEL_STYLE}">By Type</div>'
+            f'{type_rows}',
+            unsafe_allow_html=True,
+        )
 
 
 # ---------------------------------------------------------------------------
-# C. Page navigator + cards
+# Review panel
 # ---------------------------------------------------------------------------
 
-def _render_page_view(fields: list[FieldRecord], session) -> None:
-    st.subheader("Review Fields")
-    target_pdf_path = st.session_state.get("target_pdf_path")
+def _render_review_panel(
+    fields: list[FieldRecord],
+    session,
+    target_pdf_path,
+) -> None:
+    # Page count
     total_pages = 1
     if target_pdf_path and target_pdf_path.exists():
         try:
@@ -107,41 +305,89 @@ def _render_page_view(fields: list[FieldRecord], session) -> None:
         except Exception:
             total_pages = max((f.page for f in fields), default=1)
 
-    selected_page = render_page_navigator(total_pages, key="phase2_nav")
-    page_fields = [f for f in fields if f.page == selected_page]
+    # Header row
+    st.markdown(
+        '<p style="font-family:Inter,sans-serif;font-size:15px;font-weight:700;'
+        'color:#1E293B;margin:0 0 4px 0;">Review Fields</p>',
+        unsafe_allow_html=True,
+    )
+    # Paginator as its own full-width row
+    selected_page = render_page_navigator_windowed(total_pages, key="phase2_nav")
 
+    # Field expanders
+    page_fields = [(i, f) for i, f in enumerate(fields) if f.page == selected_page]
     if not page_fields:
         st.info(f"No fields on page {selected_page}.")
-        return
+    else:
+        for local_idx, (global_idx, field) in enumerate(page_fields):
+            color = _FIELD_TYPE_COLORS.get(field.field_type, "gray")
+            bg = _FIELD_TYPE_BG_COLORS.get(field.field_type, "rgba(238,238,238,0.18)")
+            badge = field.field_type or "—"
+            suffix = field.label[:60] if field.label else "—"
+            label = f":{color}[**{badge}**] :gray[*{suffix}*]"
+            container_key = f"p2_field_{local_idx}"
+            st.markdown(
+                f"<style>.st-key-{container_key} details"
+                f"{{background:{bg} !important}}</style>",
+                unsafe_allow_html=True,
+            )
+            with st.container(key=container_key):
+                with st.expander(label, expanded=False):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        label_val = st.text_input(
+                            "Label", value=field.label,
+                            key=f"p2_f_{local_idx}_label",
+                        )
+                        form_name = st.text_input(
+                            "Form Name", value=field.form_name,
+                            key=f"p2_f_{local_idx}_form",
+                        )
+                        visit = st.text_input(
+                            "Visit", value=field.visit,
+                            key=f"p2_f_{local_idx}_visit",
+                        )
+                    with c2:
+                        type_idx = _FIELD_TYPES.index(field.field_type) \
+                            if field.field_type in _FIELD_TYPES else 0
+                        field_type = st.selectbox(
+                            "Field Type", _FIELD_TYPES, index=type_idx,
+                            key=f"p2_f_{local_idx}_type",
+                        )
+                    btn_save, btn_del, _ = st.columns([1, 1, 4], gap="small")
+                    with btn_save:
+                        if st.button("Save", key=f"p2_f_{local_idx}_save",
+                                     use_container_width=True):
+                            updated = field.model_copy(update={
+                                "label": label_val, "form_name": form_name,
+                                "visit": visit, "field_type": field_type,
+                            })
+                            new_list = [
+                                updated if i == global_idx else f
+                                for i, f in enumerate(st.session_state["fields"])
+                            ]
+                            session.save_fields(new_list)
+                            st.session_state["fields"] = new_list
+                            invalidate_phases([3, 4])
+                            session.log_action("phase2_edit", {"count": len(new_list)})
+                            st.rerun()
+                    with btn_del:
+                        if st.button("Delete", key=f"p2_f_{local_idx}_del",
+                                     use_container_width=True):
+                            new_list = [
+                                f for i, f in enumerate(st.session_state["fields"])
+                                if i != global_idx
+                            ]
+                            session.save_fields(new_list)
+                            st.session_state["fields"] = new_list
+                            invalidate_phases([3, 4])
+                            st.rerun()
 
-    updated_fields = list(fields)
-    indices_on_page = [i for i, f in enumerate(fields) if f.page == selected_page]
-
-    cards = []
-    for local_idx, global_idx in enumerate(indices_on_page):
-        result = render_field_card(fields[global_idx], local_idx, "p2_field")
-        cards.append((global_idx, result))
-
-    if st.button("Save Changes", key="p2_save"):
-        changed = False
-        for global_idx, result in cards:
-            if result is None:
-                updated_fields[global_idx] = None
-                changed = True
-            elif result != fields[global_idx]:
-                updated_fields[global_idx] = result
-                changed = True
-        updated_fields = [f for f in updated_fields if f is not None]
-        if changed:
-            session.save_fields(updated_fields)
-            st.session_state["fields"] = updated_fields
-            invalidate_phases([3, 4])
-            session.log_action("phase2_edit", {"count": len(updated_fields)})
-            st.rerun()
+    _render_add_field(fields, session)
 
 
 # ---------------------------------------------------------------------------
-# D. Add new field
+# Add new field
 # ---------------------------------------------------------------------------
 
 def _render_add_field(fields: list[FieldRecord], session) -> None:
@@ -152,10 +398,7 @@ def _render_add_field(fields: list[FieldRecord], session) -> None:
                 label = st.text_input("Label")
                 form_name = st.text_input("Form Name")
             with col2:
-                field_type = st.selectbox(
-                    "Field Type",
-                    ["text_field", "checkbox", "date_field", "table_row", "section_header"]
-                )
+                field_type = st.selectbox("Field Type", _FIELD_TYPES)
                 visit = st.text_input("Visit")
             submitted = st.form_submit_button("Add Field")
             if submitted and label.strip():
@@ -169,57 +412,6 @@ def _render_add_field(fields: list[FieldRecord], session) -> None:
                     field_type=field_type,
                 )
                 updated = fields + [new_record]
-                session.save_fields(updated)
-                st.session_state["fields"] = updated
-                invalidate_phases([3, 4])
-                st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# E. CSV Export/Import
-# ---------------------------------------------------------------------------
-
-def _render_csv_section(fields: list[FieldRecord], session) -> None:
-    st.subheader("CSV Export / Import")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Export CSV"):
-            csv_path = session.workspace / "fields_export.csv"
-            export_fields_csv(fields, csv_path)
-            csv_bytes = csv_path.read_bytes()
-            st.download_button(
-                "Download fields.csv",
-                data=csv_bytes,
-                file_name="fields.csv",
-                mime="text/csv",
-                key="p2_csv_dl",
-            )
-
-    with col2:
-        csv_upload = st.file_uploader("Import CSV", type=["csv"], key="p2_csv_upload")
-        if csv_upload is not None:
-            csv_path = session.workspace / "fields_import.csv"
-            csv_path.write_bytes(csv_upload.read())
-            updated, flagged = import_fields_csv(csv_path, fields)
-            if flagged:
-                st.warning(
-                    f"{len(flagged)} existing fields are missing from the CSV: "
-                    f"{', '.join(flagged[:5])}{'...' if len(flagged) > 5 else ''}"
-                )
-                col_confirm, col_keep = st.columns(2)
-                if col_confirm.button("Confirm (remove missing)", key="p2_csv_confirm"):
-                    final = [r for r in updated if r.id not in flagged]
-                    session.save_fields(final)
-                    st.session_state["fields"] = final
-                    invalidate_phases([3, 4])
-                    st.rerun()
-                if col_keep.button("Keep all", key="p2_csv_keep"):
-                    session.save_fields(updated)
-                    st.session_state["fields"] = updated
-                    invalidate_phases([3, 4])
-                    st.rerun()
-            else:
                 session.save_fields(updated)
                 st.session_state["fields"] = updated
                 invalidate_phases([3, 4])

@@ -346,12 +346,8 @@ def main() -> None:
         case "Profile Editor":
             render_profile_editor(PROFILES_DIR)
         case "Phase 1: Extract Annotations":
-            render_phase_status_bar(phases)
-            st.divider()
             render_phase1(PROFILES_DIR)
         case "Phase 2: Extract Fields":
-            render_phase_status_bar(phases)
-            st.divider()
             render_phase2(PROFILES_DIR)
         case "Phase 3: Match":
             render_phase_status_bar(phases)
