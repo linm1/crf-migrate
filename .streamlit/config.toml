@@ -1,0 +1,27 @@
+[theme]
+base = "light"
+
+# Color tokens
+primaryColor = "#383838"              # ink — primary buttons (dark, sharp)
+backgroundColor = "#F4EFEA"           # canvas — page background
+secondaryBackgroundColor = "#FFFFFF"  # white — sidebar, cards, input backgrounds
+textColor = "#383838"                 # ink — primary text
+
+# Links
+linkColor = "#007AFF"                 # link-blue
+linkUnderline = false
+
+# Sharp edges — Neo-Brutalist core
+baseRadius = "0px"
+buttonRadius = "0px"
+
+# Typography — body
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
+
+# Typography — headings (monospace, uppercase via CSS)
+headingFont = "ui-monospace, Consolas, 'Courier New', monospace"
+
+# Typography — code / terminal
+codeFont = "ui-monospace, Consolas, monospace"
+codeTextColor = "#383838"             # ink
+codeBackgroundColor = "#FFFFFF"       # white

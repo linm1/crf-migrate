@@ -347,3 +347,93 @@ def test_t2_09_annotation_text_not_classified_as_field(
     assert any(r.field_type == "checkbox" for r in records), (
         "Expected at least one checkbox record from 'Sex: Yes / No'"
     )
+
+
+# ---------------------------------------------------------------------------
+# Helpers / fixtures for test_label_is_human_readable
+# ---------------------------------------------------------------------------
+
+def _create_split_label_marker_pdf(path: Path) -> Path:
+    """Synthetic CRF PDF where label and marker are in SEPARATE text blocks.
+
+    Layout (Page 1):
+      x=50  y=50:  "Subject ID"   (label block, fontsize=10)
+      x=200 y=50:  "___________"  (marker block, fontsize=10)
+      x=50  y=80:  "Visit Date"   (label block, fontsize=10)
+      x=200 y=80:  "MM/DD/YYYY"   (marker block, fontsize=10)
+      x=50  y=110: "Enrolled"     (label block, fontsize=10)
+      x=200 y=110: "Yes / No"     (marker block, fontsize=10)
+
+    With label at x=50 and marker at x=200, find_nearest_label should pick
+    the left-column label when the marker is processed in Pass B.
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((50, 50), "Subject ID", fontsize=10, fontname="helv")
+    page.insert_text((200, 50), "___________", fontsize=10, fontname="helv")
+    page.insert_text((50, 80), "Visit Date", fontsize=10, fontname="helv")
+    page.insert_text((200, 80), "MM/DD/YYYY", fontsize=10, fontname="helv")
+    page.insert_text((50, 110), "Enrolled", fontsize=10, fontname="helv")
+    page.insert_text((200, 110), "Yes / No", fontsize=10, fontname="helv")
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@pytest.fixture(scope="module")
+def split_label_marker_path(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("fixtures_split")
+    return _create_split_label_marker_pdf(tmp / "split_label_marker.pdf")
+
+
+# ---------------------------------------------------------------------------
+# test_label_is_human_readable — verifies spatial two-pass label extraction
+# ---------------------------------------------------------------------------
+
+def test_label_is_human_readable(
+    split_label_marker_path, cdisc_profile_loaded, cdisc_rule_engine
+):
+    """New: FieldRecord.label is the human-readable name, not the marker text.
+
+    When label and marker are in separate text blocks, Pass B of the two-pass
+    algorithm must call find_nearest_label to locate the nearby label text,
+    so that FieldRecord.label = 'Subject ID' not '___________'.
+    """
+    from src.field_parser import extract_fields
+
+    records = extract_fields(split_label_marker_path, cdisc_profile_loaded, cdisc_rule_engine)
+
+    text_fields = [r for r in records if r.field_type == "text_field"]
+    date_fields = [r for r in records if r.field_type == "date_field"]
+    checkbox_fields = [r for r in records if r.field_type == "checkbox"]
+
+    # Must detect at least one of each type
+    assert len(text_fields) > 0, f"Expected text_field records, got: {[r.label for r in records]}"
+    assert len(date_fields) > 0, f"Expected date_field records, got: {[r.label for r in records]}"
+    assert len(checkbox_fields) > 0, f"Expected checkbox records, got: {[r.label for r in records]}"
+
+    # Labels must be human-readable, not the marker text
+    text_labels = [r.label for r in text_fields]
+    assert any("Subject ID" in lbl for lbl in text_labels), (
+        f"Expected 'Subject ID' as label for text_field, got: {text_labels}"
+    )
+    # Marker text must NOT appear as labels
+    assert not any(r.label == "___________" for r in text_fields), (
+        f"Marker text '___________' must not be a field label: {text_labels}"
+    )
+
+    date_labels = [r.label for r in date_fields]
+    assert any("Visit Date" in lbl for lbl in date_labels), (
+        f"Expected 'Visit Date' as label for date_field, got: {date_labels}"
+    )
+    assert not any("MM/DD/YYYY" == r.label for r in date_fields), (
+        f"Marker text 'MM/DD/YYYY' must not be a field label: {date_labels}"
+    )
+
+    checkbox_labels = [r.label for r in checkbox_fields]
+    assert any("Enrolled" in lbl for lbl in checkbox_labels), (
+        f"Expected 'Enrolled' as label for checkbox, got: {checkbox_labels}"
+    )
+    assert not any("Yes / No" == r.label for r in checkbox_fields), (
+        f"Marker text 'Yes / No' must not be a field label: {checkbox_labels}"
+    )

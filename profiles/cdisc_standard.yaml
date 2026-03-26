@@ -1,10 +1,8 @@
 meta:
   name: CDISC Standard
   version: '1.0'
-  description: 'Default classification rules for CDISC-compliant annotated CRFs. Covers
+  description: Default classification rules for CDISC-compliant annotated CRFs. Covers
     standard SDTM domain codes and common annotation patterns.
-
-    '
   author: CRF-Migrate
   parent: null
 domain_codes:
@@ -34,112 +32,127 @@ classification_rules:
     contains: null
     starts_with: null
     regex: null
+    subject_is: null
     domain_in: null
-    multi_line: null
     max_length: 0
     min_length: null
-    subject_is: null
+    multi_line: null
     fallback: null
   category: _exclude
 - conditions:
     contains: null
     starts_with: null
     regex: null
+    subject_is: Sticky Note
     domain_in: null
-    multi_line: null
     max_length: null
     min_length: null
-    subject_is: Sticky Note
+    multi_line: null
     fallback: null
   category: _exclude
 - conditions:
     contains: null
     starts_with: null
     regex: null
+    subject_is: Typewritten Text
     domain_in: null
-    multi_line: null
     max_length: 0
     min_length: null
-    subject_is: Typewritten Text
+    multi_line: null
     fallback: null
   category: _exclude
 - conditions:
     contains: '[NOT SUBMITTED]'
     starts_with: null
     regex: null
+    subject_is: null
     domain_in: null
-    multi_line: null
     max_length: null
     min_length: null
-    subject_is: null
+    multi_line: null
     fallback: null
   category: not_submitted
 - conditions:
     contains: null
     starts_with: null
     regex: ^([A-Z]{2,4})=(.+)$
+    subject_is: null
     domain_in: domain_codes
-    multi_line: null
     max_length: null
     min_length: null
-    subject_is: null
+    multi_line: null
     fallback: null
   category: domain_label
 - conditions:
     contains: null
     starts_with: null
-    regex: null
+    regex: '\bSee\s+(page|pg\.?)\s*\d+|\bRefer\s+to\b'
+    subject_is: null
     domain_in: null
-    multi_line: true
     max_length: null
     min_length: null
+    multi_line: null
+    fallback: null
+  category: cross_reference
+- conditions:
+    contains: null
+    starts_with: null
+    regex: null
     subject_is: null
+    domain_in: null
+    max_length: null
+    min_length: null
+    multi_line: true
     fallback: null
   category: note
 - conditions:
     contains: null
     starts_with: 'Note:'
     regex: null
+    subject_is: null
     domain_in: null
-    multi_line: null
     max_length: null
     min_length: null
-    subject_is: null
+    multi_line: null
     fallback: null
   category: note
 - conditions:
     contains: RELREC
     starts_with: null
     regex: null
+    subject_is: null
     domain_in: null
-    multi_line: null
     max_length: null
     min_length: null
-    subject_is: null
+    multi_line: null
     fallback: null
   category: note
 - conditions:
     contains: null
     starts_with: null
     regex: null
+    subject_is: null
     domain_in: null
-    multi_line: null
     max_length: null
     min_length: null
-    subject_is: null
+    multi_line: null
     fallback: true
   category: sdtm_mapping
 form_name_rules:
-  strategy: largest_bold_text
+  strategy: top_left_block
   min_font_size: 6.5
   exclude_patterns:
   - ^CDISC$
-  - ^Study\s+\w+$
+  - ^Study\b
+  - "^Design\\s*:"
+  - "^Codelist\\s*:"
+  - "\\S+\\s*:\\s*$"
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
   - \b\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\b
-  top_region_fraction: 0.2
+  - \b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b
+  top_region_fraction: 0.35
   label_prefix: null
 visit_rules:
 - regex: Screen(ing)?
@@ -160,7 +173,15 @@ anchor_text_config:
   exclude_patterns:
   - ^\s*$
   - ^CDISC$
-  - ^Study\s+CDISC
+  - ^Study\b
+  - "^Design\\s*:"
+  - "^Codelist\\s*:"
+  - "\\S+\\s*:\\s*$"
+  - ^Assessment Date
+  - \bPage\s+\d+\s+of\s+\d+\b
+  - ^\[\d{6}
+  - \b\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\b
+  - \b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b
   left_column_tolerance_px: 50.0
 annotation_filter:
   include_types:
@@ -169,9 +190,10 @@ annotation_filter:
   min_content_length: 1
 matching_config:
   exact_threshold: 1.0
-  fuzzy_same_form_threshold: 0.8
-  fuzzy_cross_form_threshold: 0.9
-  position_fallback_confidence: 0.5
+  fuzzy_same_form_threshold: 0.80
+  fuzzy_cross_form_threshold: 0.90
+  position_fallback_confidence: 0.50
+  visit_boost: 5.0
 style_defaults:
   font: Arial,BoldItalic
   font_size: 18.0

@@ -8,10 +8,13 @@ from src.models import AnnotationRecord, FieldRecord, MatchRecord, StyleInfo
 class TestStyleInfo:
     def test_default_values(self):
         style = StyleInfo()
-        assert style.font == "Arial,BoldItalic"
-        assert style.font_size == 18.0
+        assert style.font == "Arial"
+        assert style.font_size == 10.0
         assert style.text_color == [0.0, 0.0, 0.0]
-        assert style.border_color == [0.75, 1.0, 1.0]
+        assert style.border_color == [0.0, 0.0, 0.0]
+        assert style.fill_color is None
+        assert style.border_width == 1.0
+        assert style.border_dashes is None
 
     def test_custom_values(self):
         style = StyleInfo(font="Helvetica", font_size=12.0, text_color=[1.0, 0.0, 0.0])

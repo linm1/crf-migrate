@@ -32,12 +32,25 @@ class ClassificationRule(BaseModel):
     category: str
 
 
+_VALID_FORM_NAME_STRATEGIES = {"largest_bold_text", "top_left_block"}
+
+
 class FormNameConfig(BaseModel):
     strategy: str = "largest_bold_text"
     min_font_size: float = 12.0
     exclude_patterns: list[str] = []
     top_region_fraction: float | None = None
     label_prefix: str | None = None
+
+    @field_validator("strategy")
+    @classmethod
+    def validate_strategy(cls, v: str) -> str:
+        if v not in _VALID_FORM_NAME_STRATEGIES:
+            raise ValueError(
+                f"Unknown form_name strategy '{v}'. "
+                f"Valid values: {sorted(_VALID_FORM_NAME_STRATEGIES)}"
+            )
+        return v
 
 
 class VisitRule(BaseModel):
@@ -72,13 +85,15 @@ class MatchingConfig(BaseModel):
     fuzzy_same_form_threshold: float = 0.80
     fuzzy_cross_form_threshold: float = 0.90
     position_fallback_confidence: float = 0.50
+    visit_boost: float = 5.0
 
 
 class StyleDefaults(BaseModel):
-    font: str = "Arial,BoldItalic"
-    font_size: float = 18.0
+    font: str = "Arial"
+    font_size: float = 10.0
     text_color: list[float] = [0.0, 0.0, 0.0]
-    border_color: list[float] = [0.75, 1.0, 1.0]
+    border_color: list[float] = [0.0, 0.0, 0.0]
+    fill_color: list[float] | None = None
 
 
 class ProfileMeta(BaseModel):

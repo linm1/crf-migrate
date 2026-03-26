@@ -21,14 +21,17 @@ class RuleEngine:
 
     def __init__(self, profile: Profile) -> None:
         self._profile = profile
-        self._form_name_excludes: list[re.Pattern[str]] = [
-            re.compile(p, re.IGNORECASE)
-            for p in profile.form_name_rules.exclude_patterns
-        ]
-        self._anchor_excludes: list[re.Pattern[str]] = [
-            re.compile(p, re.IGNORECASE)
-            for p in profile.anchor_text_config.exclude_patterns
-        ]
+        seen: set[str] = set()
+        shared: list[re.Pattern[str]] = []
+        for p in (
+            list(profile.form_name_rules.exclude_patterns)
+            + list(profile.anchor_text_config.exclude_patterns)
+        ):
+            if p not in seen:
+                seen.add(p)
+                shared.append(re.compile(p, re.IGNORECASE))
+        self._form_name_excludes = shared
+        self._anchor_excludes = shared
 
     # ------------------------------------------------------------------
     # Public API
@@ -92,7 +95,11 @@ class RuleEngine:
         else:
             eligible = list(text_blocks)
 
-        # --- 3. Top-to-bottom scan ---
+        # --- 3. Strategy-specific scan ---
+        if config.strategy == "top_left_block":
+            return self._scan_top_left_block(eligible)
+
+        # Default: "largest_bold_text" — top-to-bottom scan with min_font_size
         sorted_blocks = sorted(eligible, key=lambda b: b["rect"][1])
         for block in sorted_blocks:
             text = block["text"].strip()
@@ -104,6 +111,30 @@ class RuleEngine:
                 continue
             return text
 
+        return ""
+
+    def _scan_top_left_block(self, eligible: list[TextBlock]) -> str:
+        """Return the topmost left-column block that passes exclude_patterns.
+
+        Left-column threshold: min(block x0) + left_column_tolerance_px.
+        Blocks with x0 > threshold are excluded.  Remaining blocks are sorted
+        by y0 ascending; the first that passes exclude_patterns is returned.
+        min_font_size is intentionally ignored by this strategy.
+        """
+        if not eligible:
+            return ""
+        tolerance = self._profile.anchor_text_config.left_column_tolerance_px
+        min_x0 = min(b["rect"][0] for b in eligible)
+        left_threshold = min_x0 + tolerance
+        left_column = [b for b in eligible if b["rect"][0] <= left_threshold]
+        sorted_blocks = sorted(left_column, key=lambda b: b["rect"][1])
+        for block in sorted_blocks:
+            text = block["text"].strip()
+            if not text:
+                continue
+            if any(pat.search(text) for pat in self._form_name_excludes):
+                continue
+            return text
         return ""
 
     def extract_visit(self, page_text: str) -> str:
