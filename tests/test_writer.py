@@ -156,13 +156,14 @@ def test_T4_01_approved_writes_freetext(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# T4.02 — custom font_size preserved in output DA string
+# T4.02 — sdtm_mapping category → 10pt per SDTM guideline
 # ---------------------------------------------------------------------------
 
-def test_T4_02_font_size_preserved(tmp_path):
+def test_T4_02_font_size_guideline(tmp_path):
     target = make_target_pdf(tmp_path)
     output = tmp_path / "output.pdf"
-    annot = make_annotation(font_size=14.0)
+    # font_size on StyleInfo is now ignored at write time; guideline drives size
+    annot = make_annotation(font_size=18.0)
     match = make_match(status="approved")
     profile = _make_profile()
 
@@ -176,15 +177,16 @@ def test_T4_02_font_size_preserved(tmp_path):
         _, da_val = doc.xref_get_key(xref, "DA")
         da_strings.append(da_val)
     assert len(da_strings) == 1
-    assert "14" in da_strings[0]
+    # sdtm_mapping → 10pt per guideline
+    assert "10" in da_strings[0]
     doc.close()
 
 
 # ---------------------------------------------------------------------------
-# T4.03 — border_color=[0.75,1.0,1.0] → colors["stroke"] ≈ cyan
+# T4.03 — border is always black per SDTM guideline
 # ---------------------------------------------------------------------------
 
-def test_T4_03_border_color_cyan(tmp_path):
+def test_T4_03_border_color_black(tmp_path):
     target = make_target_pdf(tmp_path)
     output = tmp_path / "output.pdf"
     annot = make_annotation(border_color=[0.75, 1.0, 1.0])
@@ -197,22 +199,32 @@ def test_T4_03_border_color_cyan(tmp_path):
     strokes = []
     for a in doc[0].annots():
         colors = a.colors
-        stroke = colors.get("stroke") or colors.get("fill")
+        stroke = colors.get("stroke")
         strokes.append(stroke)
     assert len(strokes) == 1
     assert strokes[0] is not None
-    assert abs(strokes[0][0] - 0.75) < 0.05
+    # guideline: border always black (0, 0, 0)
+    assert all(abs(c) < 0.05 for c in strokes[0])
     doc.close()
 
 
 # ---------------------------------------------------------------------------
-# T4.04 — default StyleInfo uses profile style_defaults values
+# T4.04 — domain_label category → 14pt bold per SDTM guideline
 # ---------------------------------------------------------------------------
 
-def test_T4_04_default_style_uses_profile_defaults(tmp_path):
+def test_T4_04_domain_label_font_size(tmp_path):
     target = make_target_pdf(tmp_path)
     output = tmp_path / "output.pdf"
-    annot = make_annotation(font_size=18.0, border_color=[0.75, 1.0, 1.0])
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="DM",
+        domain="DM",
+        category="domain_label",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
     match = make_match(status="approved")
     profile = _make_profile()
 
@@ -221,18 +233,13 @@ def test_T4_04_default_style_uses_profile_defaults(tmp_path):
     doc = fitz.open(str(output))
     page3 = doc[0]
     da_strings = []
-    strokes = []
     for a in page3.annots():
         xref = a.xref
         _, da_val = doc.xref_get_key(xref, "DA")
         da_strings.append(da_val)
-        colors = a.colors
-        stroke = colors.get("stroke") or colors.get("fill")
-        strokes.append(stroke)
     assert len(da_strings) == 1
-    assert "18" in da_strings[0]
-    assert strokes[0] is not None
-    assert abs(strokes[0][0] - 0.75) < 0.05
+    # domain_label → 14pt per guideline
+    assert "14" in da_strings[0]
     doc.close()
 
 

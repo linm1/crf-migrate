@@ -89,10 +89,11 @@ class MatchingConfig(BaseModel):
 
 
 class StyleDefaults(BaseModel):
-    font: str = "Arial,BoldItalic"
-    font_size: float = 18.0
+    font: str = "Arial"
+    font_size: float = 10.0
     text_color: list[float] = [0.0, 0.0, 0.0]
-    border_color: list[float] = [0.75, 1.0, 1.0]
+    border_color: list[float] = [0.0, 0.0, 0.0]
+    fill_color: list[float] | None = None
 
 
 class ProfileMeta(BaseModel):

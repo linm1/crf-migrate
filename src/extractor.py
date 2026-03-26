@@ -138,7 +138,8 @@ def _process_annotation(
     rotation = _safe_rotation(annot)
 
     # --- classification ---
-    category, matched_rule = rule_engine.classify(content, subject)
+    classify_content = content.strip()
+    category, matched_rule = rule_engine.classify(classify_content, subject)
     if category == "_exclude":
         return None
 
@@ -175,19 +176,32 @@ def _safe_rotation(annot: fitz.Annot) -> int:
 def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     """Extract font and color styling from annotation DA string with profile defaults.
 
-    The DA (default appearance) string for SDTM annotations typically looks
-    like: "0 0 0 rg /Arial,BoldItalic 18 Tf".  We parse font name, size, and
-    text color from it, then check the annotation's colors dict for the border
-    (stroke) color.  Any field that cannot be parsed falls back to the profile's
-    style_defaults.
+    For FreeText annotations in PyMuPDF:
+    - The DA (default appearance) string lives in the xref as key "DA", not in
+      annot.info["da"] (which is always empty). We read it from the xref directly.
+    - The box background/fill color is stored in the PDF "C" key and exposed by
+      PyMuPDF as annot.colors["stroke"]. annot.colors["fill"] is always empty for
+      FreeText annotations and should not be used.
+    - Border color per SDTM guideline is always black; border width/dashes come
+      from annot.border.
     """
     defaults = profile.style_defaults
-    da = annot.info.get("da", "") or ""
 
     font: str = defaults.font
     font_size: float = defaults.font_size
     text_color: list[float] = list(defaults.text_color)
-    border_color: list[float] = list(defaults.border_color)
+    fill_color: list[float] | None = list(defaults.fill_color) if defaults.fill_color else None
+    border_width: float = 1.0
+    border_dashes: list[int] | None = None
+
+    # Read DA string from xref (annot.info["da"] is always empty for FreeText)
+    da = ""
+    try:
+        _, da = annot.parent.parent.xref_get_key(annot.xref, "DA")
+    except Exception:
+        pass
+    if not da or da == "null":
+        da = ""
 
     # Parse font name and size: "/FontName Size Tf"
     font_match = re.search(r"/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf", da)
@@ -200,12 +214,23 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     if color_match:
         text_color = [float(color_match.group(i)) for i in range(1, 4)]
 
-    # Border color from annotation stroke entry
+    # Fill/background color: for FreeText, PyMuPDF exposes this under
+    # annot.colors["stroke"] (PDF "C" key). annot.colors["fill"] is always empty.
     try:
         colors = annot.colors
-        stroke = colors.get("stroke") if colors else None
-        if stroke:
-            border_color = list(float(c) for c in stroke)
+        if colors:
+            stroke = colors.get("stroke")
+            if stroke:
+                fill_color = list(float(c) for c in stroke)
+    except Exception:
+        pass
+
+    # Border width and dash pattern
+    try:
+        border = annot.border
+        if border:
+            border_width = float(border.get("width") or 1.0)
+            border_dashes = border.get("dashes") or None
     except Exception:
         pass
 
@@ -213,7 +238,10 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
         font=font,
         font_size=font_size,
         text_color=text_color,
-        border_color=border_color,
+        border_color=[0.0, 0.0, 0.0],  # guideline: always black
+        fill_color=fill_color,
+        border_width=border_width,
+        border_dashes=border_dashes,
     )
 
 

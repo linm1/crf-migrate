@@ -10913,16 +10913,6 @@
                                 },
                                 {
                                   "type": "text",
-                                  "id": "m3fcB",
-                                  "name": "rule1title",
-                                  "fill": "#1E293B",
-                                  "content": "Rule 1",
-                                  "fontFamily": "Inter",
-                                  "fontSize": 13,
-                                  "fontWeight": "600"
-                                },
-                                {
-                                  "type": "text",
                                   "id": "JIDh9",
                                   "name": "rule1cond",
                                   "fill": "#64748B",
@@ -11529,16 +11519,6 @@
                                   "fontWeight": "600"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "vMICn",
-                              "name": "r2title",
-                              "fill": "#1E293B",
-                              "content": "Rule 2",
-                              "fontFamily": "Inter",
-                              "fontSize": 13,
-                              "fontWeight": "600"
                             },
                             {
                               "type": "text",

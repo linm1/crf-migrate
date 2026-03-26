@@ -13,10 +13,13 @@ from pydantic import BaseModel
 class StyleInfo(BaseModel):
     """Font and color styling for a PDF FreeText annotation."""
 
-    font: str = "Arial,BoldItalic"
-    font_size: float = 18.0
+    font: str = "Arial"
+    font_size: float = 10.0
     text_color: list[float] = [0.0, 0.0, 0.0]
-    border_color: list[float] = [0.75, 1.0, 1.0]
+    border_color: list[float] = [0.0, 0.0, 0.0]
+    fill_color: list[float] | None = None
+    border_width: float = 1.0
+    border_dashes: list[int] | None = None
 
 
 class AnnotationRecord(BaseModel):
@@ -26,7 +29,7 @@ class AnnotationRecord(BaseModel):
     page: int                      # 1-indexed page number
     content: str                   # SDTM mapping text
     domain: str                    # SDTM domain code (derived from Subject field)
-    category: str                  # domain_label | sdtm_mapping | not_submitted | note | _exclude
+    category: str                  # domain_label | sdtm_mapping | not_submitted | note | cross_reference | _exclude
     matched_rule: str              # Description of the classification rule that matched
     rect: list[float]              # [x0, y0, x1, y1] bounding box in PDF points
     anchor_text: str = ""          # Nearby CRF text used for matching

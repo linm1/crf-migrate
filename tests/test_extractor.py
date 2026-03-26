@@ -256,6 +256,67 @@ class TestExtractAnnotations:
         records2 = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
         assert len(records1) == len(records2)
 
+    def test_fill_color_extracted_from_freetext(self, tmp_path, cdisc_profile, cdisc_engine):
+        """style.fill_color is populated from the annotation's C key (box background).
+
+        PyMuPDF stores the FreeText background color in the PDF 'C' key, exposed as
+        annot.colors['stroke']. This test verifies the extractor reads it correctly
+        after a PDF round-trip (saving and re-opening is required for PyMuPDF to
+        populate annot.colors from the persisted data).
+        """
+        import fitz
+        fill = (0.75, 1.0, 1.0)
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        a = page.add_freetext_annot(
+            fitz.Rect(50, 100, 300, 130),
+            "DM=Demographics",
+            fontsize=18,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=fill,
+        )
+        a.set_info(content="DM=Demographics", subject="DM")
+        a.update()
+        pdf_path = tmp_path / "fill_test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        fc = records[0].style.fill_color
+        assert fc is not None, "fill_color should not be None after extraction"
+        assert len(fc) == 3
+        assert abs(fc[0] - fill[0]) < 0.02
+        assert abs(fc[1] - fill[1]) < 0.02
+        assert abs(fc[2] - fill[2]) < 0.02
+
+    def test_da_string_font_extracted(self, tmp_path, cdisc_profile, cdisc_engine):
+        """style.font and font_size are parsed from the DA string via xref lookup.
+
+        annot.info['da'] is always empty for FreeText; the DA lives in the xref.
+        """
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        a = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "BRTHDTC",
+            fontsize=14,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        a.set_info(content="BRTHDTC", subject="DM")
+        a.update()
+        pdf_path = tmp_path / "da_test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        assert records[0].style.font_size == 14.0
+
 
 class TestGetTextBlocksAnnotFiltering:
     """Verify that _make_clean_page + _get_text_blocks cleanly separates SDTM annotation

@@ -86,6 +86,17 @@ classification_rules:
 - conditions:
     contains: null
     starts_with: null
+    regex: '\bSee\s+(page|pg\.?)\s*\d+|\bRefer\s+to\b'
+    subject_is: null
+    domain_in: null
+    max_length: null
+    min_length: null
+    multi_line: null
+    fallback: null
+  category: cross_reference
+- conditions:
+    contains: null
+    starts_with: null
     regex: null
     subject_is: null
     domain_in: null
