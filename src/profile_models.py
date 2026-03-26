@@ -32,12 +32,25 @@ class ClassificationRule(BaseModel):
     category: str
 
 
+_VALID_FORM_NAME_STRATEGIES = {"largest_bold_text", "top_left_block"}
+
+
 class FormNameConfig(BaseModel):
     strategy: str = "largest_bold_text"
     min_font_size: float = 12.0
     exclude_patterns: list[str] = []
     top_region_fraction: float | None = None
     label_prefix: str | None = None
+
+    @field_validator("strategy")
+    @classmethod
+    def validate_strategy(cls, v: str) -> str:
+        if v not in _VALID_FORM_NAME_STRATEGIES:
+            raise ValueError(
+                f"Unknown form_name strategy '{v}'. "
+                f"Valid values: {sorted(_VALID_FORM_NAME_STRATEGIES)}"
+            )
+        return v
 
 
 class VisitRule(BaseModel):

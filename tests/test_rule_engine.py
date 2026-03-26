@@ -1162,3 +1162,176 @@ class TestEdgeCases:
         # Should NOT match when brackets are absent
         category, _ = engine.classify("NOT SUBMITTED", "")
         assert category == "sdtm_mapping"
+
+
+def _engine_with_anchor(form_name_kwargs: dict, anchor_kwargs: dict | None = None) -> RuleEngine:
+    """Return a RuleEngine with custom FormNameConfig and optional AnchorTextConfig."""
+    from src.profile_models import AnchorTextConfig
+    profile = Profile(
+        meta=ProfileMeta(name="Test"),
+        domain_codes=["DM"],
+        classification_rules=[
+            ClassificationRule(
+                conditions=RuleCondition(fallback=True),
+                category="sdtm_mapping",
+            )
+        ],
+        form_name_rules=FormNameConfig(**form_name_kwargs),
+        anchor_text_config=AnchorTextConfig(**(anchor_kwargs or {})),
+    )
+    return RuleEngine(profile)
+
+
+class TestFormNameTopLeftBlock:
+    """TDD tests for the 'top_left_block' form-name extraction strategy.
+
+    Strategy: among blocks in the leftmost column (x0 <= min_x0 + tolerance),
+    sort by y0 ascending and return the first block that passes exclude_patterns.
+    min_font_size is deliberately ignored.
+    """
+
+    def test_extract_form_name_top_left_block_strategy(self):
+        """top_left_block picks the top-left block, not the largest/boldest one.
+
+        Layout:
+          - Large center block at x0=200, y0=300  (would win under largest_bold_text)
+          - Small top-left block at x0=20, y0=10  (should win under top_left_block)
+        left_column_tolerance_px=50 → threshold = min(20,200) + 50 = 70
+        Block at x0=20 qualifies (20 <= 70); block at x0=200 does not.
+        """
+        engine = _engine_with_anchor(
+            {"strategy": "top_left_block", "min_font_size": 16.0},
+            {"left_column_tolerance_px": 50.0},
+        )
+        blocks: list[TextBlock] = [
+            TextBlock(text="DEMOGRAPHICS", font_size=24.0, bold=True,
+                      rect=[200, 300, 500, 330]),  # large block in center
+            TextBlock(text="Form Title", font_size=8.0, bold=False,
+                      rect=[20, 10, 180, 28]),     # small block top-left
+        ]
+        result = engine.extract_form_name(blocks)
+        assert result == "Form Title"
+
+    def test_extract_form_name_top_left_block_filters_right_column(self):
+        """Returns '' when all text blocks are in the right column only.
+
+        min_x0 of all blocks = 350; left_column_tolerance_px = 10.
+        left_threshold = 350 + 10 = 360.
+        Block A x0=350 → IN left column (350 <= 360) but its text is blank → skipped.
+        Block B x0=400 → NOT in left column (400 > 360) → excluded.
+        Block C x0=500 → NOT in left column (500 > 360) → excluded.
+        No eligible left-column block has non-empty text → returns ''.
+        """
+        engine = _engine_with_anchor(
+            {"strategy": "top_left_block", "min_font_size": 8.0},
+            {"left_column_tolerance_px": 10.0},
+        )
+        # Use x0 values spread far apart so only the leftmost is "in column".
+        # The leftmost block has blank text, so nothing gets returned.
+        blocks: list[TextBlock] = [
+            TextBlock(text="   ", font_size=14.0, bold=False,
+                      rect=[350, 10, 360, 20]),   # x0=350 — in left column, blank text
+            TextBlock(text="Right Block B", font_size=14.0, bold=True,
+                      rect=[400, 10, 550, 30]),   # x0=400 — outside threshold (400 > 360)
+            TextBlock(text="Right Block C", font_size=18.0, bold=True,
+                      rect=[500, 50, 650, 70]),   # x0=500 — outside threshold
+        ]
+        result = engine.extract_form_name(blocks)
+        assert result == ""
+
+    def test_extract_form_name_top_left_block_respects_exclude_patterns(self):
+        """top-left block matching exclude_patterns is skipped; next left-column block returned.
+
+        Two blocks are in the left column:
+          y0=10  text="Page Header"  → matches exclude pattern '^Page'
+          y0=50  text="VITAL SIGNS"  → passes all filters → returned
+        """
+        engine = _engine_with_anchor(
+            {
+                "strategy": "top_left_block",
+                "min_font_size": 8.0,
+                "exclude_patterns": ["^Page"],
+            },
+            {"left_column_tolerance_px": 60.0},
+        )
+        blocks: list[TextBlock] = [
+            TextBlock(text="Page Header", font_size=10.0, bold=False,
+                      rect=[30, 10, 250, 25]),   # x0=30, y0=10 — excluded by pattern
+            TextBlock(text="VITAL SIGNS", font_size=8.0, bold=False,
+                      rect=[30, 50, 200, 65]),   # x0=30, y0=50 — should be returned
+            TextBlock(text="Body text", font_size=10.0, bold=False,
+                      rect=[300, 100, 500, 115]),  # right column — ignored
+        ]
+        result = engine.extract_form_name(blocks)
+        assert result == "VITAL SIGNS"
+
+    def test_extract_form_name_top_left_block_ignores_min_font_size(self):
+        """top_left_block does NOT filter by min_font_size (unlike largest_bold_text)."""
+        engine = _engine_with_anchor(
+            {"strategy": "top_left_block", "min_font_size": 20.0},
+            {"left_column_tolerance_px": 50.0},
+        )
+        # Font size is 6.0 — far below min_font_size=20.0 — but top_left_block ignores it.
+        blocks: list[TextBlock] = [
+            TextBlock(text="Tiny Form Title", font_size=6.0, bold=False,
+                      rect=[20, 5, 200, 18]),
+        ]
+        result = engine.extract_form_name(blocks)
+        assert result == "Tiny Form Title"
+
+    def test_formname_strategy_validator_rejects_unknown(self):
+        """FormNameConfig raises ValidationError for an unknown strategy value."""
+        from pydantic import ValidationError as PydanticValidationError
+        with pytest.raises(PydanticValidationError):
+            FormNameConfig(strategy="invalid_strategy")
+
+    def test_formname_strategy_validator_accepts_largest_bold_text(self):
+        """FormNameConfig accepts 'largest_bold_text' without error."""
+        config = FormNameConfig(strategy="largest_bold_text")
+        assert config.strategy == "largest_bold_text"
+
+    def test_formname_strategy_validator_accepts_top_left_block(self):
+        """FormNameConfig accepts 'top_left_block' without error."""
+        config = FormNameConfig(strategy="top_left_block")
+        assert config.strategy == "top_left_block"
+
+    def test_extract_form_name_top_left_block_label_prefix_still_takes_priority(self):
+        """label_prefix still takes priority over top_left_block strategy."""
+        engine = _engine_with_anchor(
+            {
+                "strategy": "top_left_block",
+                "label_prefix": "Form:",
+                "min_font_size": 8.0,
+            },
+            {"left_column_tolerance_px": 50.0},
+        )
+        blocks: list[TextBlock] = [
+            TextBlock(text="Top Left Block", font_size=10.0, bold=False,
+                      rect=[20, 10, 200, 25]),
+            TextBlock(text="Form: Actual Name", font_size=10.0, bold=False,
+                      rect=[20, 50, 250, 65]),
+        ]
+        result = engine.extract_form_name(blocks)
+        assert result == "Actual Name"
+
+    def test_extract_form_name_top_left_block_top_region_fraction_still_prefilters(self):
+        """top_region_fraction pre-filter still restricts candidates before top_left_block."""
+        engine = _engine_with_anchor(
+            {
+                "strategy": "top_left_block",
+                "top_region_fraction": 0.20,
+                "min_font_size": 8.0,
+            },
+            {"left_column_tolerance_px": 50.0},
+        )
+        # page_height=800 → cutoff = 0.20 * 800 = 160
+        # Block A y0=10  → in top region AND left column → returned
+        # Block B y0=500 → below cutoff → excluded from eligible pool
+        blocks: list[TextBlock] = [
+            TextBlock(text="In Top Region", font_size=8.0, bold=False,
+                      rect=[20, 10, 200, 28]),
+            TextBlock(text="Below Cutoff", font_size=8.0, bold=False,
+                      rect=[20, 500, 200, 520]),
+        ]
+        result = engine.extract_form_name(blocks, page_height=800.0)
+        assert result == "In Top Region"
