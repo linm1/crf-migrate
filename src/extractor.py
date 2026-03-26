@@ -10,7 +10,7 @@ from pathlib import Path
 import fitz  # PyMuPDF
 
 from src.models import AnnotationRecord, StyleInfo
-from src.pdf_utils import get_text_blocks, make_clean_page
+from src.pdf_utils import find_nearest_label, get_text_blocks, make_clean_page
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
 
@@ -234,22 +234,13 @@ def _extract_anchor_text(
 ) -> str:
     """Find the anchor text for an annotation using the left-column + vertical-distance algorithm.
 
-    Algorithm:
-      1. Compute the left-column threshold: min(block x0) + left_column_tolerance_px.
-      2. Filter to blocks whose x0 is within that threshold (left column only).
-      3. For each left-column block compute the vertical distance to the annotation:
-         vert_dist = max(0, max(annot_y0, block_y0) - min(annot_y1, block_y1))
-         (0 when the block vertically overlaps or touches the annotation).
-      4. Select the block with the minimum vertical distance; tie-break by
-         absolute difference between block center-y and annotation center-y.
-      5. Skip blocks matching exclude_patterns.
-      6. Return the selected block's text, or empty string when no candidates remain.
-
-    This approach is robust to multi-column CRF layouts where annotations sit
-    to the right of field labels: only the leftmost column (where labels live)
-    is considered, and vertical proximity determines the best match.
+    Delegates to pdf_utils.find_nearest_label.  Converts fitz.Rect to list[float]
+    so the shared utility remains free of fitz dependencies.
 
     Args:
+        annot_rect: PyMuPDF annotation rectangle.
+        profile: Active profile providing anchor_text_config settings.
+        text_blocks: Annotation-free text blocks for the current page.
         exclude_patterns: Pre-compiled patterns from RuleEngine.anchor_exclude_patterns.
             When None, patterns are compiled from profile on each call (legacy path).
     """
@@ -258,38 +249,10 @@ def _extract_anchor_text(
         exclude_patterns = [
             re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
         ]
-
-    if not text_blocks:
-        return ""
-
-    # --- 1. Compute left-column threshold ---
-    min_x0 = min(b["rect"][0] for b in text_blocks)
-    left_threshold = min_x0 + config.left_column_tolerance_px
-
-    annot_y0 = annot_rect.y0
-    annot_y1 = annot_rect.y1
-    annot_cy = (annot_y0 + annot_y1) / 2.0
-
-    # --- 2-5. Filter to left column, compute vertical distance, apply excludes ---
-    candidates: list[tuple[float, float, TextBlock]] = []
-    for block in text_blocks:
-        if block["rect"][0] > left_threshold:
-            continue
-        text = block["text"].strip()
-        if not text:
-            continue
-        if any(p.search(text) for p in exclude_patterns):
-            continue
-        block_y0 = block["rect"][1]
-        block_y1 = block["rect"][3]
-        vert_dist = max(0.0, max(annot_y0, block_y0) - min(annot_y1, block_y1))
-        block_cy = (block_y0 + block_y1) / 2.0
-        center_dist = abs(block_cy - annot_cy)
-        candidates.append((vert_dist, center_dist, block))
-
-    if not candidates:
-        return ""
-
-    # --- 6. Select block with minimum vertical distance (tie-break: center-y distance) ---
-    candidates.sort(key=lambda t: (t[0], t[1]))
-    return candidates[0][2]["text"].strip()
+    marker_rect = [annot_rect.x0, annot_rect.y0, annot_rect.x1, annot_rect.y1]
+    return find_nearest_label(
+        marker_rect,
+        text_blocks,
+        config.left_column_tolerance_px,
+        exclude_patterns=exclude_patterns,
+    )

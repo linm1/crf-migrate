@@ -1,7 +1,69 @@
 """Shared PDF text extraction utilities used by extractor.py and field_parser.py."""
+import re
+
 import fitz  # PyMuPDF
 
 from src.rule_engine import TextBlock
+
+
+def find_nearest_label(
+    marker_rect: list[float],
+    text_blocks: list[TextBlock],
+    left_column_tolerance_px: float,
+    exclude_patterns: list[re.Pattern[str]] | None = None,
+) -> str:
+    """Find the nearest left-column label to a marker rectangle.
+
+    Pure function — no PDF or fitz dependency. Accepts marker_rect as a plain
+    list[float] so it can be called from field_parser.py without fitz.Rect.
+
+    Algorithm:
+      1. Compute left-column threshold: min(block x0) + left_column_tolerance_px.
+      2. Filter to blocks whose x0 <= left_threshold (left column only).
+      3. For each candidate compute vert_dist = max(0, max(marker_y0, block_y0)
+         - min(marker_y1, block_y1)).  Zero when block overlaps annotation.
+      4. Tie-break by abs(block_center_y - marker_center_y).
+      5. Skip blocks matching any of exclude_patterns.
+      6. Return stripped text of best candidate, or "" when none remain.
+
+    Args:
+        marker_rect: [x0, y0, x1, y1] bounding box of the annotation/marker.
+        text_blocks: Page text blocks, e.g. from get_text_blocks().
+        left_column_tolerance_px: Width added to the leftmost x0 to define the
+            left-column boundary.  Blocks with x0 beyond that boundary are ignored.
+        exclude_patterns: Pre-compiled patterns; matching blocks are skipped.
+            Pass None to apply no pattern filtering.
+    """
+    if not text_blocks:
+        return ""
+
+    x0, y0, x1, y1 = marker_rect
+    marker_cy = (y0 + y1) / 2.0
+
+    min_x0 = min(b["rect"][0] for b in text_blocks)
+    left_threshold = min_x0 + left_column_tolerance_px
+
+    candidates: list[tuple[float, float, TextBlock]] = []
+    for block in text_blocks:
+        if block["rect"][0] > left_threshold:
+            continue
+        text = block["text"].strip()
+        if not text:
+            continue
+        if exclude_patterns and any(p.search(text) for p in exclude_patterns):
+            continue
+        block_y0 = block["rect"][1]
+        block_y1 = block["rect"][3]
+        vert_dist = max(0.0, max(y0, block_y0) - min(y1, block_y1))
+        block_cy = (block_y0 + block_y1) / 2.0
+        center_dist = abs(block_cy - marker_cy)
+        candidates.append((vert_dist, center_dist, block))
+
+    if not candidates:
+        return ""
+
+    candidates.sort(key=lambda t: (t[0], t[1]))
+    return candidates[0][2]["text"].strip()
 
 
 def make_clean_page(page: fitz.Page) -> tuple[fitz.Document, fitz.Page]:
