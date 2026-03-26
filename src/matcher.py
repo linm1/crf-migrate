@@ -28,6 +28,33 @@ except (ImportError, TypeError):
 _norm = lambda s: s.strip().lower()  # noqa: E731
 
 
+def _apply_anchor_offset(
+    annot_rect: list[float],
+    anchor_rect: list[float],
+    field_rect: list[float],
+) -> list[float]:
+    """Compute target_rect by replicating the source offset between an annotation
+    and its anchor text label onto the target field label position.
+
+    The annotation's width and height are preserved from the source.
+
+    Args:
+        annot_rect:  Source annotation bounding box [x0, y0, x1, y1].
+        anchor_rect: Source anchor text label bounding box [x0, y0, x1, y1].
+        field_rect:  Target field label bounding box [x0, y0, x1, y1].
+
+    Returns:
+        Target annotation bounding box [x0, y0, x1, y1].
+    """
+    dx = annot_rect[0] - anchor_rect[0]
+    dy = annot_rect[1] - anchor_rect[1]
+    w = annot_rect[2] - annot_rect[0]
+    h = annot_rect[3] - annot_rect[1]
+    x0 = field_rect[0] + dx
+    y0 = field_rect[1] + dy
+    return [x0, y0, x0 + w, y0 + h]
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -148,7 +175,11 @@ def _exact_pass(
                     field_id=field.id,
                     match_type="exact",
                     confidence=exact_threshold,
-                    target_rect=list(field.rect),
+                    target_rect=(
+                        _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                        if annot.anchor_rect
+                        else list(field.rect)
+                    ),
                 ))
                 unmatched_annot_ids.discard(annot.id)
                 unmatched_field_ids.discard(field.id)
@@ -190,7 +221,11 @@ def _fuzzy_same_form_pass(
                 field_id=field.id,
                 match_type="fuzzy",
                 confidence=min(score / 100.0, 1.0),
-                target_rect=list(field.rect),
+                target_rect=(
+                    _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                    if annot.anchor_rect
+                    else list(field.rect)
+                ),
             ))
             unmatched_annot_ids.discard(annot.id)
             unmatched_field_ids.discard(field.id)
@@ -225,7 +260,11 @@ def _fuzzy_cross_form_pass(
             field_id=field.id,
             match_type="fuzzy",
             confidence=min(score / 100.0, 1.0),
-            target_rect=list(field.rect),
+            target_rect=(
+                _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                if annot.anchor_rect
+                else list(field.rect)
+            ),
         ))
         unmatched_annot_ids.discard(annot.id)
         unmatched_field_ids.discard(field.id)

@@ -1009,7 +1009,7 @@ class TestAnchorTextLeftColumnAlgorithm:
             TextBlock(text="Right Label", font_size=10.0, bold=False,
                       rect=[400, 98, 550, 118]),   # x0=400, NOT in left column (closer vertically)
         ]
-        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        result, _ = _extract_anchor_text(annot_rect, profile, text_blocks)
         assert result == "Left Label"
 
     def test_anchor_uses_minimum_vertical_distance(self):
@@ -1034,7 +1034,7 @@ class TestAnchorTextLeftColumnAlgorithm:
         # (annot.y0=200, block y1=198 → overlap: vert_dist = max(0, max(200,180)-min(220,198)) = max(0, 200-198)=2)
         # "Close Below": vert_dist = max(0, max(200,222)-min(220,240)) = max(0, 222-220)=2
         # Tie — result is one of them, not "Far Above"
-        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        result, _ = _extract_anchor_text(annot_rect, profile, text_blocks)
         assert result in ("Close Above", "Close Below")
         assert result != "Far Above"
 
@@ -1065,7 +1065,7 @@ class TestAnchorTextLeftColumnAlgorithm:
             TextBlock(text="Far Right", font_size=10.0, bold=False,
                       rect=[500, 98, 700, 118]),   # x0=500 > threshold
         ]
-        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        result, _ = _extract_anchor_text(annot_rect, profile, text_blocks)
         assert result == ""
 
     def test_anchor_excludes_patterns(self):
@@ -1084,7 +1084,7 @@ class TestAnchorTextLeftColumnAlgorithm:
             TextBlock(text="Field Label", font_size=10.0, bold=False,
                       rect=[50, 125, 200, 140]),   # x0=50, passes
         ]
-        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        result, _ = _extract_anchor_text(annot_rect, profile, text_blocks)
         assert result == "Field Label"
 
     def test_anchor_empty_blocks_returns_empty(self):
@@ -1097,7 +1097,7 @@ class TestAnchorTextLeftColumnAlgorithm:
             exclude_patterns=[],
         )
         annot_rect = fitz.Rect(50, 100, 250, 120)
-        result = _extract_anchor_text(annot_rect, profile, [])
+        result, _ = _extract_anchor_text(annot_rect, profile, [])
         assert result == ""
 
     def test_anchor_vertical_overlap_is_zero_distance(self):
@@ -1116,7 +1116,7 @@ class TestAnchorTextLeftColumnAlgorithm:
             TextBlock(text="Non-overlapping", font_size=10.0, bold=False,
                       rect=[50, 140, 200, 160]),   # below annotation — small gap
         ]
-        result = _extract_anchor_text(annot_rect, profile, text_blocks)
+        result, _ = _extract_anchor_text(annot_rect, profile, text_blocks)
         assert result == "Overlapping Label"
 
 

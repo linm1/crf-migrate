@@ -12,7 +12,7 @@ def find_nearest_label(
     left_column_tolerance_px: float,
     exclude_patterns: list[re.Pattern[str]] | None = None,
     max_vert_distance_px: float | None = None,
-) -> str:
+) -> tuple[str, list[float] | None]:
     """Find the nearest left-column label to a marker rectangle.
 
     Pure function — no PDF or fitz dependency. Accepts marker_rect as a plain
@@ -27,7 +27,7 @@ def find_nearest_label(
          vert_dist > max_vert_distance_px.
       5. Tie-break by abs(block_center_y - marker_center_y).
       6. Skip blocks matching any of exclude_patterns.
-      7. Return stripped text of best candidate, or "" when none remain.
+      7. Return (stripped text, rect) of best candidate, or ("", None) when none remain.
 
     Args:
         marker_rect: [x0, y0, x1, y1] bounding box of the annotation/marker.
@@ -38,9 +38,13 @@ def find_nearest_label(
             Pass None to apply no pattern filtering.
         max_vert_distance_px: When provided, candidates whose vert_dist exceeds
             this value are excluded.  Pass None (default) for no distance cap.
+
+    Returns:
+        (text, rect) where text is the label string and rect is its [x0,y0,x1,y1]
+        bounding box. Both are ("", None) when no candidate is found.
     """
     if not text_blocks:
-        return ""
+        return "", None
 
     x0, y0, x1, y1 = marker_rect
     marker_cy = (y0 + y1) / 2.0
@@ -67,10 +71,11 @@ def find_nearest_label(
         candidates.append((vert_dist, center_dist, block))
 
     if not candidates:
-        return ""
+        return "", None
 
     candidates.sort(key=lambda t: (t[0], t[1]))
-    return candidates[0][2]["text"].strip()
+    best = candidates[0][2]
+    return best["text"].strip(), list(best["rect"])
 
 
 def make_clean_page(page: fitz.Page) -> tuple[fitz.Document, fitz.Page]:

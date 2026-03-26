@@ -33,6 +33,7 @@ class AnnotationRecord(BaseModel):
     matched_rule: str              # Description of the classification rule that matched
     rect: list[float]              # [x0, y0, x1, y1] bounding box in PDF points
     anchor_text: str = ""          # Nearby CRF text used for matching
+    anchor_rect: list[float] | None = None  # Bounding box of the anchor text label
     form_name: str = ""            # CRF form/page title
     visit: str = ""                # Visit label
     style: StyleInfo = StyleInfo()

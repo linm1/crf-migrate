@@ -25,7 +25,7 @@ class TestFindNearestLabel:
             _block("Label A", 50.0, 90.0, 150.0, 110.0),  # left column, near annotation
         ]
         marker_rect = [300.0, 95.0, 400.0, 115.0]
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
         assert result == "Label A"
 
     def test_right_column_block_excluded(self):
@@ -36,7 +36,7 @@ class TestFindNearestLabel:
         ]
         # min x0 = 50, threshold = 50 + 80 = 130 → x=200 excluded
         marker_rect = [300.0, 95.0, 400.0, 115.0]
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=80.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=80.0)
         assert result == "Left Label"
 
     def test_vertical_distance_closer_block_wins(self):
@@ -47,7 +47,7 @@ class TestFindNearestLabel:
         ]
         # annotation y0=95, y1=115
         marker_rect = [300.0, 95.0, 400.0, 115.0]
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
         assert result == "Near Label"
 
     def test_tiebreak_by_center_distance(self):
@@ -60,7 +60,7 @@ class TestFindNearestLabel:
             _block("Far Center", 50.0, 80.0, 150.0, 100.0),    # center=90.0, dist=11, vert=0
         ]
         marker_rect = [300.0, 100.0, 400.0, 102.0]
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
         assert result == "Close Center"
 
     def test_exclude_patterns_skip_matching_blocks(self):
@@ -71,7 +71,7 @@ class TestFindNearestLabel:
         ]
         exclude_patterns = [re.compile(r"page\s+\d+", re.IGNORECASE)]
         marker_rect = [300.0, 95.0, 400.0, 115.0]
-        result = find_nearest_label(
+        result, _ = find_nearest_label(
             marker_rect, blocks, left_column_tolerance_px=100.0,
             exclude_patterns=exclude_patterns,
         )
@@ -79,7 +79,7 @@ class TestFindNearestLabel:
 
     def test_empty_blocks_list_returns_empty_string(self):
         """Empty blocks list should return empty string."""
-        result = find_nearest_label([300.0, 95.0, 400.0, 115.0], [], 100.0)
+        result, _ = find_nearest_label([300.0, 95.0, 400.0, 115.0], [], 100.0)
         assert result == ""
 
     def test_all_blocks_filtered_by_left_threshold_returns_empty_string(self):
@@ -94,7 +94,7 @@ class TestFindNearestLabel:
         # tolerance=10 → threshold=300+10=310; both blocks at x0=300 pass (<=310)
         # But with tolerance=0: threshold=300; only x0==300 passes
         # Use a negative tolerance to exclude all
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=-1.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=-1.0)
         assert result == ""
 
     def test_exclude_patterns_none_uses_no_filter(self):
@@ -103,7 +103,7 @@ class TestFindNearestLabel:
             _block("Page 1 of 10", 50.0, 90.0, 150.0, 110.0),
         ]
         marker_rect = [300.0, 95.0, 400.0, 115.0]
-        result = find_nearest_label(
+        result, _ = find_nearest_label(
             marker_rect, blocks, left_column_tolerance_px=100.0,
             exclude_patterns=None,
         )
@@ -115,7 +115,7 @@ class TestFindNearestLabel:
             _block("  Trimmed Label  ", 50.0, 90.0, 150.0, 110.0),
         ]
         marker_rect = [300.0, 95.0, 400.0, 115.0]
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=100.0)
         assert result == "Trimmed Label"
 
     def test_marker_rect_is_list_of_floats(self):
@@ -123,5 +123,5 @@ class TestFindNearestLabel:
         marker_rect = [10.0, 20.0, 30.0, 40.0]
         blocks = [_block("Label", 5.0, 19.0, 9.0, 21.0)]
         # Should not raise — fitz.Rect is NOT required
-        result = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=5.0)
+        result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=5.0)
         assert result == "Label"

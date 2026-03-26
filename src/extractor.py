@@ -143,7 +143,7 @@ def _process_annotation(
     if category == "_exclude":
         return None
 
-    anchor_text = _extract_anchor_text(
+    anchor_text, anchor_rect = _extract_anchor_text(
         annot.rect, profile, text_blocks,
         exclude_patterns=rule_engine.anchor_exclude_patterns,
     )
@@ -157,6 +157,7 @@ def _process_annotation(
         matched_rule=matched_rule,
         rect=rect,
         anchor_text=anchor_text,
+        anchor_rect=anchor_rect,
         form_name=form_name,
         visit=visit,
         style=style,
@@ -259,7 +260,7 @@ def _extract_anchor_text(
     profile: Profile,
     text_blocks: list[TextBlock],
     exclude_patterns: list[re.Pattern[str]] | None = None,
-) -> str:
+) -> tuple[str, list[float] | None]:
     """Find the anchor text for an annotation using the left-column + vertical-distance algorithm.
 
     Delegates to pdf_utils.find_nearest_label.  Converts fitz.Rect to list[float]
@@ -271,6 +272,10 @@ def _extract_anchor_text(
         text_blocks: Annotation-free text blocks for the current page.
         exclude_patterns: Pre-compiled patterns from RuleEngine.anchor_exclude_patterns.
             When None, patterns are compiled from profile on each call (legacy path).
+
+    Returns:
+        (anchor_text, anchor_rect) — the label string and its [x0,y0,x1,y1] bounding box,
+        or ("", None) when no anchor is found.
     """
     config = profile.anchor_text_config
     if exclude_patterns is None:

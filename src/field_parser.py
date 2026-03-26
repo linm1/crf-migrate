@@ -187,7 +187,7 @@ def _resolve_marker_labels(
     """
     records: list[FieldRecord] = []
     for block, field_type in marker_blocks:
-        label = find_nearest_label(
+        label, _ = find_nearest_label(
             marker_rect=block["rect"],
             text_blocks=non_marker_blocks,
             left_column_tolerance_px=left_col_tolerance,
