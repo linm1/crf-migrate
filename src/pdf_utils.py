@@ -11,6 +11,7 @@ def find_nearest_label(
     text_blocks: list[TextBlock],
     left_column_tolerance_px: float,
     exclude_patterns: list[re.Pattern[str]] | None = None,
+    max_vert_distance_px: float | None = None,
 ) -> str:
     """Find the nearest left-column label to a marker rectangle.
 
@@ -22,9 +23,11 @@ def find_nearest_label(
       2. Filter to blocks whose x0 <= left_threshold (left column only).
       3. For each candidate compute vert_dist = max(0, max(marker_y0, block_y0)
          - min(marker_y1, block_y1)).  Zero when block overlaps annotation.
-      4. Tie-break by abs(block_center_y - marker_center_y).
-      5. Skip blocks matching any of exclude_patterns.
-      6. Return stripped text of best candidate, or "" when none remain.
+      4. When max_vert_distance_px is set, discard candidates with
+         vert_dist > max_vert_distance_px.
+      5. Tie-break by abs(block_center_y - marker_center_y).
+      6. Skip blocks matching any of exclude_patterns.
+      7. Return stripped text of best candidate, or "" when none remain.
 
     Args:
         marker_rect: [x0, y0, x1, y1] bounding box of the annotation/marker.
@@ -33,6 +36,8 @@ def find_nearest_label(
             left-column boundary.  Blocks with x0 beyond that boundary are ignored.
         exclude_patterns: Pre-compiled patterns; matching blocks are skipped.
             Pass None to apply no pattern filtering.
+        max_vert_distance_px: When provided, candidates whose vert_dist exceeds
+            this value are excluded.  Pass None (default) for no distance cap.
     """
     if not text_blocks:
         return ""
@@ -55,6 +60,8 @@ def find_nearest_label(
         block_y0 = block["rect"][1]
         block_y1 = block["rect"][3]
         vert_dist = max(0.0, max(y0, block_y0) - min(y1, block_y1))
+        if max_vert_distance_px is not None and vert_dist > max_vert_distance_px:
+            continue
         block_cy = (block_y0 + block_y1) / 2.0
         center_dist = abs(block_cy - marker_cy)
         candidates.append((vert_dist, center_dist, block))
