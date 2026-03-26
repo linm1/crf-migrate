@@ -85,6 +85,7 @@ class MatchingConfig(BaseModel):
     fuzzy_same_form_threshold: float = 0.80
     fuzzy_cross_form_threshold: float = 0.90
     position_fallback_confidence: float = 0.50
+    visit_boost: float = 5.0
 
 
 class StyleDefaults(BaseModel):

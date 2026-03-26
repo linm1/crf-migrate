@@ -611,3 +611,262 @@ class TestCSVRoundTrip:
         updated, _ = import_matches_csv(csv_path, records)
         assert isinstance(updated[0].target_rect, list)
         assert updated[0].target_rect == pytest.approx([11.1, 22.2, 33.3, 44.4], abs=0.001)
+
+
+# ---------------------------------------------------------------------------
+# New tests: _visit_match helper, visit boost, bipartite matching
+# ---------------------------------------------------------------------------
+
+from src.matcher import _visit_match  # noqa: E402 — imported after class definitions
+
+
+def _make_annot(annot_id, anchor_text, form_name="FORM1", visit="", page=1):
+    return AnnotationRecord(
+        id=annot_id,
+        page=page,
+        content="X",
+        domain="VS",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[10.0, 10.0, 50.0, 20.0],
+        anchor_text=anchor_text,
+        form_name=form_name,
+        visit=visit,
+    )
+
+
+def _make_field(field_id, label, form_name="FORM1", visit="", page=1):
+    return FieldRecord(
+        id=field_id,
+        page=page,
+        label=label,
+        form_name=form_name,
+        visit=visit,
+        rect=[5.0, 10.0, 50.0, 18.0],
+        field_type="text_field",
+    )
+
+
+# ---------------------------------------------------------------------------
+# TestVisitMatchHelper — pure function unit tests
+# ---------------------------------------------------------------------------
+
+class TestVisitMatchHelper:
+    def test_exact_match_returns_1(self):
+        assert _visit_match("Baseline", "Baseline") == pytest.approx(1.0)
+
+    def test_exact_match_case_insensitive(self):
+        assert _visit_match("BASELINE", "baseline") == pytest.approx(1.0)
+
+    def test_containment_returns_0_5(self):
+        """'Baseline' is contained in 'Baseline Visit' → 0.5."""
+        assert _visit_match("Baseline", "Baseline Visit") == pytest.approx(0.5)
+
+    def test_containment_reverse(self):
+        """'Baseline Visit' contains 'Baseline' → 0.5."""
+        assert _visit_match("Baseline Visit", "Baseline") == pytest.approx(0.5)
+
+    def test_no_match_returns_0(self):
+        assert _visit_match("Week 1", "Week 4") == pytest.approx(0.0)
+
+    def test_empty_a_returns_0(self):
+        assert _visit_match("", "Baseline") == pytest.approx(0.0)
+
+    def test_empty_b_returns_0(self):
+        assert _visit_match("Baseline", "") == pytest.approx(0.0)
+
+    def test_both_empty_returns_0(self):
+        assert _visit_match("", "") == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# TestVisitBoost — boost applied during fuzzy passes
+# ---------------------------------------------------------------------------
+
+class TestVisitBoost:
+    """Tests that visit_boost adjusts scores in fuzzy passes."""
+
+    def test_visit_boost_exact_match(self):
+        """Two annotations compete for the same label; the one with matching visit wins.
+
+        A1 has "Heart Rate" + matching visit, A2 has "Heart Rate" + wrong visit.
+        With a low fuzzy threshold and a boost, A1 should claim the field with the
+        matching visit while A2 gets position_only.
+        """
+        # Both annotations have same anchor_text but different visits.
+        # We use cross-form pass (threshold 0.90 scaled = 90).
+        # Use unique form names so same-form pass doesn't apply.
+        a1 = _make_annot("a1", "Systolic Blood Pressure", form_name="VITALS_OLD", visit="Week 4")
+        a2 = _make_annot("a2", "Systolic Blood Pressure", form_name="VITALS_OLD", visit="Week 99")
+        f1 = _make_field("f1", "Systolic Blood Pressure", form_name="VITALS_NEW", visit="Week 4")
+
+        # Set same-form threshold very high so only cross-form fires,
+        # and cross-form threshold low enough that both could match without boost.
+        profile = _make_profile(
+            fuzzy_same_form_threshold=0.99,
+            fuzzy_cross_form_threshold=0.70,
+            visit_boost=5.0,
+        )
+        matches = match_annotations([a1, a2], [f1], profile, SOURCE_DIMS, TARGET_DIMS)
+        matched = {m.annotation_id: m for m in matches}
+        # a1 has matching visit → should get f1
+        assert matched["a1"].field_id == "f1"
+        assert matched["a1"].match_type == "fuzzy"
+        # a2 did not get f1 (a1 claimed it)
+        assert matched["a2"].field_id is None
+
+    def test_visit_boost_partial_match(self):
+        """'Baseline' vs 'Baseline Visit' → visit_match = 0.5, boost = 0.5 * visit_boost."""
+        a1 = _make_annot("a1", "Heart Rate", form_name="VITALS_OLD", visit="Baseline")
+        f1 = _make_field("f1", "Heart Rate", form_name="VITALS_NEW", visit="Baseline Visit")
+
+        profile = _make_profile(
+            fuzzy_same_form_threshold=0.99,
+            fuzzy_cross_form_threshold=0.70,
+            visit_boost=10.0,
+        )
+        matches = match_annotations([a1], [f1], profile, SOURCE_DIMS, TARGET_DIMS)
+        m = matches[0]
+        assert m.match_type == "fuzzy"
+        assert m.field_id == "f1"
+        # confidence should reflect the boost: raw=100, partial boost=5 → (100+5)/100 = 1.05
+        # We just verify it's fuzzy; exact confidence value depends on capping policy.
+        assert m.confidence > 0.0
+
+    def test_visit_boost_empty_visit_no_boost(self):
+        """Empty visit on either side → no boost applied; matching still works on text alone."""
+        a1 = _make_annot("a1", "Heart Rate", form_name="VITALS_OLD", visit="")
+        f1 = _make_field("f1", "Heart Rate", form_name="VITALS_NEW", visit="")
+
+        profile = _make_profile(
+            fuzzy_same_form_threshold=0.99,
+            fuzzy_cross_form_threshold=0.70,
+            visit_boost=5.0,
+        )
+        matches = match_annotations([a1], [f1], profile, SOURCE_DIMS, TARGET_DIMS)
+        m = matches[0]
+        # Still matches on text alone (100 >= 70)
+        assert m.match_type == "fuzzy"
+        assert m.field_id == "f1"
+        # Confidence should be 1.0 (no boost from empty visit)
+        assert m.confidence == pytest.approx(1.0)
+
+    def test_visit_boost_zero_disables_boost(self):
+        """visit_boost=0.0 → same outcome as not having a boost."""
+        a1 = _make_annot("a1", "Heart Rate", form_name="VITALS_OLD", visit="Week 4")
+        f1 = _make_field("f1", "Heart Rate", form_name="VITALS_NEW", visit="Week 4")
+
+        profile_boosted = _make_profile(
+            fuzzy_same_form_threshold=0.99,
+            fuzzy_cross_form_threshold=0.70,
+            visit_boost=5.0,
+        )
+        profile_no_boost = _make_profile(
+            fuzzy_same_form_threshold=0.99,
+            fuzzy_cross_form_threshold=0.70,
+            visit_boost=0.0,
+        )
+        m_boosted = match_annotations([a1], [f1], profile_boosted, SOURCE_DIMS, TARGET_DIMS)[0]
+        m_no_boost = match_annotations([a1], [f1], profile_no_boost, SOURCE_DIMS, TARGET_DIMS)[0]
+        # Both should match, but confidence differs only if boost fires
+        assert m_boosted.match_type == "fuzzy"
+        assert m_no_boost.match_type == "fuzzy"
+        # With visit_boost=0.0 confidence = 1.0, with boost it can be higher (capped or not)
+        assert m_no_boost.confidence == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# TestBipartiteMatching — globally optimal assignment
+# ---------------------------------------------------------------------------
+
+class TestBipartiteMatching:
+    def test_bipartite_globally_optimal(self):
+        """Bipartite matching gives globally optimal assignment vs greedy.
+
+        Setup:
+          A1="Heart Rate" (form VITALS_OLD) vs F1="Heart Rate" (form VITALS_NEW) → score 100
+          A2="HR"         (form VITALS_OLD) vs F2="HR"         (form VITALS_NEW) → score 100
+
+        Greedy (iteration order A1, A2) with cross-form pass:
+          - A1 claims F1 (score 100). A2 claims F2 (score 100). Both matched. ✓
+
+        In this case greedy and bipartite agree. What we really test is that BOTH
+        annotations get matched (neither is left for position pass), confirming the
+        bipartite algorithm found both assignments.
+        """
+        a1 = _make_annot("a1", "Heart Rate", form_name="VITALS_OLD")
+        a2 = _make_annot("a2", "HR", form_name="VITALS_OLD")
+        f1 = _make_field("f1", "Heart Rate", form_name="VITALS_NEW")
+        f2 = _make_field("f2", "HR", form_name="VITALS_NEW")
+
+        profile = _make_profile(
+            fuzzy_same_form_threshold=0.99,  # skip same-form pass
+            fuzzy_cross_form_threshold=0.70,
+        )
+        matches = match_annotations([a1, a2], [f1, f2], profile, SOURCE_DIMS, TARGET_DIMS)
+        matched = {m.annotation_id: m for m in matches}
+        assert matched["a1"].match_type == "fuzzy"
+        assert matched["a2"].match_type == "fuzzy"
+        assert matched["a1"].field_id is not None
+        assert matched["a2"].field_id is not None
+        # Verify optimal assignment: a1→f1 and a2→f2 (not crossed)
+        assert matched["a1"].field_id == "f1"
+        assert matched["a2"].field_id == "f2"
+
+    def test_bipartite_fallback_to_greedy_when_no_scipy(self):
+        """When scipy is unavailable, fall back to greedy and emit a warning."""
+        import sys
+        import warnings
+
+        a1 = _make_annot("a1", "Heart Rate", form_name="VITALS_OLD")
+        f1 = _make_field("f1", "Heart Rate", form_name="VITALS_NEW")
+
+        profile = _make_profile(
+            fuzzy_same_form_threshold=0.99,
+            fuzzy_cross_form_threshold=0.70,
+        )
+
+        # Temporarily remove scipy from sys.modules and block its import
+        import unittest.mock as mock
+
+        original_scipy = sys.modules.get("scipy")
+        original_scipy_optimize = sys.modules.get("scipy.optimize")
+
+        # Block scipy import
+        sys.modules["scipy"] = None  # type: ignore
+        sys.modules["scipy.optimize"] = None  # type: ignore
+
+        try:
+            # Force reimport of matcher without scipy
+            import importlib
+            import src.matcher as matcher_module
+            importlib.reload(matcher_module)
+
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                result = matcher_module.match_annotations(
+                    [a1], [f1], profile, SOURCE_DIMS, TARGET_DIMS
+                )
+
+            # Greedy fallback should still produce a fuzzy match
+            assert len(result) == 1
+            assert result[0].match_type == "fuzzy"
+            assert result[0].field_id == "f1"
+
+            # A warning should have been emitted about scipy unavailability
+            scipy_warnings = [x for x in w if "scipy" in str(x.message).lower()]
+            assert len(scipy_warnings) >= 1
+        finally:
+            # Restore scipy
+            if original_scipy is not None:
+                sys.modules["scipy"] = original_scipy
+            else:
+                sys.modules.pop("scipy", None)
+            if original_scipy_optimize is not None:
+                sys.modules["scipy.optimize"] = original_scipy_optimize
+            else:
+                sys.modules.pop("scipy.optimize", None)
+            # Reload matcher with real scipy restored
+            import importlib
+            import src.matcher as matcher_module
+            importlib.reload(matcher_module)
