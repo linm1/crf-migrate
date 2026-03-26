@@ -135,6 +135,7 @@ form_name_rules:
   - ^Study\b
   - "^Design\\s*:"
   - "^Codelist\\s*:"
+  - "\\S+\\s*:\\s*$"
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
@@ -164,6 +165,7 @@ anchor_text_config:
   - ^Study\b
   - "^Design\\s*:"
   - "^Codelist\\s*:"
+  - "\\S+\\s*:\\s*$"
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}

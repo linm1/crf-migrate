@@ -17,6 +17,10 @@ from src.pdf_utils import find_nearest_label, get_annotation_rects, get_text_blo
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
 
+# Sentinel pattern: pages whose top region contains this text are lookup/codelist
+# tables, not fillable CRF forms.  They produce no FieldRecords.
+_CODELIST_PAGE_RE = re.compile(r"^Codelist\b", re.IGNORECASE)
+
 # Regex patterns for field-type heuristics
 _DATE_RE = re.compile(
     r"\b(MM|DD|YYYY|mm|dd|yyyy)\b"
@@ -76,6 +80,18 @@ def _process_page(
       blocks.  If a label is found, use it; otherwise fall back to block["text"].
     """
     text_blocks = _get_text_blocks(page)
+
+    # --- Codelist page sentinel: skip lookup-table pages entirely ---
+    # Codelist pages start with "Codelist:" / "Codelist View:" in the top region.
+    # Even after those blocks are excluded from form_name extraction, the data rows
+    # in the same top region (e.g. "SCREENING (SV1)", "DAY 1") would be picked up
+    # as spurious form names.  Detect and discard these pages before extraction.
+    if page.rect.height > 0:
+        top_cutoff = (profile.form_name_rules.top_region_fraction or 0.35) * page.rect.height
+        for block in text_blocks:
+            if block["rect"][1] <= top_cutoff and _CODELIST_PAGE_RE.search(block["text"]):
+                return []
+
     page_text = " ".join(b["text"] for b in text_blocks)
     form_name = rule_engine.extract_form_name(text_blocks, page_height=page.rect.height)
     if not form_name:
