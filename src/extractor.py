@@ -151,7 +151,7 @@ def _process_annotation(
     return AnnotationRecord(
         id=str(uuid.uuid4()),
         page=page_num,
-        content=content,
+        content=classify_content,
         domain=subject,
         category=category,
         matched_rule=matched_rule,
