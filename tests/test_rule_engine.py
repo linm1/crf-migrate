@@ -1335,3 +1335,18 @@ class TestFormNameTopLeftBlock:
         ]
         result = engine.extract_form_name(blocks, page_height=800.0)
         assert result == "In Top Region"
+
+    def test_design_prefix_excluded(self):
+        """Design: metadata should be skipped; the next valid block is returned."""
+        engine = _engine_with_anchor(
+            {"strategy": "top_left_block", "min_font_size": 6.5},
+            {"left_column_tolerance_px": 50.0},
+        )
+        blocks: list[TextBlock] = [
+            TextBlock(text="Design: 2024-07-26 IA#005_UAT#3", font_size=8.4, bold=False,
+                      rect=[206, 77, 400, 90]),
+            TextBlock(text="Adverse Events", font_size=7.3, bold=True,
+                      rect=[76, 102, 250, 115]),
+        ]
+        result = engine.extract_form_name(blocks, page_height=841.0)
+        assert result == "Adverse Events"
