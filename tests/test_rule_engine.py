@@ -1350,3 +1350,24 @@ class TestFormNameTopLeftBlock:
         ]
         result = engine.extract_form_name(blocks, page_height=841.0)
         assert result == "Adverse Events"
+
+
+class TestSharedExcludePatterns:
+    def test_merged_patterns_deduplicated(self):
+        """Patterns appearing in both form_name and anchor_text lists appear once."""
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        # All patterns are merged into _form_name_excludes == _anchor_excludes
+        assert engine._form_name_excludes is engine._anchor_excludes
+        # No duplicate compiled patterns (check by pattern string)
+        pattern_strings = [p.pattern for p in engine._form_name_excludes]
+        assert len(pattern_strings) == len(set(pattern_strings))
+
+    def test_anchor_excludes_same_as_form_name_excludes(self):
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        assert engine.anchor_exclude_patterns is engine._form_name_excludes

@@ -133,8 +133,8 @@ form_name_rules:
   exclude_patterns:
   - ^CDISC$
   - ^Study\b
-  - ^Design\s*:
-  - ^Codelist\s*:
+  - "^Design\\s*:"
+  - "^Codelist\\s*:"
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
@@ -162,8 +162,8 @@ anchor_text_config:
   - ^\s*$
   - ^CDISC$
   - ^Study\b
-  - ^Design\s*:
-  - ^Codelist\s*:
+  - "^Design\\s*:"
+  - "^Codelist\\s*:"
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}

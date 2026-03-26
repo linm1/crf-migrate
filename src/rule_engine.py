@@ -21,14 +21,17 @@ class RuleEngine:
 
     def __init__(self, profile: Profile) -> None:
         self._profile = profile
-        self._form_name_excludes: list[re.Pattern[str]] = [
-            re.compile(p, re.IGNORECASE)
-            for p in profile.form_name_rules.exclude_patterns
-        ]
-        self._anchor_excludes: list[re.Pattern[str]] = [
-            re.compile(p, re.IGNORECASE)
-            for p in profile.anchor_text_config.exclude_patterns
-        ]
+        seen: set[str] = set()
+        shared: list[re.Pattern[str]] = []
+        for p in (
+            list(profile.form_name_rules.exclude_patterns)
+            + list(profile.anchor_text_config.exclude_patterns)
+        ):
+            if p not in seen:
+                seen.add(p)
+                shared.append(re.compile(p, re.IGNORECASE))
+        self._form_name_excludes = shared
+        self._anchor_excludes = shared
 
     # ------------------------------------------------------------------
     # Public API
