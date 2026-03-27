@@ -197,6 +197,8 @@ matching_config:
 style_defaults:
   font: Arial,BoldItalic
   font_size: 18.0
+  default_font_size: 10.0
+  domain_label_font_size: 14.0
   text_color:
   - 0.0
   - 0.0
