@@ -21,17 +21,14 @@ class RuleEngine:
 
     def __init__(self, profile: Profile) -> None:
         self._profile = profile
-        seen: set[str] = set()
-        shared: list[re.Pattern[str]] = []
-        for p in (
-            list(profile.form_name_rules.exclude_patterns)
-            + list(profile.anchor_text_config.exclude_patterns)
-        ):
-            if p not in seen:
-                seen.add(p)
-                shared.append(re.compile(p, re.IGNORECASE))
-        self._form_name_excludes = shared
-        self._anchor_excludes = shared
+        self._form_name_excludes: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE)
+            for p in profile.form_name_rules.exclude_patterns
+        ]
+        self._anchor_excludes: list[re.Pattern[str]] = [
+            re.compile(p, re.IGNORECASE)
+            for p in profile.anchor_text_config.exclude_patterns
+        ]
 
     # ------------------------------------------------------------------
     # Public API
@@ -100,7 +97,10 @@ class RuleEngine:
             return self._scan_top_left_block(eligible)
 
         # Default: "largest_bold_text" — top-to-bottom scan with min_font_size
-        sorted_blocks = sorted(eligible, key=lambda b: b["rect"][1])
+        # Bold blocks first (0 < 1), then top-to-bottom within each boldness tier
+        sorted_blocks = sorted(
+            eligible, key=lambda b: (0 if b["bold"] else 1, b["rect"][1])
+        )
         for block in sorted_blocks:
             text = block["text"].strip()
             if not text:

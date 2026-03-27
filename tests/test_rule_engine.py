@@ -774,7 +774,7 @@ class TestFormNameExtraction:
         """
         engine = _engine({"top_region_fraction": 0.30, "min_font_size": 8.0})
         blocks: list[TextBlock] = [
-            TextBlock(text="SMALL TOP", font_size=10, bold=False,
+            TextBlock(text="SMALL TOP", font_size=10, bold=True,
                       rect=[50, 30, 200, 45]),    # y0=30 — topmost, qualifies (font_size >= 8)
             TextBlock(text="LARGE TOP", font_size=20, bold=True,
                       rect=[50, 100, 300, 125]),  # y0=100 — larger font but lower
@@ -886,7 +886,7 @@ class TestFormNameTopToBottomScan:
         blocks: list[TextBlock] = [
             TextBlock(text="BOTTOM BLOCK", font_size=24.0, bold=True,
                       rect=[50, 400, 300, 420]),   # y0=400 — lower on page
-            TextBlock(text="TOP BLOCK", font_size=14.0, bold=False,
+            TextBlock(text="TOP BLOCK", font_size=14.0, bold=True,
                       rect=[50, 20, 300, 35]),     # y0=20 — higher on page
             TextBlock(text="MID BLOCK", font_size=18.0, bold=True,
                       rect=[50, 200, 300, 220]),   # y0=200 — middle
@@ -935,10 +935,13 @@ class TestFormNameTopToBottomScan:
         assert engine.extract_form_name(blocks) == ""
 
     def test_form_name_top_to_bottom_ignores_font_size_ordering(self):
-        """Topmost block wins regardless of font size — NOT the largest font."""
+        """Topmost block wins regardless of font size — NOT the largest font.
+
+        Within the same boldness tier, position (y0) is the only tiebreaker.
+        """
         engine = _engine({"min_font_size": 8.0})
         blocks: list[TextBlock] = [
-            TextBlock(text="SMALLER TITLE", font_size=10.0, bold=False,
+            TextBlock(text="SMALLER TITLE", font_size=10.0, bold=True,
                       rect=[50, 30, 300, 42]),     # y0=30 — topmost
             TextBlock(text="BIGGER HEADING", font_size=36.0, bold=True,
                       rect=[50, 200, 400, 240]),   # y0=200 — larger font but lower
@@ -971,6 +974,24 @@ class TestFormNameTopToBottomScan:
         ]
         # New algorithm ignores top_region_fraction — should still return this block
         assert engine.extract_form_name(blocks) == "DEEP PAGE TITLE"
+
+    def test_extract_form_name_prefers_bold_over_non_bold_running_header(self):
+        """Bold block is preferred over a non-bold running header even when non-bold appears first.
+
+        Regression: previously a non-bold running header ("Coagulation (Local)") at y0=20
+        would be returned before the actual bold form title ("Demographics") at y0=40 because
+        the scan was purely top-to-bottom without boldness prioritisation.
+        """
+        engine = _engine({"min_font_size": 8.0, "top_region_fraction": 0.35})
+        # page_height=800 → top_cutoff = 0.35 * 800 = 280; both blocks are within cutoff
+        blocks: list[TextBlock] = [
+            TextBlock(text="Coagulation (Local)", font_size=10.0, bold=False,
+                      rect=[0, 20, 200, 30]),   # non-bold, y0=20 — appears first top-to-bottom
+            TextBlock(text="Demographics", font_size=10.0, bold=True,
+                      rect=[0, 40, 200, 50]),   # bold, y0=40 — appears second
+        ]
+        # Bold blocks are sorted before non-bold blocks; "Demographics" must win
+        assert engine.extract_form_name(blocks, page_height=800) == "Demographics"
 
 
 class TestAnchorTextLeftColumnAlgorithm:
@@ -1353,21 +1374,38 @@ class TestFormNameTopLeftBlock:
 
 
 class TestSharedExcludePatterns:
-    def test_merged_patterns_deduplicated(self):
-        """Patterns appearing in both form_name and anchor_text lists appear once."""
+    def test_form_name_and_anchor_excludes_are_separate_lists(self):
+        """_form_name_excludes and _anchor_excludes must be independent objects."""
         from src.profile_loader import load_profile
         from pathlib import Path
         profile = load_profile(Path("profiles/cdisc_standard.yaml"))
         engine = RuleEngine(profile)
-        # All patterns are merged into _form_name_excludes == _anchor_excludes
-        assert engine._form_name_excludes is engine._anchor_excludes
-        # No duplicate compiled patterns (check by pattern string)
-        pattern_strings = [p.pattern for p in engine._form_name_excludes]
-        assert len(pattern_strings) == len(set(pattern_strings))
+        assert engine._form_name_excludes is not engine._anchor_excludes
 
-    def test_anchor_excludes_same_as_form_name_excludes(self):
+    def test_form_name_excludes_uses_form_name_patterns(self):
+        """_form_name_excludes is compiled from form_name_rules.exclude_patterns."""
         from src.profile_loader import load_profile
         from pathlib import Path
         profile = load_profile(Path("profiles/cdisc_standard.yaml"))
         engine = RuleEngine(profile)
-        assert engine.anchor_exclude_patterns is engine._form_name_excludes
+        form_name_pattern_strings = {p.pattern for p in engine._form_name_excludes}
+        for raw in profile.form_name_rules.exclude_patterns:
+            assert raw in form_name_pattern_strings
+
+    def test_anchor_excludes_uses_anchor_patterns(self):
+        """_anchor_excludes is compiled from anchor_text_config.exclude_patterns."""
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        anchor_pattern_strings = {p.pattern for p in engine._anchor_excludes}
+        for raw in profile.anchor_text_config.exclude_patterns:
+            assert raw in anchor_pattern_strings
+
+    def test_anchor_exclude_patterns_property_returns_anchor_excludes(self):
+        """anchor_exclude_patterns property returns _anchor_excludes."""
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        assert engine.anchor_exclude_patterns is engine._anchor_excludes
