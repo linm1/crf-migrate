@@ -14,31 +14,6 @@ from src.profile_models import Profile
 _FALLBACK_FILL: tuple[float, float, float] = (0.75, 1.0, 1.0)  # cyan
 
 
-def _build_domain_color_map(
-    annotations: list[AnnotationRecord],
-    page_num: int,
-) -> dict[str, tuple[float, float, float]]:
-    """Build domain→fill_color map using each domain's first-seen source fill color.
-
-    Uses the fill_color from the source annotation directly — no palette
-    substitution or validation. Falls back to cyan only when fill_color is
-    absent (None or empty).
-    """
-    domain_color: dict[str, tuple[float, float, float]] = {}
-    for annot in annotations:
-        if annot.page != page_num:
-            continue
-        domain = annot.domain
-        if domain in domain_color:
-            continue
-        fill = annot.style.fill_color
-        if fill and len(fill) >= 3:
-            domain_color[domain] = (fill[0], fill[1], fill[2])
-        else:
-            domain_color[domain] = _FALLBACK_FILL
-    return domain_color
-
-
 def _resolve_text_style(
     annot: AnnotationRecord,
     profile: Profile,
@@ -76,20 +51,6 @@ def write_annotations(
     written_ids: list[str] = []
     skipped_ids: list[str] = []
 
-    # Pre-build per-page domain→color maps using all annotations (not just approved),
-    # so domain color assignment is stable regardless of approval status.
-    pages_needed: set[int] = set()
-    for match in matches:
-        if match.status in ("approved", "modified"):
-            annot = annot_by_id.get(match.annotation_id)
-            if annot:
-                pages_needed.add(annot.page)
-
-    page_domain_maps: dict[int, dict[str, tuple[float, float, float]]] = {
-        page_num: _build_domain_color_map(annotations, page_num)
-        for page_num in pages_needed
-    }
-
     for match in matches:
         if match.status in ("approved", "modified"):
             annot = annot_by_id.get(match.annotation_id)
@@ -101,8 +62,7 @@ def write_annotations(
                 skipped_ids.append(match.annotation_id)
                 continue
             page = doc[page_index]
-            domain_color_map = page_domain_maps.get(annot.page, {})
-            _write_single_annotation(page, match.target_rect, annot, domain_color_map, profile, doc)
+            _write_single_annotation(page, match.target_rect, annot, profile, doc)
             written_ids.append(match.annotation_id)
         else:
             skipped_ids.append(match.annotation_id)
@@ -166,14 +126,14 @@ def _write_single_annotation(
     page: fitz.Page,
     target_rect: list[float],
     annot: AnnotationRecord,
-    domain_color_map: dict[str, tuple[float, float, float]],
     profile: Profile,
     doc: fitz.Document,
 ) -> None:
     """Add a FreeText annotation to the given page at target_rect.
 
     Font, size, and text color follow SDTM guideline rules (category-driven).
-    Fill/background color comes from the source annotation's fill_color.
+    Fill/background color is taken directly from the source annotation's
+    fill_color, falling back to cyan only when absent.
     Border width and dash pattern are preserved from the source annotation.
 
     IMPORTANT: Never call xref_set_key on /C after update().  The /C key is
@@ -182,7 +142,8 @@ def _write_single_annotation(
     fill color and the border color on viewer re-render.
     """
     fontname, fontsize, text_color = _resolve_text_style(annot, profile)
-    fill = domain_color_map.get(annot.domain) or _FALLBACK_FILL
+    fill_src = annot.style.fill_color
+    fill = (fill_src[0], fill_src[1], fill_src[2]) if fill_src and len(fill_src) >= 3 else _FALLBACK_FILL
     style = annot.style
     rect = fitz.Rect(target_rect)
 
