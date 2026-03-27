@@ -50,6 +50,8 @@ class FieldRecord(BaseModel):
     visit: str = ""
     rect: list[float]              # Bounding box of the field label text
     field_type: str                # text_field | checkbox | date_field | table_row | section_header
+    page_width: float = 0.0        # target page width in PDF points
+    page_height: float = 0.0       # target page height in PDF points
 
 
 class MatchRecord(BaseModel):
@@ -62,3 +64,4 @@ class MatchRecord(BaseModel):
     target_rect: list[float]       # Computed placement position on the target PDF
     status: str = "pending"        # pending | approved | rejected | modified
     user_notes: str = ""
+    placement_adjusted: bool = False  # True if target_rect was clamped or fallback-placed

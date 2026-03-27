@@ -81,6 +81,10 @@ def _process_page(
     """
     text_blocks = _get_text_blocks(page)
 
+    # Extract page dimensions for field bounds tracking
+    page_w = page.rect.width
+    page_h = page.rect.height
+
     # --- Codelist page sentinel: skip lookup-table pages entirely ---
     # Codelist pages start with "Codelist:" / "Codelist View:" in the top region.
     # Even after those blocks are excluded from form_name extraction, the data rows
@@ -124,11 +128,13 @@ def _process_page(
             non_marker_blocks.append(block)
 
     headers = _collect_section_headers(
-        non_marker_blocks, page_num, form_name, visit, min_header_size, exclude_patterns
+        non_marker_blocks, page_num, form_name, visit, min_header_size, exclude_patterns,
+        page_w, page_h,
     )
     markers = _resolve_marker_labels(
         marker_blocks, non_marker_blocks, page_num, form_name, visit,
         left_col_tol, exclude_patterns,
+        page_w, page_h,
     )
     return headers + markers
 
@@ -140,6 +146,8 @@ def _collect_section_headers(
     visit: str,
     min_header_size: float,
     exclude_patterns: list[re.Pattern[str]],
+    page_width: float,
+    page_height: float,
 ) -> list[FieldRecord]:
     """Return a FieldRecord for every non-marker block that qualifies as a section header.
 
@@ -163,6 +171,8 @@ def _collect_section_headers(
                 visit=visit,
                 rect=block["rect"],
                 field_type="section_header",
+                page_width=page_width,
+                page_height=page_height,
             )
         )
     return records
@@ -176,6 +186,8 @@ def _resolve_marker_labels(
     visit: str,
     left_col_tolerance: float,
     exclude_patterns: list[re.Pattern[str]],
+    page_width: float,
+    page_height: float,
 ) -> list[FieldRecord]:
     """Pass B: resolve the nearest human-readable label for each marker block.
 
@@ -206,6 +218,8 @@ def _resolve_marker_labels(
                 visit=visit,
                 rect=block["rect"],
                 field_type=field_type,
+                page_width=page_width,
+                page_height=page_height,
             )
         )
     return records

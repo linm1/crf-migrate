@@ -94,6 +94,9 @@ def build_qc_report(
         "rejected_annotation_ids": [
             m.annotation_id for m in matches if m.status == "rejected"
         ],
+        "placement_adjusted_ids": [
+            m.annotation_id for m in matches if m.placement_adjusted
+        ],
     }
 
 

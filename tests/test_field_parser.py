@@ -66,6 +66,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=2, form_name="Adverse Events", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert len(records) == 1
         assert records[0].label == "Adverse Events"
@@ -81,6 +82,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=4, form_name="Adverse Events", visit="",
             min_header_size=6.5, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == [], f"Expected no records, got {records}"
 
@@ -92,6 +94,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -103,6 +106,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert len(records) == 1
         assert records[0].label == "BIG HEADER"
@@ -114,6 +118,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             [], page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -125,6 +130,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -136,6 +142,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=5, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -147,6 +154,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=3, form_name="Adverse Events", visit="Baseline",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert len(records) == 1
         r = records[0]
