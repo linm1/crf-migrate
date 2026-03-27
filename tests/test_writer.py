@@ -396,6 +396,102 @@ def test_T4_11_source_fill_color_preserved(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# T4.12 — domain_label uses bold font ("hebo")
+# ---------------------------------------------------------------------------
+
+def test_T4_12_domain_label_bold_font(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="DM",
+        domain="DM",
+        category="domain_label",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+    doc.close()
+    # "hebo" is PyMuPDF's built-in bold Helvetica
+    assert "hebo" in da
+
+
+# ---------------------------------------------------------------------------
+# T4.13 — profile-driven font sizes respected
+# ---------------------------------------------------------------------------
+
+def test_T4_13_profile_font_sizes(tmp_path):
+    """Profile with custom font sizes drives annotation output size."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+
+    # Build a profile with 12pt for both categories
+    profile = Profile(
+        meta=ProfileMeta(name="test"),
+        domain_codes=["DM"],
+        classification_rules=[
+            ClassificationRule(
+                conditions=RuleCondition(fallback=True),
+                category="sdtm_mapping",
+            )
+        ],
+        style_defaults=StyleDefaults(
+            default_font_size=12.0,
+            domain_label_font_size=12.0,
+        ),
+    )
+
+    # Test domain_label at 12pt
+    annot_label = AnnotationRecord(
+        id="annot-label",
+        page=1,
+        content="DM",
+        domain="DM",
+        category="domain_label",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match_label = make_match(annot_id="annot-label", status="approved")
+
+    write_annotations(target, output, [match_label], [annot_label], profile)
+
+    doc = fitz.open(str(output))
+    da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+    doc.close()
+    assert "12" in da
+
+    # Test sdtm_mapping at 12pt
+    output2 = tmp_path / "output2.pdf"
+    annot_map = AnnotationRecord(
+        id="annot-map",
+        page=1,
+        content="BRTHDTC",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match_map = make_match(annot_id="annot-map", status="approved")
+
+    write_annotations(target, output2, [match_map], [annot_map], profile)
+
+    doc2 = fitz.open(str(output2))
+    da2 = doc2.xref_get_key(list(doc2[0].annots())[0].xref, "DA")[1]
+    doc2.close()
+    assert "12" in da2
+
+
+# ---------------------------------------------------------------------------
 # T4.10 — StyleDefaults accepts domain_label_font_size and default_font_size
 # ---------------------------------------------------------------------------
 
