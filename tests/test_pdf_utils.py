@@ -4,11 +4,12 @@ Pure unit tests — no PDF files needed. All TextBlock instances use synthetic
 data so these tests can run without PyMuPDF being able to open any file.
 """
 import re
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.rule_engine import TextBlock
-from src.pdf_utils import find_nearest_label
+from src.pdf_utils import find_nearest_label, get_text_blocks
 
 
 def _block(text: str, x0: float, y0: float, x1: float, y1: float) -> TextBlock:
@@ -125,3 +126,39 @@ class TestFindNearestLabel:
         # Should not raise — fitz.Rect is NOT required
         result, _ = find_nearest_label(marker_rect, blocks, left_column_tolerance_px=5.0)
         assert result == "Label"
+
+
+class TestGetTextBlocksBoldDetection:
+    """Tests for bold detection logic in get_text_blocks."""
+
+    def _make_page(self, spans: list[dict]) -> MagicMock:
+        """Return a mock fitz.Page whose get_text('dict') returns the given spans."""
+        raw = {
+            "blocks": [
+                {
+                    "type": 0,
+                    "lines": [
+                        {
+                            "spans": spans,
+                        }
+                    ],
+                }
+            ]
+        }
+        page = MagicMock()
+        page.get_text.return_value = raw
+        return page
+
+    def test_bold_detected_from_font_name_when_flags_not_set(self):
+        """Bold=True when font name contains 'bold' and span flags have bit 4 clear."""
+        span = {
+            "text": "Subject ID",
+            "font": "ArialBold",  # "bold" present in font name (case-insensitive)
+            "flags": 0,           # bit 4 NOT set — only font-name path should trigger bold
+            "size": 10.0,
+            "bbox": [50.0, 90.0, 150.0, 110.0],
+        }
+        page = self._make_page([span])
+        blocks = get_text_blocks(page, annot_rects=None)
+        assert len(blocks) == 1
+        assert blocks[0]["bold"] is True

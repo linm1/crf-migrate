@@ -170,7 +170,8 @@ def get_text_blocks(
                     if annot_rects is not None and span_inside_annotation(bbox, annot_rects):
                         continue
                     flags = span.get("flags", 0)
-                    bold = bool(flags & 16)  # bit 4 is the bold flag in PDF spec
+                    font_name = span.get("font", "")
+                    bold = bool(flags & 16) or ("bold" in font_name.lower())
                     blocks.append(
                         TextBlock(
                             text=text,

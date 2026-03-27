@@ -97,9 +97,9 @@ class RuleEngine:
             return self._scan_top_left_block(eligible)
 
         # Default: "largest_bold_text" — top-to-bottom scan with min_font_size
-        # Bold blocks first (0 < 1), then top-to-bottom within each boldness tier
+        # Bold blocks first (0 < 1), then largest font (descending), then top-to-bottom
         sorted_blocks = sorted(
-            eligible, key=lambda b: (0 if b["bold"] else 1, b["rect"][1])
+            eligible, key=lambda b: (0 if b["bold"] else 1, -b["font_size"], b["rect"][1])
         )
         for block in sorted_blocks:
             text = block["text"].strip()

@@ -595,11 +595,11 @@ class TestFormNameExtraction:
         engine = RuleEngine(profile)
         text_blocks = [
             TextBlock(text="Section A", font_size=14.0, bold=True, rect=[0, 0, 100, 20]),     # y0=0 — topmost
-            TextBlock(text="DEMOGRAPHICS", font_size=20.0, bold=True, rect=[0, 30, 200, 50]), # y0=30
-            TextBlock(text="Sub-heading", font_size=16.0, bold=True, rect=[0, 60, 150, 80]),  # y0=60
+            TextBlock(text="DEMOGRAPHICS", font_size=14.0, bold=True, rect=[0, 30, 200, 50]), # y0=30 — same font size
+            TextBlock(text="Sub-heading", font_size=14.0, bold=True, rect=[0, 60, 150, 80]),  # y0=60 — same font size
         ]
         result = engine.extract_form_name(text_blocks)
-        # Top-to-bottom scan: "Section A" is topmost and passes min_font_size=12
+        # Same font size across all blocks → y0 tiebreak: "Section A" is topmost and wins
         assert result == "Section A"
 
     def test_form_name_strips_whitespace(self):
@@ -720,33 +720,33 @@ class TestFormNameExtraction:
         assert engine.extract_form_name([]) == ""
 
     def test_form_name_top_region_fraction_excludes_lower_blocks(self):
-        """top_region_fraction=0.25 excludes blocks in bottom 75% of page."""
-        # Page height estimated from max y1 = 800. Cutoff = 0.25 * 800 = 200.
-        # Block A: y0=50  → IN  top region (50 <= 200) ✓
-        # Block B: y0=400 → OUT of top region (400 > 200) ✗
+        """top_region_fraction is ignored; topmost block with same font size wins via y0."""
+        # top_region_fraction is no longer used by the algorithm (retained in model only).
+        # Block A: y0=50  — topmost, same font size → wins via y0 tiebreak
+        # Block B: y0=400 — lower on page, same font size → loses
         engine = _engine({"top_region_fraction": 0.25, "min_font_size": 8.0})
         blocks: list[TextBlock] = [
             TextBlock(text="FORM TITLE", font_size=14, bold=True,
-                      rect=[50, 50, 300, 70]),    # y0=50, in top region
-            TextBlock(text="LARGER BODY", font_size=18, bold=True,
-                      rect=[50, 400, 300, 800]),  # y0=400, out of top region
+                      rect=[50, 50, 300, 70]),    # y0=50 — topmost
+            TextBlock(text="LOWER BODY", font_size=14, bold=True,
+                      rect=[50, 400, 300, 800]),  # y0=400 — same font size, lower
         ]
         assert engine.extract_form_name(blocks) == "FORM TITLE"
 
     def test_form_name_top_region_fraction_none_no_filtering(self):
         """top_region_fraction=None (default) applies no position filter.
 
-        The new algorithm ignores top_region_fraction entirely and returns
-        the topmost qualifying block regardless of font size.
+        The algorithm ignores top_region_fraction entirely and returns the
+        topmost qualifying block when font sizes are equal (y0 tiebreak).
         """
         engine = _engine({"top_region_fraction": None, "min_font_size": 8.0})
         blocks: list[TextBlock] = [
             TextBlock(text="SMALL HEADER", font_size=14, bold=True,
-                      rect=[50, 50, 300, 70]),    # y0=50 — topmost
-            TextBlock(text="BIG BODY", font_size=24, bold=True,
-                      rect=[50, 500, 300, 525]),  # y0=500 — lower on page
+                      rect=[50, 50, 300, 70]),    # y0=50 — topmost, same font size
+            TextBlock(text="BIG BODY", font_size=14, bold=True,
+                      rect=[50, 500, 300, 525]),  # y0=500 — same font size, lower on page
         ]
-        # Top-to-bottom scan: "SMALL HEADER" is topmost and passes min_font_size
+        # Same font size → y0 tiebreak: "SMALL HEADER" is topmost and wins
         assert engine.extract_form_name(blocks) == "SMALL HEADER"
 
     def test_form_name_top_region_fraction_ignored_returns_topmost(self):
@@ -769,35 +769,35 @@ class TestFormNameExtraction:
     def test_form_name_top_region_fraction_picks_topmost_not_largest(self):
         """With the new algorithm, top_region_fraction is ignored; topmost block wins.
 
-        Previously this tested that the largest block within the top region won.
-        Now top_region_fraction has no effect; the topmost qualifying block is returned.
+        top_region_fraction has no effect. When all blocks share the same font size,
+        the topmost qualifying block is returned via y0 tiebreak.
         """
         engine = _engine({"top_region_fraction": 0.30, "min_font_size": 8.0})
         blocks: list[TextBlock] = [
             TextBlock(text="SMALL TOP", font_size=10, bold=True,
-                      rect=[50, 30, 200, 45]),    # y0=30 — topmost, qualifies (font_size >= 8)
-            TextBlock(text="LARGE TOP", font_size=20, bold=True,
-                      rect=[50, 100, 300, 125]),  # y0=100 — larger font but lower
-            TextBlock(text="HUGE BOTTOM", font_size=36, bold=True,
-                      rect=[50, 600, 400, 900]),  # y0=600 — lowest
+                      rect=[50, 30, 200, 45]),    # y0=30 — topmost, same font size
+            TextBlock(text="MID BLOCK", font_size=10, bold=True,
+                      rect=[50, 100, 300, 125]),  # y0=100 — same font size, lower
+            TextBlock(text="LOW BLOCK", font_size=10, bold=True,
+                      rect=[50, 600, 400, 900]),  # y0=600 — same font size, lowest
         ]
-        # Top-to-bottom scan: "SMALL TOP" is topmost and passes min_font_size=8
+        # Same font size across all blocks → y0 tiebreak: "SMALL TOP" is topmost and wins
         assert engine.extract_form_name(blocks) == "SMALL TOP"
 
     def test_form_name_top_region_fraction_combined_with_exclude_patterns(self):
-        """top_region_fraction and exclude_patterns both apply."""
+        """exclude_patterns filters work; top_region_fraction is ignored by algorithm."""
         engine = _engine({
             "top_region_fraction": 0.25,
             "min_font_size": 8.0,
             "exclude_patterns": ["^CDISC$"],
         })
         blocks: list[TextBlock] = [
-            TextBlock(text="CDISC", font_size=18, bold=True,
+            TextBlock(text="CDISC", font_size=14, bold=True,
                       rect=[50, 20, 200, 38]),    # excluded by pattern
             TextBlock(text="FORM NAME", font_size=14, bold=True,
-                      rect=[50, 50, 250, 68]),    # passes all filters
-            TextBlock(text="BODY TEXT", font_size=18, bold=True,
-                      rect=[50, 500, 300, 520]),  # excluded by top_region_fraction
+                      rect=[50, 50, 250, 68]),    # passes all filters — topmost after exclusion
+            TextBlock(text="BODY TEXT", font_size=14, bold=True,
+                      rect=[50, 500, 300, 520]),  # same font size, lower — loses on y0
         ]
         assert engine.extract_form_name(blocks) == "FORM NAME"
 
@@ -884,13 +884,14 @@ class TestFormNameTopToBottomScan:
         """Returns the topmost (lowest y0) block that passes min_font_size."""
         engine = _engine({"min_font_size": 10.0})
         blocks: list[TextBlock] = [
-            TextBlock(text="BOTTOM BLOCK", font_size=24.0, bold=True,
-                      rect=[50, 400, 300, 420]),   # y0=400 — lower on page
+            TextBlock(text="BOTTOM BLOCK", font_size=14.0, bold=True,
+                      rect=[50, 400, 300, 420]),   # y0=400 — lower on page, same font size
             TextBlock(text="TOP BLOCK", font_size=14.0, bold=True,
-                      rect=[50, 20, 300, 35]),     # y0=20 — higher on page
-            TextBlock(text="MID BLOCK", font_size=18.0, bold=True,
-                      rect=[50, 200, 300, 220]),   # y0=200 — middle
+                      rect=[50, 20, 300, 35]),     # y0=20 — higher on page, same font size
+            TextBlock(text="MID BLOCK", font_size=14.0, bold=True,
+                      rect=[50, 200, 300, 220]),   # y0=200 — middle, same font size
         ]
+        # Same font size across all blocks → y0 tiebreak: "TOP BLOCK" is topmost and wins
         assert engine.extract_form_name(blocks) == "TOP BLOCK"
 
     def test_form_name_skips_excluded_patterns(self):
@@ -935,19 +936,20 @@ class TestFormNameTopToBottomScan:
         assert engine.extract_form_name(blocks) == ""
 
     def test_form_name_top_to_bottom_ignores_font_size_ordering(self):
-        """Topmost block wins regardless of font size — NOT the largest font.
+        """Largest font wins within the same boldness tier — NOT the topmost block.
 
-        Within the same boldness tier, position (y0) is the only tiebreaker.
+        Within the same boldness tier, font size is the primary discriminator;
+        y0 (position) is only the final tiebreaker when font sizes are equal.
         """
         engine = _engine({"min_font_size": 8.0})
         blocks: list[TextBlock] = [
             TextBlock(text="SMALLER TITLE", font_size=10.0, bold=True,
-                      rect=[50, 30, 300, 42]),     # y0=30 — topmost
+                      rect=[50, 30, 300, 42]),     # y0=30 — topmost but smaller font
             TextBlock(text="BIGGER HEADING", font_size=36.0, bold=True,
-                      rect=[50, 200, 400, 240]),   # y0=200 — larger font but lower
+                      rect=[50, 200, 400, 240]),   # y0=200 — lower but larger font
         ]
-        # New algorithm: topmost = "SMALLER TITLE" (NOT "BIGGER HEADING")
-        assert engine.extract_form_name(blocks) == "SMALLER TITLE"
+        # Larger font wins: "BIGGER HEADING" (36pt) beats "SMALLER TITLE" (10pt)
+        assert engine.extract_form_name(blocks) == "BIGGER HEADING"
 
     def test_form_name_skips_blank_blocks_in_scan(self):
         """Empty or whitespace-only blocks are skipped during top-to-bottom scan."""
@@ -992,6 +994,22 @@ class TestFormNameTopToBottomScan:
         ]
         # Bold blocks are sorted before non-bold blocks; "Demographics" must win
         assert engine.extract_form_name(blocks, page_height=800) == "Demographics"
+
+    def test_form_name_larger_font_wins_over_smaller_topmost(self):
+        """Within the same bold tier, the block with the largest font size wins.
+
+        Even though block A is topmost (lower y0), block B wins because it has
+        a larger font size. Font size is the second sort key after boldness.
+        """
+        engine = _engine({"min_font_size": 8.0})
+        blocks: list[TextBlock] = [
+            TextBlock(text="SMALL TITLE", font_size=10.0, bold=True,
+                      rect=[50, 20, 300, 32]),    # y0=20 — topmost, smaller font
+            TextBlock(text="LARGE TITLE", font_size=18.0, bold=True,
+                      rect=[50, 60, 400, 80]),    # y0=60 — lower, larger font
+        ]
+        # Larger font wins: "LARGE TITLE" (18pt) beats "SMALL TITLE" (10pt)
+        assert engine.extract_form_name(blocks) == "LARGE TITLE"
 
 
 class TestAnchorTextLeftColumnAlgorithm:
