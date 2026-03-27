@@ -98,14 +98,31 @@ def make_clean_page(page: fitz.Page) -> tuple[fitz.Document, fitz.Page]:
     return temp_doc, clean_page
 
 
-def get_annotation_rects(page: fitz.Page) -> list[fitz.Rect]:
-    """Return bounding rects for all annotations on the page.
+def get_annotation_rects(
+    page: fitz.Page,
+    types: list[str] | None = None,
+) -> list[fitz.Rect]:
+    """Return bounding rects for annotations on the page.
 
     Used to suppress spans that originate from annotation appearance streams
     rather than native page content. Returns [] on any failure.
+
+    Args:
+        page: The page to inspect.
+        types: Optional list of annotation subtype strings to include (e.g.
+            ``["FreeText"]``).  When None, all annotation types are included.
+            Pass ``["FreeText"]`` to exclude AcroForm Widget rects so that
+            field labels near widget boundaries are not inadvertently filtered.
     """
     try:
-        return [annot.rect for annot in page.annots()]
+        annots = page.annots()
+        if types is not None:
+            type_set = {t.lower() for t in types}
+            return [
+                annot.rect for annot in annots
+                if annot.type[1].lower() in type_set
+            ]
+        return [annot.rect for annot in annots]
     except Exception:
         return []
 

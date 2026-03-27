@@ -49,6 +49,160 @@ class TestEmptyFormNameSkip:
         assert fields == [], f"Expected no fields, got {len(fields)}: {fields}"
 
 
+class TestFormNameFromTopLeftField:
+    """form_name must equal the label of the topmost-leftmost FieldRecord on the page.
+
+    Regression: previously, form_name was derived from raw text blocks via
+    extract_form_name() which was fragile and could return values from prior pages.
+    Now form_name is taken directly from the extracted field with smallest (y0, x0).
+    """
+
+    def test_form_name_is_label_of_top_left_field(self, tmp_path):
+        """form_name equals the label of the topmost-leftmost extracted field."""
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+
+        # Top-left text block — this should become the form_name
+        page.insert_text((50, 40), "Coagulation (Local)", fontsize=12)
+
+        # A field label + marker lower on the page
+        page.insert_text((50, 120), "aPTT", fontsize=9)
+        page.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        pdf_path = tmp_path / "coag.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_fields(pdf_path, profile, engine)
+        assert records, "Expected at least one field record"
+        for r in records:
+            assert r.form_name == "Coagulation (Local)", (
+                f"Expected form_name='Coagulation (Local)', got '{r.form_name}'"
+            )
+
+    def test_form_name_independent_per_page(self, tmp_path):
+        """Each page independently derives its own form_name from its top-left field.
+
+        Regression: form_name from page N must NOT bleed into page N+1.
+        """
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+
+        # Page 1: Coagulation (Local)
+        p1 = doc.new_page(width=595, height=841)
+        p1.insert_text((50, 40), "Coagulation (Local)", fontsize=12)
+        p1.insert_text((50, 120), "aPTT", fontsize=9)
+        p1.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        # Page 2: Hematology — different form, no mention of Coagulation
+        p2 = doc.new_page(width=595, height=841)
+        p2.insert_text((50, 40), "Hematology", fontsize=12)
+        p2.insert_text((50, 120), "WBC", fontsize=9)
+        p2.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        pdf_path = tmp_path / "two_forms.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_fields(pdf_path, profile, engine)
+
+        page1_records = [r for r in records if r.page == 1]
+        page2_records = [r for r in records if r.page == 2]
+
+        assert page1_records, "Expected records on page 1"
+        assert page2_records, "Expected records on page 2"
+
+        for r in page1_records:
+            assert r.form_name == "Coagulation (Local)", (
+                f"Page 1: expected 'Coagulation (Local)', got '{r.form_name}'"
+            )
+        for r in page2_records:
+            assert r.form_name == "Hematology", (
+                f"Page 2: expected 'Hematology', got '{r.form_name}' — bled from page 1"
+            )
+
+
+class TestGetTextBlocksFreeTextOnlyFilter:
+    """Regression: _get_text_blocks must filter only FreeText annotation rects.
+
+    The previous code called get_annotation_rects(page) with no type filter,
+    which collected ALL annotation rects including AcroForm Widget boxes.
+    Widget rects overlap nearby label text, causing those labels to be silently
+    excluded from text_blocks.  find_nearest_label() then fell back to wrong or
+    stale labels from earlier pages.
+
+    Fix: filter only FreeText annotation rects — Widget rects are ignored so
+    that label text adjacent to form fields is preserved.  FreeText filtering is
+    still required to prevent SDTM annotation appearance text from being
+    misclassified as CRF fields (see test_t2_09 in test_phase2_fields.py).
+    """
+
+    def test_label_not_excluded_by_widget_rect_overlap(self, tmp_path):
+        """Label text overlapping a non-FreeText annotation must still be extracted.
+
+        Builds a PDF page where:
+          - A FreeText annotation with empty text covers the label "Subject ID"
+          - The label text is rendered as native page content
+          - A date marker "DD/MON/YYYY" sits to the right
+
+        The annotation here uses type FreeText but carries empty content, so its
+        appearance stream produces no rendered text.  The label "Subject ID" is
+        native page text that happens to spatially overlap the annotation rect.
+        After the fix, the label must still be found and assigned to the field.
+        """
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+
+        # Page title — needed for extract_form_name to succeed
+        page.insert_text((50, 50), "Demographics", fontsize=14, fontname="helv")
+
+        # Field label at (50, 120) — width ~80px
+        page.insert_text((50, 120), "Subject ID", fontsize=9)
+
+        # Date marker at (200, 120) — to the right of the label
+        page.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        # Non-FreeText annotation (simulating a Widget/highlight) overlapping the label
+        # Use highlight which is not FreeText — its rect must NOT exclude the label
+        hl = page.add_highlight_annot(fitz.Rect(45, 113, 130, 127))
+        hl.update()
+
+        pdf_path = tmp_path / "widget_overlap.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        date_fields = [f for f in fields if f.field_type == "date_field"]
+        assert date_fields, f"Expected a date_field, got: {fields}"
+        assert date_fields[0].label == "Subject ID", (
+            f"Expected label='Subject ID', got '{date_fields[0].label}'. "
+            "Non-FreeText annotation rect is incorrectly excluding the label."
+        )
+
+
 class TestCollectSectionHeaders:
     def _make_block(self, text, bold, font_size, x0=78, y0=100):
         from src.rule_engine import TextBlock
