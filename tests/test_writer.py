@@ -365,6 +365,37 @@ def test_pending_match_not_written(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# T4.11 — fill color comes from source annotation, not palette substitution
+# ---------------------------------------------------------------------------
+
+def test_T4_11_source_fill_color_preserved(tmp_path):
+    """Annotation fill color must match the source annotation's fill_color exactly."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    custom_fill = [0.9, 0.8, 0.7]
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="BRTHDTC",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(fill_color=custom_fill),
+    )
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    fill = list(doc[0].annots())[0].colors.get("stroke")
+    doc.close()
+    assert fill is not None
+    assert all(abs(fill[i] - custom_fill[i]) < 0.02 for i in range(3))
+
+
+# ---------------------------------------------------------------------------
 # T4.10 — StyleDefaults accepts domain_label_font_size and default_font_size
 # ---------------------------------------------------------------------------
 

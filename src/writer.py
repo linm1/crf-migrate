@@ -11,42 +11,20 @@ import fitz  # PyMuPDF
 from src.models import AnnotationRecord, MatchRecord
 from src.profile_models import Profile
 
-# SDTM annotation background color palette, assigned by domain appearance order per page.
-# Each tuple is (R, G, B) in 0.0–1.0 float range.
-_DOMAIN_PALETTE: list[tuple[float, float, float]] = [
-    (0.75, 1.0, 1.0),              # 1 → #BFFFFF
-    (1.0, 1.0, 0.6667),            # 2 → #FFFFAA
-    (0.75, 1.0, 0.75),             # 3 → #BFFFBF
-    (1.0, 0.75, 0.6667),           # 4 → #FFBFAA
-    (1.0, 0.6667, 0.75),           # 5 → #FFAABF
-]
-
-_PALETTE_TOLERANCE: float = 0.01
-
-
-def _is_palette_color(color: list[float]) -> bool:
-    """Return True if color is within tolerance of any palette entry."""
-    for entry in _DOMAIN_PALETTE:
-        if all(abs(color[i] - entry[i]) <= _PALETTE_TOLERANCE for i in range(3)):
-            return True
-    return False
+_FALLBACK_FILL: tuple[float, float, float] = (0.75, 1.0, 1.0)  # cyan
 
 
 def _build_domain_color_map(
     annotations: list[AnnotationRecord],
     page_num: int,
 ) -> dict[str, tuple[float, float, float]]:
-    """Build domain→fill_color map for annotations on a given page.
+    """Build domain→fill_color map using each domain's first-seen source fill color.
 
-    For each domain on the page, in order of first appearance:
-    - Use the source fill color if it is a valid palette color.
-    - Otherwise assign the next unused palette slot.
-    Domains that already have a palette-valid source color share that color
-    across all annotations on the page.
+    Uses the fill_color from the source annotation directly — no palette
+    substitution or validation. Falls back to cyan only when fill_color is
+    absent (None or empty).
     """
     domain_color: dict[str, tuple[float, float, float]] = {}
-    palette_index: int = 0
-
     for annot in annotations:
         if annot.page != page_num:
             continue
@@ -54,17 +32,10 @@ def _build_domain_color_map(
         if domain in domain_color:
             continue
         fill = annot.style.fill_color
-        if fill and len(fill) >= 3 and _is_palette_color(fill):
+        if fill and len(fill) >= 3:
             domain_color[domain] = (fill[0], fill[1], fill[2])
         else:
-            if palette_index < len(_DOMAIN_PALETTE):
-                domain_color[domain] = _DOMAIN_PALETTE[palette_index]
-                palette_index += 1
-            else:
-                # More than 5 domains: cycle back through palette
-                domain_color[domain] = _DOMAIN_PALETTE[palette_index % len(_DOMAIN_PALETTE)]
-                palette_index += 1
-
+            domain_color[domain] = _FALLBACK_FILL
     return domain_color
 
 
@@ -178,7 +149,7 @@ def _write_single_annotation(
     fill color and the border color on viewer re-render.
     """
     fontname, fontsize, text_color = _resolve_text_style(annot)
-    fill = domain_color_map.get(annot.domain) or _DOMAIN_PALETTE[0]
+    fill = domain_color_map.get(annot.domain) or _FALLBACK_FILL
     style = annot.style
     rect = fitz.Rect(target_rect)
 
