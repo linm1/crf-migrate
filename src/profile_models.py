@@ -91,7 +91,6 @@ class MatchingConfig(BaseModel):
 class StyleDefaults(BaseModel):
     font: str = "Arial"
     font_size: float = 10.0
-    default_font_size: float = 10.0
     domain_label_font_size: float = 14.0
     text_color: list[float] = [0.0, 0.0, 0.0]
     border_color: list[float] = [0.0, 0.0, 0.0]

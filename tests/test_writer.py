@@ -444,7 +444,7 @@ def test_T4_13_profile_font_sizes(tmp_path):
             )
         ],
         style_defaults=StyleDefaults(
-            default_font_size=12.0,
+            font_size=12.0,
             domain_label_font_size=12.0,
         ),
     )
@@ -492,13 +492,13 @@ def test_T4_13_profile_font_sizes(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# T4.10 — StyleDefaults accepts domain_label_font_size and default_font_size
+# T4.10 — StyleDefaults accepts domain_label_font_size and font_size
 # ---------------------------------------------------------------------------
 
 def test_T4_10_style_defaults_font_size_fields():
-    sd = StyleDefaults(domain_label_font_size=12.0, default_font_size=12.0)
+    sd = StyleDefaults(domain_label_font_size=12.0, font_size=12.0)
     assert sd.domain_label_font_size == 12.0
-    assert sd.default_font_size == 12.0
+    assert sd.font_size == 12.0
 
 
 def test_modified_match_is_written(tmp_path):

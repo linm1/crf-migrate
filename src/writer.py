@@ -22,18 +22,18 @@ def _resolve_text_style(
 
     Font sizes are read from profile.style_defaults:
     - domain_label_font_size for domain_label category
-    - default_font_size for all other categories
+    - font_size for all other categories
 
     - domain_label:    Helvetica Bold (hebo), domain_label_font_size, black
-    - cross_reference: Helvetica Regular (helv), default_font_size, #00FFFF
-    - all others:      Helvetica Regular (helv), default_font_size, black
+    - cross_reference: Helvetica Regular (helv), font_size, #00FFFF
+    - all others:      Helvetica Regular (helv), font_size, black
     """
     sd = profile.style_defaults
     if annot.category == "domain_label":
         return "hebo", sd.domain_label_font_size, (0.0, 0.0, 0.0)
     if annot.category == "cross_reference":
-        return "helv", sd.default_font_size, (0.0, 1.0, 1.0)
-    return "helv", sd.default_font_size, (0.0, 0.0, 0.0)
+        return "helv", sd.font_size, (0.0, 1.0, 1.0)
+    return "helv", sd.font_size, (0.0, 0.0, 0.0)
 
 
 def write_annotations(

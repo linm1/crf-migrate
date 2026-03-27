@@ -75,7 +75,7 @@ classification_rules:
 - conditions:
     contains: null
     starts_with: null
-    regex: ^([A-Z]{2,4}) (.+)$
+    regex: ^([A-Z]{2,4}) \(([A-Za-z0-9 ,'-]+)\)$
     subject_is: null
     domain_in: null
     max_length: null
@@ -196,9 +196,8 @@ matching_config:
   visit_boost: 5.0
 style_defaults:
   font: Arial,BoldItalic
-  font_size: 18.0
-  default_font_size: 10.0
-  domain_label_font_size: 14.0
+  font_size: 12.0
+  domain_label_font_size: 12.0
   text_color:
   - 0.0
   - 0.0
