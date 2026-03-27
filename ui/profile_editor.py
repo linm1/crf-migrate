@@ -698,7 +698,7 @@ def _render_rule_tester() -> None:
 
 def _save_profile(profiles_dir: Path, name: str, draft: dict) -> None:
     try:
-        profile = Profile.model_validate(draft)
+        Profile.model_validate(draft)
     except Exception as e:
         st.error(f"Validation error: {e}")
         return
@@ -706,7 +706,10 @@ def _save_profile(profiles_dir: Path, name: str, draft: dict) -> None:
     profile_path.write_text(
         yaml.dump(draft, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
+    # Reload from disk so session state always matches the saved file exactly
+    profile = load_profile(profile_path, profiles_dir)
     st.session_state["profile"] = profile
     st.session_state["rule_engine"] = RuleEngine(profile)
+    st.session_state["draft_profile_data"] = profile.model_dump()
     st.success(f"Profile '{name}' saved.")
     st.rerun()
