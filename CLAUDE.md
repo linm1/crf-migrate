@@ -88,6 +88,27 @@ Source annotations are FreeText (PDF type 2) with:
 
 Output annotations must preserve this exact styling. New annotations use `style_defaults` from the active profile.
 
+### FreeText Annotation Color — Critical PyMuPDF Behavior
+
+For FreeText annotations, the PDF spec (ISO 32000 Table 177) defines `/C` as the **background fill color**, not the border color. PyMuPDF exposes `/C` as `annot.colors["stroke"]` for FreeText (confusingly named, but correct).
+
+The border color is encoded inside the AP (Appearance) stream as a `0 0 0 RG` operator by PyMuPDF's `update()` — it is not a top-level PDF dictionary key.
+
+**Correct pattern in `src/writer.py`:**
+```python
+a = page.add_freetext_annot(rect=rect, text=..., fill_color=fill, text_color=text_color, ...)
+a.set_border(width=..., dashes=...)
+a.set_info(...)
+a.update(fill_color=fill, text_color=text_color)
+# STOP HERE. Do not touch /C or /IC via xref_set_key.
+```
+
+**Rules — never violate these:**
+- Always pass `fill_color` and `text_color` to `a.update()` explicitly so PyMuPDF sets `/C` correctly.
+- **Never** call `xref_set_key(xref, "C", ...)` after `update()` — it overwrites the fill color, causing black background on viewer re-render.
+- **Never** call `xref_set_key(xref, "IC", ...)` on FreeText — `/IC` is not a valid FreeText key; most viewers ignore it, and some may misinterpret it.
+- The border color (black) lives only in the AP stream; this is correct and survives viewer interaction as long as `/C` is not overwritten.
+
 ## Key Conventions
 
 - **PyMuPDF (`fitz`)** for all annotation read/write; **pdfplumber** for text extraction fallback

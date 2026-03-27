@@ -170,10 +170,15 @@ def _write_single_annotation(
 
     Font, size, and text color follow SDTM guideline rules (category-driven).
     Fill/background color is resolved from the source annotation or palette.
-    Border is always black; line style (solid/dashed) is preserved from source.
+    Border width and dash pattern are preserved from the source annotation.
+
+    IMPORTANT: Never call xref_set_key on /C after update().  The /C key is
+    the fill color for FreeText annotations (PDF spec ISO 32000 Table 177).
+    update(fill_color=...) sets /C correctly; overwriting it breaks both the
+    fill color and the border color on viewer re-render.
     """
     fontname, fontsize, text_color = _resolve_text_style(annot)
-    fill = domain_color_map.get(annot.domain)
+    fill = domain_color_map.get(annot.domain) or _DOMAIN_PALETTE[0]
     style = annot.style
     rect = fitz.Rect(target_rect)
 
@@ -185,11 +190,11 @@ def _write_single_annotation(
         text_color=text_color,
         fill_color=fill,
     )
-    a.set_border(width=style.border_width, dashes=style.border_dashes)
-    # Set border/stroke color to black via PDF 'C' key (set_colors() is not
-    # supported for FreeText annotations in PyMuPDF)
-    page.parent.xref_set_key(a.xref, "C", "[0 0 0]")
+    # PyMuPDF returns -1.0 for border width when no border is set on the source
+    # annotation; clamp to 1.0 so the output always has a visible border.
+    border_width = style.border_width if style.border_width > 0 else 1.0
+    a.set_border(width=border_width, dashes=style.border_dashes)
     a.set_info(content=annot.content, subject=annot.domain)
     if annot.rotation:
         a.set_rotation(annot.rotation)
-    a.update()
+    a.update(fill_color=fill, text_color=text_color)
