@@ -325,7 +325,7 @@ def _render_review_panel(
             badge = field.field_type or "—"
             suffix = field.label[:60] if field.label else "—"
             label = f":{color}[**{badge}**] :gray[*{suffix}*]"
-            container_key = f"p2_field_{local_idx}"
+            container_key = f"p2_field_p{selected_page}_{local_idx}"
             st.markdown(
                 f"<style>.st-key-{container_key} details"
                 f"{{background:{bg} !important}}</style>",
@@ -337,26 +337,26 @@ def _render_review_panel(
                     with c1:
                         label_val = st.text_input(
                             "Label", value=field.label,
-                            key=f"p2_f_{local_idx}_label",
+                            key=f"p2_f_p{selected_page}_{local_idx}_label",
                         )
                         form_name = st.text_input(
                             "Form Name", value=field.form_name,
-                            key=f"p2_f_{local_idx}_form",
+                            key=f"p2_f_p{selected_page}_{local_idx}_form",
                         )
                         visit = st.text_input(
                             "Visit", value=field.visit,
-                            key=f"p2_f_{local_idx}_visit",
+                            key=f"p2_f_p{selected_page}_{local_idx}_visit",
                         )
                     with c2:
                         type_idx = _FIELD_TYPES.index(field.field_type) \
                             if field.field_type in _FIELD_TYPES else 0
                         field_type = st.selectbox(
                             "Field Type", _FIELD_TYPES, index=type_idx,
-                            key=f"p2_f_{local_idx}_type",
+                            key=f"p2_f_p{selected_page}_{local_idx}_type",
                         )
                     btn_save, btn_del, _ = st.columns([1, 1, 4], gap="small")
                     with btn_save:
-                        if st.button("Save", key=f"p2_f_{local_idx}_save",
+                        if st.button("Save", key=f"p2_f_p{selected_page}_{local_idx}_save",
                                      use_container_width=True):
                             updated = field.model_copy(update={
                                 "label": label_val, "form_name": form_name,
@@ -372,7 +372,7 @@ def _render_review_panel(
                             session.log_action("phase2_edit", {"count": len(new_list)})
                             st.rerun()
                     with btn_del:
-                        if st.button("Delete", key=f"p2_f_{local_idx}_del",
+                        if st.button("Delete", key=f"p2_f_p{selected_page}_{local_idx}_del",
                                      use_container_width=True):
                             new_list = [
                                 f for i, f in enumerate(st.session_state["fields"])
