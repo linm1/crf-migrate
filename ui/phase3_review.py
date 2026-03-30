@@ -12,9 +12,26 @@ from ui.components import (
 )
 
 
+def _inject_page_css() -> None:
+    st.markdown(
+        """
+        <style>
+        /* Phase 3 toolbar buttons: 12px bold monospace */
+        .st-key-p3_run_btn button p,
+        .st-key-p3_export_btn button p,
+        .st-key-p3_import_btn button p {
+            font-size: 12px !important;
+            font-weight: 700 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_phase3() -> None:
     """Render Phase 3: Match page."""
-    st.header("Phase 3: Match Annotations to Fields")
+    _inject_page_css()
 
     phases = st.session_state.get("phases_complete", {})
     if not phases.get(1):
@@ -28,10 +45,10 @@ def render_phase3() -> None:
     profile = st.session_state.get("profile")
     annotations = st.session_state.get("annotations", [])
     fields = st.session_state.get("fields", [])
-
-    _render_run_matching(session, profile, annotations, fields)
-
     matches = st.session_state.get("matches", [])
+
+    _render_topbar(session, profile, annotations, fields, matches)
+
     if not matches:
         return
 
@@ -40,32 +57,69 @@ def render_phase3() -> None:
     filtered = _render_filters(matches)
     _render_match_rows(filtered, matches, session)
     _render_unmatched_assignment(matches, fields, session)
-    _render_csv_section(matches, session)
 
 
 # ---------------------------------------------------------------------------
-# B. Run matching
+# A. Topbar
 # ---------------------------------------------------------------------------
 
-def _render_run_matching(session, profile, annotations, fields) -> None:
-    st.subheader("Run Matching")
-    if st.button("Run Matching", type="primary"):
-        source_pdf_path = st.session_state.get("source_pdf_path")
-        target_pdf_path = st.session_state.get("target_pdf_path")
-        with st.spinner("Running matching passes…"):
-            try:
-                source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
-                target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
-                matches = match_annotations(annotations, fields, profile, source_dims, target_dims)
-                session.save_matches(matches)
-                st.session_state["matches"] = matches
-                st.session_state["phases_complete"][3] = True
-                invalidate_phases([4])
-                session.log_action("phase3_match", {"count": len(matches)})
-                st.success(f"Matched {len(matches)} annotations.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Matching failed: {e}")
+def _render_topbar(session, profile, annotations: list, fields: list, matches: list) -> None:
+    """Header + toolbar: Run Matching | Export CSV | Import CSV."""
+    st.header("Phase 3: Match Annotations to Fields")
+
+    _, tb_run, tb_export, tb_import = st.columns([3, 1, 1, 1], gap="small")
+
+    with tb_run:
+        if st.button("Run Matching", key="p3_run_btn", use_container_width=True):
+            source_pdf_path = st.session_state.get("source_pdf_path")
+            target_pdf_path = st.session_state.get("target_pdf_path")
+            with st.spinner("Running matching passes…"):
+                try:
+                    source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
+                    target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
+                    new_matches = match_annotations(annotations, fields, profile, source_dims, target_dims)
+                    session.save_matches(new_matches)
+                    st.session_state["matches"] = new_matches
+                    st.session_state["phases_complete"][3] = True
+                    invalidate_phases([4])
+                    session.log_action("phase3_match", {"count": len(new_matches)})
+                    st.success(f"Matched {len(new_matches)} annotations.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Matching failed: {e}")
+
+    with tb_export:
+        if st.button("Export CSV", key="p3_export_btn", use_container_width=True):
+            if matches and session:
+                csv_path = session.workspace / "matches_export.csv"
+                export_matches_csv(matches, csv_path)
+                st.session_state["_p3_csv_ready"] = csv_path.read_bytes()
+        if st.session_state.get("_p3_csv_ready"):
+            st.download_button(
+                "Download CSV",
+                data=st.session_state["_p3_csv_ready"],
+                file_name="matches.csv",
+                mime="text/csv",
+                key="p3_csv_dl",
+                use_container_width=True,
+            )
+
+    with tb_import:
+        if st.button("Import CSV", key="p3_import_btn", use_container_width=True):
+            st.session_state["_p3_show_import"] = not st.session_state.get("_p3_show_import", False)
+
+    if st.session_state.get("_p3_show_import", False):
+        csv_upload = st.file_uploader("Import Matches CSV", type=["csv"], key="p3_csv_upload")
+        if csv_upload is not None and session:
+            csv_path = session.workspace / "matches_import.csv"
+            csv_path.write_bytes(csv_upload.read())
+            updated, flagged = import_matches_csv(csv_path, matches)
+            if flagged:
+                st.warning(f"{len(flagged)} matches missing from CSV.")
+            session.save_matches(updated)
+            st.session_state["matches"] = updated
+            invalidate_phases([4])
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -234,37 +288,3 @@ def _render_batch_approve(matches: list[MatchRecord], session) -> None:
         st.session_state["matches"] = updated
         invalidate_phases([4])
         st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# H. CSV Export/Import
-# ---------------------------------------------------------------------------
-
-def _render_csv_section(matches: list[MatchRecord], session) -> None:
-    st.subheader("CSV Export / Import")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Export Matches CSV"):
-            csv_path = session.workspace / "matches_export.csv"
-            export_matches_csv(matches, csv_path)
-            st.download_button(
-                "Download matches.csv",
-                data=csv_path.read_bytes(),
-                file_name="matches.csv",
-                mime="text/csv",
-                key="p3_csv_dl",
-            )
-
-    with col2:
-        csv_upload = st.file_uploader("Import Matches CSV", type=["csv"], key="p3_csv_upload")
-        if csv_upload is not None:
-            csv_path = session.workspace / "matches_import.csv"
-            csv_path.write_bytes(csv_upload.read())
-            updated, flagged = import_matches_csv(csv_path, matches)
-            if flagged:
-                st.warning(f"{len(flagged)} matches missing from CSV.")
-            session.save_matches(updated)
-            st.session_state["matches"] = updated
-            invalidate_phases([4])
-            st.rerun()
