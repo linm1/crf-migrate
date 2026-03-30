@@ -2,7 +2,7 @@
 import streamlit as st
 
 from src.csv_handler import export_matches_csv, import_matches_csv
-from src.matcher import apply_manual_match, batch_approve_exact, match_annotations
+from src.matcher import apply_manual_match, batch_approve_exact, compute_target_rect, match_annotations
 from src.models import AnnotationRecord, FieldRecord, MatchRecord
 from rapidfuzz import fuzz as _fuzz
 from ui.components import (
@@ -66,6 +66,14 @@ def _render_field_type_badge(field_type: str) -> None:
     )
 
 
+_REPAIR_ELIGIBLE_TYPES = {"fuzzy", "position_only", "unmatched", "manual"}
+
+
+def _is_repair_eligible(match_type: str) -> bool:
+    """Return True if this match type can be inline re-paired."""
+    return match_type in _REPAIR_ELIGIBLE_TYPES
+
+
 def _inject_page_css() -> None:
     st.markdown(
         """
@@ -76,6 +84,19 @@ def _inject_page_css() -> None:
         .st-key-p3_import_btn button p {
             font-size: 12px !important;
             font-weight: 700 !important;
+        }
+        /* Re-pair confirm button: dark neo-brutalist style */
+        [class*="st-key-p3_confirm_repair_"] button {
+            background-color: #383838 !important;
+            border: 1px solid #383838 !important;
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.2) !important;
+        }
+        [class*="st-key-p3_confirm_repair_"] button:disabled {
+            background-color: #8A847F !important;
+            border-color: #8A847F !important;
+            box-shadow: none !important;
         }
         </style>
         """,
@@ -218,7 +239,6 @@ def _render_filters(matches: list[MatchRecord]) -> list[MatchRecord]:
     col1, col2, col3, col4 = st.columns(4)
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
-    all_domains: list[str] = []  # MatchRecord has no domain; skip domain filter
 
     with col1:
         sel_types = st.multiselect("Match Type", all_types, default=all_types, key="p3_filter_type")
@@ -253,43 +273,221 @@ def _render_match_rows(
     annot_by_id = {a.id: a for a in annotations}
     fields = st.session_state.get("fields", [])
     field_by_id = {f.id: f for f in fields}
+    profile = st.session_state.get("profile")
+    visit_boost = profile.matching_config.visit_boost if profile else 5.0
 
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
+    repairing_id = st.session_state.get("_p3_repairing")
 
     action_taken = False
     for m in filtered:
         annot = annot_by_id.get(m.annotation_id)
+        field = field_by_id.get(m.field_id) if m.field_id else None
         annot_label = annot.content[:40] if annot else m.annotation_id[:12]
+        is_open = repairing_id == m.annotation_id
+
+        status_extra = " · re-pairing" if is_open else ""
         col1, col2, col3, col4, col5 = st.columns([3, 3, 1, 1, 2])
         with col1:
             st.write(f"**{annot_label}**")
         with col2:
-            field = field_by_id.get(m.field_id) if m.field_id else None
-            st.write(_field_display_label(field))
+            st.write(_field_display_label(field) + status_extra)
         with col3:
             render_confidence_badge(m.confidence)
         with col4:
-            render_match_type_badge(m.match_type)
+            if is_open:
+                st.markdown(
+                    '<span style="background:#FEE2E2;border:1px solid #EF4444;color:#EF4444;'
+                    'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
+                    'Rejected — Re-pair</span>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                render_match_type_badge(m.match_type)
         with col5:
             approve_key = f"p3_approve_{m.annotation_id}"
             reject_key = f"p3_reject_{m.annotation_id}"
-            bcol1, bcol2 = st.columns(2)
-            if bcol1.button("✓", key=approve_key, help="Approve"):
-                idx = match_index.get(m.annotation_id)
-                if idx is not None:
-                    updated_matches[idx] = m.model_copy(update={"status": "approved"})
-                    action_taken = True
-            if bcol2.button("✗", key=reject_key, help="Reject"):
-                idx = match_index.get(m.annotation_id)
-                if idx is not None:
-                    updated_matches[idx] = m.model_copy(update={"status": "rejected"})
-                    action_taken = True
+            cancel_key = f"p3_cancel_{m.annotation_id}"
+            bcols = st.columns(3 if is_open else 2)
+
+            if is_open:
+                if bcols[0].button("✓", key=approve_key, help="Approve"):
+                    idx = match_index.get(m.annotation_id)
+                    if idx is not None:
+                        updated_matches[idx] = m.model_copy(update={"status": "approved"})
+                        st.session_state.pop("_p3_repairing", None)
+                        st.session_state.pop("_p3_repair_search", None)
+                        action_taken = True
+                if bcols[1].button("✕", key=cancel_key, help="Cancel re-pair"):
+                    idx = match_index.get(m.annotation_id)
+                    if idx is not None:
+                        updated_matches[idx] = m.model_copy(update={"status": "pending"})
+                        st.session_state.pop("_p3_repairing", None)
+                        st.session_state.pop("_p3_repair_search", None)
+                        action_taken = True
+            else:
+                if bcols[0].button("✓", key=approve_key, help="Approve"):
+                    idx = match_index.get(m.annotation_id)
+                    if idx is not None:
+                        updated_matches[idx] = m.model_copy(update={"status": "approved"})
+                        action_taken = True
+                if bcols[1].button("✗", key=reject_key, help="Reject"):
+                    idx = match_index.get(m.annotation_id)
+                    if idx is not None:
+                        if _is_repair_eligible(m.match_type):
+                            updated_matches[idx] = m.model_copy(update={"status": "rejected"})
+                            st.session_state["_p3_repairing"] = m.annotation_id
+                            st.session_state.pop("_p3_repair_search", None)
+                        else:
+                            updated_matches[idx] = m.model_copy(update={"status": "rejected"})
+                        action_taken = True
+
+        if is_open and annot:
+            _render_repair_panel(
+                m, annot, fields, field_by_id, updated_matches,
+                match_index, session, visit_boost,
+            )
+            action_taken = st.session_state.pop("_p3_repair_confirmed", False) or action_taken
 
     if action_taken:
         session.save_matches(updated_matches)
         st.session_state["matches"] = updated_matches
+        invalidate_phases([4])
         st.rerun()
+
+
+def _render_repair_panel(
+    m: MatchRecord,
+    annot: AnnotationRecord,
+    fields: list[FieldRecord],
+    field_by_id: dict[str, FieldRecord],
+    updated_matches: list[MatchRecord],
+    match_index: dict[str, int],
+    session,
+    visit_boost: float,
+) -> None:
+    """Render the two-column inline re-pair picker for a rejected match."""
+    st.markdown(
+        '<div style="border-top:2px solid #F59E0B;margin:4px 0 8px 0"></div>',
+        unsafe_allow_html=True,
+    )
+    left_col, right_col = st.columns([1, 2])
+
+    # --- Left: annotation details ---
+    with left_col:
+        st.markdown("**ANNOTATION**")
+        with st.container(border=True):
+            st.markdown(f"**{annot.anchor_text or annot.content[:30]}**")
+            st.caption(annot.content[:60])
+            st.markdown(
+                f"**Domain:** {annot.domain}  \n"
+                f"**Form:** {annot.form_name}  \n"
+                f"**Anchor:** {annot.anchor_text}",
+            )
+            current_field = field_by_id.get(m.field_id) if m.field_id else None
+            st.caption(
+                f"Current confidence: {m.confidence:.2f}"
+                + (f" → {_field_display_label(current_field)}" if current_field else "")
+            )
+
+    # --- Right: field picker ---
+    with right_col:
+        st.markdown("**SELECT TARGET FIELD**")
+        search = st.text_input(
+            "Search by field label",
+            value=st.session_state.get("_p3_repair_search", ""),
+            key=f"p3_repair_search_{m.annotation_id}",
+            placeholder="Search by field label…",
+            label_visibility="collapsed",
+        )
+        st.session_state["_p3_repair_search"] = search
+
+        # Score all fields and sort by descending confidence
+        scored: list[tuple[float, FieldRecord]] = sorted(
+            ((_compute_predicted_confidence(annot, f, visit_boost), f) for f in fields),
+            key=lambda x: -x[0],
+        )
+
+        # Apply search filter
+        if search.lower():
+            scored = [(s, f) for s, f in scored if search.lower() in f.label.lower()]
+
+        same_form = [(s, f) for s, f in scored if f.form_name.lower() == annot.form_name.lower()]
+        cross_form = [(s, f) for s, f in scored if f.form_name.lower() != annot.form_name.lower()]
+
+        repair_selected = st.session_state.get("_p3_repair_selected", {})
+        chosen_field_id = repair_selected.get(m.annotation_id)
+
+        def _render_field_option(score: float, f: FieldRecord) -> None:
+            is_selected = f.id == chosen_field_id
+            bg = "#FFF9E6" if is_selected else "#FAFAFA"
+            border = "2px solid #F59E0B" if is_selected else "1px solid #E8E2DC"
+            conf_color = "#065F46" if score >= 0.9 else "#6B7280"
+            conf_bg = "#D1FAE5" if score >= 0.9 else "#F3F4F6"
+            label_txt, fill, brd, txt = _FIELD_TYPE_BADGE.get(
+                f.field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
+            )
+            st.markdown(
+                f'<div style="background:{bg};border:{border};padding:6px 10px;'
+                f'margin:2px 0;display:flex;align-items:center;gap:8px">'
+                f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
+                f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
+                f'<span style="flex:1;font-size:12px;font-weight:600">{f.label}</span>'
+                f'<span style="font-size:10px;color:#8A847F">{f.field_type} · p.{f.page}</span>'
+                f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
+                f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "✓ Selected" if is_selected else "Select",
+                key=f"p3_pick_{m.annotation_id}_{f.id}",
+            ):
+                sel = dict(st.session_state.get("_p3_repair_selected", {}))
+                sel[m.annotation_id] = f.id
+                st.session_state["_p3_repair_selected"] = sel
+                st.rerun()
+
+        if same_form:
+            st.caption(f"**{annot.form_name.upper()}**")
+            for score, f in same_form[:5]:
+                _render_field_option(score, f)
+
+        if cross_form:
+            st.caption("**OTHER FORMS (FUZZY)**")
+            for score, f in cross_form[:3]:
+                if score >= 0.5:
+                    _render_field_option(score, f)
+
+        if st.button(
+            "Confirm Pairing → rect will be recomputed",
+            key=f"p3_confirm_repair_{m.annotation_id}",
+            disabled=chosen_field_id is None,
+            use_container_width=True,
+            type="primary",
+        ):
+            chosen_field = field_by_id.get(chosen_field_id)
+            if chosen_field:
+                new_rect = compute_target_rect(annot, chosen_field, list(field_by_id.values()))
+                predicted = _compute_predicted_confidence(annot, chosen_field, visit_boost)
+                idx = match_index.get(m.annotation_id)
+                if idx is not None:
+                    updated_matches[idx] = m.model_copy(update={
+                        "field_id": chosen_field.id,
+                        "match_type": "manual",
+                        "confidence": predicted,
+                        "target_rect": new_rect,
+                        "status": "approved",
+                        "placement_adjusted": False,
+                    })
+                st.session_state.pop("_p3_repairing", None)
+                st.session_state.pop("_p3_repair_search", None)
+                sel = dict(st.session_state.get("_p3_repair_selected", {}))
+                sel.pop(m.annotation_id, None)
+                st.session_state["_p3_repair_selected"] = sel
+                st.session_state["_p3_repair_confirmed"] = True
+
+        st.caption("Score = fuzzy(anchor_text, label) + visit boost")
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +508,6 @@ def _render_unmatched_assignment(
     annot_by_id = {a.id: a for a in annotations}
 
     field_options = [f"{f.label} | {f.form_name} | p.{f.page}" for f in fields]
-    field_ids = [f.id for f in fields]
 
     for m in unmatched:
         annot = annot_by_id.get(m.annotation_id)
