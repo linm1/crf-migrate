@@ -471,3 +471,26 @@ def batch_approve_exact(matches: list[MatchRecord]) -> list[MatchRecord]:
         m.model_copy(update={"status": "approved"}) if m.match_type == "exact" else m
         for m in matches
     ]
+
+
+def compute_target_rect(
+    annot: "AnnotationRecord",
+    field: "FieldRecord",
+    all_fields: list["FieldRecord"],
+) -> list[float]:
+    """Compute and guard-apply the target_rect for a manual re-pair.
+
+    Replicates the same logic used by fuzzy passes:
+    - If annot has anchor_rect: apply anchor offset onto field.rect
+    - Otherwise: use field.rect directly
+    - Always apply OOB guard + page clamp via _apply_placement_guard
+
+    Returns the final [x0, y0, x1, y1] rect.
+    """
+    raw_rect = (
+        _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+        if annot.anchor_rect
+        else list(field.rect)
+    )
+    final_rect, _ = _apply_placement_guard(raw_rect, field, all_fields)
+    return final_rect
