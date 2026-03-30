@@ -123,13 +123,17 @@ def render_phase3() -> None:
         st.warning("Phase 2 must be complete before running matching.")
         return
 
-    session = st.session_state.get("session")
+    session: Session | None = st.session_state.get("session")
     profile = st.session_state.get("profile")
-    annotations = st.session_state.get("annotations", [])
-    fields = st.session_state.get("fields", [])
-    matches = st.session_state.get("matches", [])
+    annotations: list[AnnotationRecord] = st.session_state.get("annotations", [])
+    fields: list[FieldRecord] = st.session_state.get("fields", [])
+    matches: list[MatchRecord] = st.session_state.get("matches", [])
 
     _render_topbar(session, profile, annotations, fields, matches)
+
+    if session is None:
+        st.error("No active session. Please restart the app.")
+        return
 
     if not matches:
         return
