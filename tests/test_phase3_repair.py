@@ -158,3 +158,54 @@ def test_repair_eligible_manual():
 
 def test_repair_not_eligible_exact():
     assert _is_repair_eligible("exact") is False
+
+
+def test_repair_not_eligible_unknown():
+    assert _is_repair_eligible("new") is False
+    assert _is_repair_eligible("invalid_type") is False
+
+
+# ---------------------------------------------------------------------------
+# Integration: confirm sequence — apply_manual_match + confidence layering
+# ---------------------------------------------------------------------------
+
+from src.matcher import apply_manual_match
+from src.models import MatchRecord
+
+
+def _make_match(**kwargs) -> MatchRecord:
+    defaults = dict(
+        annotation_id="a1", field_id="f_old", match_type="fuzzy",
+        confidence=0.65, status="pending",
+        target_rect=[60.0, 200.0, 160.0, 215.0],
+        placement_adjusted=False,
+    )
+    defaults.update(kwargs)
+    return MatchRecord(**defaults)
+
+
+def test_confirm_sequence_sets_manual_and_confidence():
+    """After apply_manual_match + confidence layer, record has correct type/status/field/confidence."""
+    annot = _make_annot(anchor_text="Adverse Event Term", visit="Week 1")
+    old_field = _make_field(id="f_old")
+    new_field = _make_field(id="f_new", label="Adverse Event Term", visit="Week 1",
+                            rect=[10.0, 400.0, 150.0, 415.0])
+    match = _make_match()
+    all_fields = [old_field, new_field]
+
+    new_rect = compute_target_rect(annot, new_field, all_fields)
+    new_list = apply_manual_match([match], annot.id, new_field.id, new_rect)
+
+    assert len(new_list) == 1
+    result = new_list[0]
+    assert result.field_id == "f_new"
+    assert result.match_type == "manual"
+    assert result.status == "approved"
+    assert result.target_rect == pytest.approx(new_rect)
+
+    # Confidence layering (simulates the model_copy step in _render_repair_panel)
+    from ui.phase3_review import _compute_predicted_confidence
+    predicted = _compute_predicted_confidence(annot, new_field, visit_boost=5.0)
+    final = result.model_copy(update={"confidence": predicted})
+    assert final.confidence == pytest.approx(predicted)
+    assert final.confidence == pytest.approx(1.0)  # exact label match + same visit

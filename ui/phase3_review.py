@@ -587,11 +587,16 @@ def _render_unmatched_assignment(
             if st.button("Assign", key=f"p3_assign_btn_{m.annotation_id}"):
                 chosen_field = fields[sel_idx]
                 try:
+                    target_rect = (
+                        compute_target_rect(annot, chosen_field, fields)
+                        if annot is not None
+                        else list(chosen_field.rect)
+                    )
                     updated = apply_manual_match(
                         matches,
                         m.annotation_id,
                         chosen_field.id,
-                        list(chosen_field.rect),
+                        target_rect,
                     )
                     session.save_matches(updated)
                     st.session_state["matches"] = updated
