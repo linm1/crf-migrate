@@ -91,7 +91,7 @@ def _inject_page_css() -> None:
             border: 1px solid #383838 !important;
             color: #FFFFFF !important;
             font-weight: 700 !important;
-            box-shadow: 4px 4px 0 rgba(0,0,0,0.2) !important;
+            box-shadow: 4px 4px 0 #000000 !important;
         }
         [class*="st-key-p3_confirm_repair_"] button:disabled {
             background-color: #8A847F !important;
@@ -275,6 +275,7 @@ def _render_match_rows(
     field_by_id = {f.id: f for f in fields}
     profile = st.session_state.get("profile")
     visit_boost = profile.matching_config.visit_boost if profile else 5.0
+    cross_form_threshold = profile.matching_config.fuzzy_cross_form_threshold if profile else 0.5
 
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
@@ -293,12 +294,14 @@ def _render_match_rows(
             st.write(f"**{annot_label}**")
         with col2:
             st.write(_field_display_label(field) + status_extra)
+            if m.match_type == "manual" and not is_open:
+                st.caption("manually paired · rect recomputed")
         with col3:
             render_confidence_badge(m.confidence)
         with col4:
             if is_open:
                 st.markdown(
-                    '<span style="background:#FEE2E2;border:1px solid #EF4444;color:#EF4444;'
+                    '<span style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;'
                     'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
                     'Rejected — Re-pair</span>',
                     unsafe_allow_html=True,
@@ -346,7 +349,7 @@ def _render_match_rows(
         if is_open and annot:
             _render_repair_panel(
                 m, annot, fields, field_by_id, updated_matches,
-                match_index, session, visit_boost,
+                match_index, session, visit_boost, cross_form_threshold,
             )
             action_taken = st.session_state.pop("_p3_repair_confirmed", False) or action_taken
 
@@ -366,6 +369,7 @@ def _render_repair_panel(
     match_index: dict[str, int],
     session,
     visit_boost: float,
+    cross_form_threshold: float = 0.5,
 ) -> None:
     """Render the two-column inline re-pair picker for a rejected match."""
     st.markdown(
@@ -453,11 +457,11 @@ def _render_repair_panel(
             for score, f in same_form[:5]:
                 _render_field_option(score, f)
 
-        if cross_form:
+        eligible_cross = [(s, f) for s, f in cross_form if s >= cross_form_threshold]
+        if eligible_cross:
             st.caption("**OTHER FORMS (FUZZY)**")
-            for score, f in cross_form[:3]:
-                if score >= 0.5:
-                    _render_field_option(score, f)
+            for score, f in eligible_cross[:3]:
+                _render_field_option(score, f)
 
         if st.button(
             "Confirm Pairing → rect will be recomputed",
@@ -470,16 +474,15 @@ def _render_repair_panel(
             if chosen_field:
                 new_rect = compute_target_rect(annot, chosen_field, list(field_by_id.values()))
                 predicted = _compute_predicted_confidence(annot, chosen_field, visit_boost)
+                # apply_manual_match sets field_id, match_type="manual", target_rect, status="approved"
+                new_list = apply_manual_match(
+                    list(updated_matches), m.annotation_id, chosen_field.id, new_rect
+                )
                 idx = match_index.get(m.annotation_id)
                 if idx is not None:
-                    updated_matches[idx] = m.model_copy(update={
-                        "field_id": chosen_field.id,
-                        "match_type": "manual",
-                        "confidence": predicted,
-                        "target_rect": new_rect,
-                        "status": "approved",
-                        "placement_adjusted": False,
-                    })
+                    # layer on predicted confidence (apply_manual_match doesn't set this)
+                    new_list[idx] = new_list[idx].model_copy(update={"confidence": predicted})
+                    updated_matches[:] = new_list
                 st.session_state.pop("_p3_repairing", None)
                 st.session_state.pop("_p3_repair_search", None)
                 sel = dict(st.session_state.get("_p3_repair_selected", {}))
