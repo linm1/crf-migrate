@@ -49,8 +49,28 @@ def test_compute_target_rect_no_anchor():
 
 def test_compute_target_rect_clamped():
     """Out-of-bounds result is clamped to page dimensions."""
+    # dx = 550 - 50 = 500, x0 = 60 + 500 = 560, x1 = 660 → clamped to 595
     annot = _make_annot(rect=[550.0, 200.0, 650.0, 220.0],
                         anchor_rect=[50.0, 200.0, 150.0, 215.0])
     field = _make_field()
     result = compute_target_rect(annot, field, [field])
-    assert result[2] <= 595.0  # clamped to page_width
+    assert result[0] == pytest.approx(560.0)   # x0 in-bounds
+    assert result[1] == pytest.approx(300.0)   # y0 unchanged
+    assert result[2] == pytest.approx(595.0)   # x1 clamped to page_width
+    assert result[3] == pytest.approx(320.0)   # y1 unchanged
+    assert result[2] >= result[0]              # geometrically valid
+
+
+def test_compute_target_rect_peer_fallback():
+    """When OOB and a same-label peer exists, peer rect is used instead of clamping."""
+    # Put the annotation so far right that offset pushes rect out of bounds
+    annot = _make_annot(rect=[580.0, 200.0, 680.0, 220.0],
+                        anchor_rect=[50.0, 200.0, 150.0, 215.0])
+    field = _make_field(id="f1", rect=[60.0, 300.0, 200.0, 315.0])
+    # Peer: same page, same label, clearly in bounds
+    peer = _make_field(id="f2", rect=[10.0, 400.0, 150.0, 415.0])
+    result = compute_target_rect(annot, field, [field, peer])
+    # dx = 580 - 50 = 530, x0 = 60 + 530 = 590 → OOB (> page_width 595 after x1=690)
+    # peer fallback: leftmost peer (f2 has x0=10 < f1 x0=60 but f1 is the matched field)
+    # _apply_placement_guard finds peers with same label on same page (f2), uses leftmost
+    assert result == pytest.approx([10.0, 400.0, 150.0, 415.0])

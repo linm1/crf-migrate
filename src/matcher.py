@@ -474,9 +474,9 @@ def batch_approve_exact(matches: list[MatchRecord]) -> list[MatchRecord]:
 
 
 def compute_target_rect(
-    annot: "AnnotationRecord",
-    field: "FieldRecord",
-    all_fields: list["FieldRecord"],
+    annot: AnnotationRecord,
+    field: FieldRecord,
+    all_fields: list[FieldRecord],
 ) -> list[float]:
     """Compute and guard-apply the target_rect for a manual re-pair.
 
