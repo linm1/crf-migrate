@@ -76,6 +76,12 @@ def render_phase1(profiles_dir: Path) -> None:
             background: #1a1a1a !important;
             color: #FFFFFF !important;
         }
+        /* Phase 1 toolbar buttons: 12px bold monospace (matches Profile Editor pattern) */
+        .st-key-p1_export_btn button p,
+        .st-key-p1_import_btn button p {
+            font-size: 12px !important;
+            font-weight: 700 !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
