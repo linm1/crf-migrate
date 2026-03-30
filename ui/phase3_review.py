@@ -3,13 +3,38 @@ import streamlit as st
 
 from src.csv_handler import export_matches_csv, import_matches_csv
 from src.matcher import apply_manual_match, batch_approve_exact, match_annotations
-from src.models import MatchRecord
+from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from rapidfuzz import fuzz as _fuzz
 from ui.components import (
     get_page_dims_from_pdf,
     invalidate_phases,
     render_confidence_badge,
     render_match_type_badge,
 )
+
+
+def _compute_predicted_confidence(
+    annot: AnnotationRecord,
+    field: FieldRecord,
+    visit_boost: float,
+) -> float:
+    """Predict match confidence using the same formula as matcher fuzzy passes.
+
+    Score = token_sort_ratio(anchor_text, label) + visit_boost × visit_match
+    Normalised to 0.0–1.0, capped at 1.0.
+    """
+    raw = _fuzz.token_sort_ratio(annot.anchor_text, field.label)
+    visit_a, visit_b = annot.visit.lower(), field.visit.lower()
+    if visit_a and visit_b:
+        if visit_a == visit_b:
+            boost = visit_boost
+        elif visit_a in visit_b or visit_b in visit_a:
+            boost = visit_boost * 0.5
+        else:
+            boost = 0.0
+    else:
+        boost = 0.0
+    return min((raw + boost) / 100.0, 1.0)
 
 
 def _inject_page_css() -> None:

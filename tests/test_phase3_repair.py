@@ -74,3 +74,38 @@ def test_compute_target_rect_peer_fallback():
     # peer fallback: leftmost peer (f2 has x0=10 < f1 x0=60 but f1 is the matched field)
     # _apply_placement_guard finds peers with same label on same page (f2), uses leftmost
     assert result == pytest.approx([10.0, 400.0, 150.0, 415.0])
+
+
+from ui.phase3_review import _compute_predicted_confidence
+
+
+def test_predicted_confidence_exact_label():
+    """Identical anchor_text and field label → score 1.0."""
+    annot = _make_annot(anchor_text="Adverse Event Term", visit="Week 1")
+    field = _make_field(label="Adverse Event Term", visit="Week 1")
+    score = _compute_predicted_confidence(annot, field, visit_boost=5.0)
+    assert score == pytest.approx(1.0)
+
+
+def test_predicted_confidence_no_visit_boost():
+    """Visit mismatch → no boost, but raw=100 still gives 1.0."""
+    annot = _make_annot(anchor_text="Adverse Event Term", visit="Week 1")
+    field = _make_field(label="Adverse Event Term", visit="Week 2")
+    score = _compute_predicted_confidence(annot, field, visit_boost=5.0)
+    assert score == pytest.approx(1.0)
+
+
+def test_predicted_confidence_partial_match():
+    """Partial label match returns score < 1.0."""
+    annot = _make_annot(anchor_text="Systolic BP", visit="")
+    field = _make_field(label="Systolic Blood Pressure", visit="")
+    score = _compute_predicted_confidence(annot, field, visit_boost=5.0)
+    assert 0.5 < score < 1.0
+
+
+def test_predicted_confidence_capped_at_1():
+    """Score + large visit_boost is capped at 1.0."""
+    annot = _make_annot(anchor_text="Systolic BP", visit="Week 1")
+    field = _make_field(label="Systolic BP", visit="Week 1")
+    score = _compute_predicted_confidence(annot, field, visit_boost=50.0)
+    assert score == pytest.approx(1.0)
