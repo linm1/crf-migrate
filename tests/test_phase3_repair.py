@@ -109,3 +109,19 @@ def test_predicted_confidence_capped_at_1():
     field = _make_field(label="Systolic BP", visit="Week 1")
     score = _compute_predicted_confidence(annot, field, visit_boost=50.0)
     assert score == pytest.approx(1.0)
+
+
+from ui.phase3_review import _field_display_label
+
+
+def test_field_display_label_with_field():
+    field = FieldRecord(
+        id="f1", page=3, label="Systolic BP",
+        form_name="Vital Signs", visit="", rect=[0, 0, 1, 1],
+        field_type="text_field", page_width=595.0, page_height=842.0,
+    )
+    assert _field_display_label(field) == "Systolic BP  ·  Vital Signs  ·  p.3"
+
+
+def test_field_display_label_none():
+    assert _field_display_label(None) == "—"

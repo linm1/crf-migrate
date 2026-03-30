@@ -37,6 +37,13 @@ def _compute_predicted_confidence(
     return min((raw + boost) / 100.0, 1.0)
 
 
+def _field_display_label(field: FieldRecord | None) -> str:
+    """Format a FieldRecord as a human-readable string for display."""
+    if field is None:
+        return "—"
+    return f"{field.label}  ·  {field.form_name}  ·  p.{field.page}"
+
+
 def _inject_page_css() -> None:
     st.markdown(
         """
@@ -222,6 +229,8 @@ def _render_match_rows(
     st.subheader("Matches")
     annotations = st.session_state.get("annotations", [])
     annot_by_id = {a.id: a for a in annotations}
+    fields = st.session_state.get("fields", [])
+    field_by_id = {f.id: f for f in fields}
 
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
@@ -234,7 +243,8 @@ def _render_match_rows(
         with col1:
             st.write(f"**{annot_label}**")
         with col2:
-            st.write(m.field_id or "—")
+            field = field_by_id.get(m.field_id) if m.field_id else None
+            st.write(_field_display_label(field))
         with col3:
             render_confidence_badge(m.confidence)
         with col4:
