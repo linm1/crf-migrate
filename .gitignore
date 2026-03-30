@@ -47,3 +47,6 @@ screenshots/
 
 # Plan
 docs/superpowers/
+
+# Git worktrees
+.worktrees/
