@@ -23,12 +23,12 @@ _CODELIST_PAGE_RE = re.compile(r"^Codelist\b", re.IGNORECASE)
 
 # Regex patterns for field-type heuristics
 _DATE_RE = re.compile(
-    r"\b(MM|DD|YYYY|mm|dd|yyyy)\b"
+    r"^\s*(?:(?:MM|DD|MON|YYYY|YY)[\s/\-]*)+\s*$"
     r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
     re.IGNORECASE,
 )
 _CHECKBOX_RE = re.compile(
-    r"\b(yes|no|y/n)\b|[□☐☑✓✗]",
+    r"^\s*(yes|no|y\s*/\s*n|yes\s*/\s*no)\s*$|[□☐☑✓✗]",
     re.IGNORECASE,
 )
 _TEXT_FIELD_RE = re.compile(r"_{3,}")
@@ -78,8 +78,19 @@ def _process_page(
     Pass B — Resolve human-readable labels for markers:
       For each marker block, call find_nearest_label against the non-marker
       blocks.  If a label is found, use it; otherwise fall back to block["text"].
+
+    form_name derivation:
+      After all records are built, form_name is set to the label of the
+      topmost-leftmost record on this page (min y0, then min x0).  This is
+      simpler and more reliable than running extract_form_name() on raw text
+      blocks before fields are extracted, which was fragile and susceptible
+      to cross-page contamination and font/bold heuristic failures.
     """
     text_blocks = _get_text_blocks(page)
+
+    # Extract page dimensions for field bounds tracking
+    page_w = page.rect.width
+    page_h = page.rect.height
 
     # --- Codelist page sentinel: skip lookup-table pages entirely ---
     # Codelist pages start with "Codelist:" / "Codelist View:" in the top region.
@@ -93,9 +104,6 @@ def _process_page(
                 return []
 
     page_text = " ".join(b["text"] for b in text_blocks)
-    form_name = rule_engine.extract_form_name(text_blocks, page_height=page.rect.height)
-    if not form_name:
-        return []
     visit = rule_engine.extract_visit(page_text) or ""
 
     min_header_size = profile.form_name_rules.min_font_size
@@ -123,14 +131,29 @@ def _process_page(
         else:
             non_marker_blocks.append(block)
 
+    # Build all records with form_name="" — filled in after all records exist
     headers = _collect_section_headers(
-        non_marker_blocks, page_num, form_name, visit, min_header_size, exclude_patterns
+        non_marker_blocks, page_num, form_name="", visit=visit,
+        min_header_size=min_header_size, exclude_patterns=exclude_patterns,
+        page_width=page_w, page_height=page_h,
     )
     markers = _resolve_marker_labels(
-        marker_blocks, non_marker_blocks, page_num, form_name, visit,
-        left_col_tol, exclude_patterns,
+        marker_blocks, non_marker_blocks, page_num, form_name="", visit=visit,
+        left_col_tolerance=left_col_tol, exclude_patterns=exclude_patterns,
+        page_width=page_w, page_height=page_h,
     )
-    return headers + markers
+    records = headers + markers
+
+    if not records:
+        return []
+
+    # --- Derive form_name from the topmost-leftmost record on this page ---
+    # Using already-extracted field positions is more reliable than running
+    # extract_form_name() on raw text blocks before fields exist.
+    top_left = min(records, key=lambda r: (r.rect[1], r.rect[0]))
+    form_name = top_left.label
+
+    return [r.model_copy(update={"form_name": form_name}) for r in records]
 
 
 def _collect_section_headers(
@@ -140,6 +163,8 @@ def _collect_section_headers(
     visit: str,
     min_header_size: float,
     exclude_patterns: list[re.Pattern[str]],
+    page_width: float,
+    page_height: float,
 ) -> list[FieldRecord]:
     """Return a FieldRecord for every non-marker block that qualifies as a section header.
 
@@ -163,6 +188,8 @@ def _collect_section_headers(
                 visit=visit,
                 rect=block["rect"],
                 field_type="section_header",
+                page_width=page_width,
+                page_height=page_height,
             )
         )
     return records
@@ -176,6 +203,8 @@ def _resolve_marker_labels(
     visit: str,
     left_col_tolerance: float,
     exclude_patterns: list[re.Pattern[str]],
+    page_width: float,
+    page_height: float,
 ) -> list[FieldRecord]:
     """Pass B: resolve the nearest human-readable label for each marker block.
 
@@ -187,7 +216,7 @@ def _resolve_marker_labels(
     """
     records: list[FieldRecord] = []
     for block, field_type in marker_blocks:
-        label = find_nearest_label(
+        label, _ = find_nearest_label(
             marker_rect=block["rect"],
             text_blocks=non_marker_blocks,
             left_column_tolerance_px=left_col_tolerance,
@@ -206,17 +235,25 @@ def _resolve_marker_labels(
                 visit=visit,
                 rect=block["rect"],
                 field_type=field_type,
+                page_width=page_width,
+                page_height=page_height,
             )
         )
     return records
 
 
 def _get_text_blocks(page: fitz.Page) -> list[TextBlock]:
-    """Extract text blocks, excluding spans inside annotation bounding boxes.
+    """Extract text blocks, excluding spans inside FreeText annotation bounding boxes.
 
-    Delegates to pdf_utils.get_text_blocks with annotation-overlap filtering
-    so that FreeText annotation appearance text is not misclassified as CRF
-    fields.
+    Phase 2 target CRFs may carry SDTM FreeText annotations (when the user
+    supplies an annotated aCRF as the target reference).  Those annotation
+    appearance streams surface as ordinary text blocks via page.get_text(),
+    so we must suppress them.
+
+    Critically, we filter ONLY FreeText annotation rects — not AcroForm Widget
+    rects.  Filtering all annotation types (the previous behavior) caused label
+    text adjacent to AcroForm widget boxes to be silently excluded, making
+    find_nearest_label() fall back to wrong or stale labels from earlier pages.
     """
-    annot_rects = get_annotation_rects(page)
+    annot_rects = get_annotation_rects(page, types=["FreeText"])
     return get_text_blocks(page, annot_rects=annot_rects)

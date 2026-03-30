@@ -11,77 +11,29 @@ import fitz  # PyMuPDF
 from src.models import AnnotationRecord, MatchRecord
 from src.profile_models import Profile
 
-# SDTM annotation background color palette, assigned by domain appearance order per page.
-# Each tuple is (R, G, B) in 0.0–1.0 float range.
-_DOMAIN_PALETTE: list[tuple[float, float, float]] = [
-    (0.75, 1.0, 1.0),              # 1 → #BFFFFF
-    (1.0, 1.0, 0.6667),            # 2 → #FFFFAA
-    (0.75, 1.0, 0.75),             # 3 → #BFFFBF
-    (1.0, 0.75, 0.6667),           # 4 → #FFBFAA
-    (1.0, 0.6667, 0.75),           # 5 → #FFAABF
-]
-
-_PALETTE_TOLERANCE: float = 0.01
-
-
-def _is_palette_color(color: list[float]) -> bool:
-    """Return True if color is within tolerance of any palette entry."""
-    for entry in _DOMAIN_PALETTE:
-        if all(abs(color[i] - entry[i]) <= _PALETTE_TOLERANCE for i in range(3)):
-            return True
-    return False
-
-
-def _build_domain_color_map(
-    annotations: list[AnnotationRecord],
-    page_num: int,
-) -> dict[str, tuple[float, float, float]]:
-    """Build domain→fill_color map for annotations on a given page.
-
-    For each domain on the page, in order of first appearance:
-    - Use the source fill color if it is a valid palette color.
-    - Otherwise assign the next unused palette slot.
-    Domains that already have a palette-valid source color share that color
-    across all annotations on the page.
-    """
-    domain_color: dict[str, tuple[float, float, float]] = {}
-    palette_index: int = 0
-
-    for annot in annotations:
-        if annot.page != page_num:
-            continue
-        domain = annot.domain
-        if domain in domain_color:
-            continue
-        fill = annot.style.fill_color
-        if fill and len(fill) >= 3 and _is_palette_color(fill):
-            domain_color[domain] = (fill[0], fill[1], fill[2])
-        else:
-            if palette_index < len(_DOMAIN_PALETTE):
-                domain_color[domain] = _DOMAIN_PALETTE[palette_index]
-                palette_index += 1
-            else:
-                # More than 5 domains: cycle back through palette
-                domain_color[domain] = _DOMAIN_PALETTE[palette_index % len(_DOMAIN_PALETTE)]
-                palette_index += 1
-
-    return domain_color
+_FALLBACK_FILL: tuple[float, float, float] = (0.75, 1.0, 1.0)  # cyan
 
 
 def _resolve_text_style(
     annot: AnnotationRecord,
+    profile: Profile,
 ) -> tuple[str, float, tuple[float, float, float]]:
     """Return (fontname, fontsize, text_color) per SDTM guideline.
 
-    - domain_label:    Arial Bold, 14pt, black
-    - cross_reference: Arial Regular, 10pt, #00FFFF
-    - all others:      Arial Regular, 10pt, black
+    Font sizes are read from profile.style_defaults:
+    - domain_label_font_size for domain_label category
+    - font_size for all other categories
+
+    - domain_label:    Helvetica Bold (hebo), domain_label_font_size, black
+    - cross_reference: Helvetica Regular (helv), font_size, #00FFFF
+    - all others:      Helvetica Regular (helv), font_size, black
     """
+    sd = profile.style_defaults
     if annot.category == "domain_label":
-        return "helv", 14.0, (0.0, 0.0, 0.0)
+        return "hebo", sd.domain_label_font_size, (0.0, 0.0, 0.0)
     if annot.category == "cross_reference":
-        return "helv", 10.0, (0.0, 1.0, 1.0)
-    return "helv", 10.0, (0.0, 0.0, 0.0)
+        return "helv", sd.font_size, (0.0, 1.0, 1.0)
+    return "helv", sd.font_size, (0.0, 0.0, 0.0)
 
 
 def write_annotations(
@@ -99,20 +51,6 @@ def write_annotations(
     written_ids: list[str] = []
     skipped_ids: list[str] = []
 
-    # Pre-build per-page domain→color maps using all annotations (not just approved),
-    # so domain color assignment is stable regardless of approval status.
-    pages_needed: set[int] = set()
-    for match in matches:
-        if match.status in ("approved", "modified"):
-            annot = annot_by_id.get(match.annotation_id)
-            if annot:
-                pages_needed.add(annot.page)
-
-    page_domain_maps: dict[int, dict[str, tuple[float, float, float]]] = {
-        page_num: _build_domain_color_map(annotations, page_num)
-        for page_num in pages_needed
-    }
-
     for match in matches:
         if match.status in ("approved", "modified"):
             annot = annot_by_id.get(match.annotation_id)
@@ -124,8 +62,7 @@ def write_annotations(
                 skipped_ids.append(match.annotation_id)
                 continue
             page = doc[page_index]
-            domain_color_map = page_domain_maps.get(annot.page, {})
-            _write_single_annotation(page, match.target_rect, annot, domain_color_map)
+            _write_single_annotation(page, match.target_rect, annot, profile, doc)
             written_ids.append(match.annotation_id)
         else:
             skipped_ids.append(match.annotation_id)
@@ -157,23 +94,59 @@ def build_qc_report(
         "rejected_annotation_ids": [
             m.annotation_id for m in matches if m.status == "rejected"
         ],
+        "placement_adjusted_ids": [
+            m.annotation_id for m in matches if m.placement_adjusted
+        ],
     }
+
+
+def _apply_bold_font(
+    doc: fitz.Document,
+    page: fitz.Page,
+    annot: fitz.Annot,
+    fontsize: float,
+) -> None:
+    """Patch the annotation's DA and AP stream to use Helvetica-Bold (hebo).
+
+    PyMuPDF's add_freetext_annot maps all font names to /Helv in the DA and
+    AP stream. For bold rendering we must:
+    1. Ensure the bold font is registered in page resources (insert_font).
+    2. Rewrite the DA string to reference it.
+    3. Patch the AP stream to replace /Helv with /hebo.
+
+    This must be called after a.update() so our DA write is not overwritten.
+    """
+    page.insert_font(fontname="hebo")
+    da_str = f"0 0 0 rg /hebo {fontsize} Tf"
+    doc.xref_set_key(annot.xref, "DA", f"({da_str})")
+    n_num = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
+    stream = doc.xref_stream(n_num)
+    patched = stream.replace(b"/Helv ", b"/hebo ")
+    doc.update_stream(n_num, patched)
 
 
 def _write_single_annotation(
     page: fitz.Page,
     target_rect: list[float],
     annot: AnnotationRecord,
-    domain_color_map: dict[str, tuple[float, float, float]],
+    profile: Profile,
+    doc: fitz.Document,
 ) -> None:
     """Add a FreeText annotation to the given page at target_rect.
 
     Font, size, and text color follow SDTM guideline rules (category-driven).
-    Fill/background color is resolved from the source annotation or palette.
-    Border is always black; line style (solid/dashed) is preserved from source.
+    Fill/background color is taken directly from the source annotation's
+    fill_color, falling back to cyan only when absent.
+    Border width and dash pattern are preserved from the source annotation.
+
+    IMPORTANT: Never call xref_set_key on /C after update().  The /C key is
+    the fill color for FreeText annotations (PDF spec ISO 32000 Table 177).
+    update(fill_color=...) sets /C correctly; overwriting it breaks both the
+    fill color and the border color on viewer re-render.
     """
-    fontname, fontsize, text_color = _resolve_text_style(annot)
-    fill = domain_color_map.get(annot.domain)
+    fontname, fontsize, text_color = _resolve_text_style(annot, profile)
+    fill_src = annot.style.fill_color
+    fill = (fill_src[0], fill_src[1], fill_src[2]) if fill_src and len(fill_src) >= 3 else _FALLBACK_FILL
     style = annot.style
     rect = fitz.Rect(target_rect)
 
@@ -181,15 +154,17 @@ def _write_single_annotation(
         rect=rect,
         text=annot.content,
         fontsize=fontsize,
-        fontname=fontname,
+        fontname="helv",  # PyMuPDF only supports helv here; bold patched below
         text_color=text_color,
         fill_color=fill,
     )
-    a.set_border(width=style.border_width, dashes=style.border_dashes)
-    # Set border/stroke color to black via PDF 'C' key (set_colors() is not
-    # supported for FreeText annotations in PyMuPDF)
-    page.parent.xref_set_key(a.xref, "C", "[0 0 0]")
+    # PyMuPDF returns -1.0 for border width when no border is set on the source
+    # annotation; clamp to 1.0 so the output always has a visible border.
+    border_width = style.border_width if style.border_width > 0 else 1.0
+    a.set_border(width=border_width, dashes=style.border_dashes)
     a.set_info(content=annot.content, subject=annot.domain)
     if annot.rotation:
         a.set_rotation(annot.rotation)
-    a.update()
+    a.update(fill_color=fill, text_color=text_color)
+    if fontname == "hebo":
+        _apply_bold_font(doc, page, a, fontsize)

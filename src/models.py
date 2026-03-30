@@ -33,6 +33,7 @@ class AnnotationRecord(BaseModel):
     matched_rule: str              # Description of the classification rule that matched
     rect: list[float]              # [x0, y0, x1, y1] bounding box in PDF points
     anchor_text: str = ""          # Nearby CRF text used for matching
+    anchor_rect: list[float] | None = None  # Bounding box of the anchor text label
     form_name: str = ""            # CRF form/page title
     visit: str = ""                # Visit label
     style: StyleInfo = StyleInfo()
@@ -49,6 +50,8 @@ class FieldRecord(BaseModel):
     visit: str = ""
     rect: list[float]              # Bounding box of the field label text
     field_type: str                # text_field | checkbox | date_field | table_row | section_header
+    page_width: float = 0.0        # target page width in PDF points
+    page_height: float = 0.0       # target page height in PDF points
 
 
 class MatchRecord(BaseModel):
@@ -61,3 +64,4 @@ class MatchRecord(BaseModel):
     target_rect: list[float]       # Computed placement position on the target PDF
     status: str = "pending"        # pending | approved | rejected | modified
     user_notes: str = ""
+    placement_adjusted: bool = False  # True if target_rect was clamped or fallback-placed

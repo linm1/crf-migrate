@@ -75,9 +75,9 @@ classification_rules:
 - conditions:
     contains: null
     starts_with: null
-    regex: ^([A-Z]{2,4})=(.+)$
+    regex: ^([A-Z]{2,4}) \(([A-Za-z0-9 ,'-]+)\)$
     subject_is: null
-    domain_in: domain_codes
+    domain_in: null
     max_length: null
     min_length: null
     multi_line: null
@@ -86,14 +86,14 @@ classification_rules:
 - conditions:
     contains: null
     starts_with: null
-    regex: '\bSee\s+(page|pg\.?)\s*\d+|\bRefer\s+to\b'
+    regex: \bSee\s+(page|pg\.?)\s*\d+|\bRefer\s+to\b
     subject_is: null
     domain_in: null
     max_length: null
     min_length: null
     multi_line: null
     fallback: null
-  category: cross_reference
+  category: sdtm_mapping
 - conditions:
     contains: null
     starts_with: null
@@ -139,14 +139,13 @@ classification_rules:
     fallback: true
   category: sdtm_mapping
 form_name_rules:
-  strategy: top_left_block
+  strategy: largest_bold_text
   min_font_size: 6.5
   exclude_patterns:
   - ^CDISC$
   - ^Study\b
-  - "^Design\\s*:"
-  - "^Codelist\\s*:"
-  - "\\S+\\s*:\\s*$"
+  - '^Design\s*:'
+  - '^Codelist\s*:'
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
@@ -174,9 +173,8 @@ anchor_text_config:
   - ^\s*$
   - ^CDISC$
   - ^Study\b
-  - "^Design\\s*:"
-  - "^Codelist\\s*:"
-  - "\\S+\\s*:\\s*$"
+  - '^Design\s*:'
+  - '^Codelist\s*:'
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
@@ -190,18 +188,20 @@ annotation_filter:
   min_content_length: 1
 matching_config:
   exact_threshold: 1.0
-  fuzzy_same_form_threshold: 0.80
-  fuzzy_cross_form_threshold: 0.90
-  position_fallback_confidence: 0.50
+  fuzzy_same_form_threshold: 0.8
+  fuzzy_cross_form_threshold: 0.9
+  position_fallback_confidence: 0.5
   visit_boost: 5.0
 style_defaults:
   font: Arial,BoldItalic
-  font_size: 18.0
+  font_size: 12.0
+  domain_label_font_size: 12.0
   text_color:
   - 0.0
   - 0.0
   - 0.0
   border_color:
-  - 0.75
-  - 1.0
-  - 1.0
+  - 0.0
+  - 0.0
+  - 0.0
+  fill_color: null

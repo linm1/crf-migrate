@@ -28,6 +28,90 @@ except (ImportError, TypeError):
 _norm = lambda s: s.strip().lower()  # noqa: E731
 
 
+def _apply_anchor_offset(
+    annot_rect: list[float],
+    anchor_rect: list[float],
+    field_rect: list[float],
+) -> list[float]:
+    """Compute target_rect by replicating the source offset between an annotation
+    and its anchor text label onto the target field label position.
+
+    The annotation's width and height are preserved from the source.
+
+    Args:
+        annot_rect:  Source annotation bounding box [x0, y0, x1, y1].
+        anchor_rect: Source anchor text label bounding box [x0, y0, x1, y1].
+        field_rect:  Target field label bounding box [x0, y0, x1, y1].
+
+    Returns:
+        Target annotation bounding box [x0, y0, x1, y1].
+    """
+    dx = annot_rect[0] - anchor_rect[0]
+    dy = annot_rect[1] - anchor_rect[1]
+    w = annot_rect[2] - annot_rect[0]
+    h = annot_rect[3] - annot_rect[1]
+    x0 = field_rect[0] + dx
+    y0 = field_rect[1] + dy
+    return [x0, y0, x0 + w, y0 + h]
+
+
+def _is_oob(rect: list[float], page_w: float, page_h: float) -> bool:
+    """Return True if rect falls outside [0, page_w] x [0, page_h].
+
+    Skipped when page_w or page_h is 0 (unknown dimensions).
+    """
+    if page_w <= 0 or page_h <= 0:
+        return False
+    return rect[0] < 0 or rect[1] < 0 or rect[2] > page_w or rect[3] > page_h
+
+
+def _clamp_to_page(
+    rect: list[float], page_w: float, page_h: float
+) -> tuple[list[float], bool]:
+    """Clamp rect to [0, page_w] x [0, page_h]. Returns (clamped_rect, was_adjusted)."""
+    if page_w <= 0 or page_h <= 0:
+        return rect, False
+    x0 = max(0.0, min(rect[0], page_w))
+    y0 = max(0.0, min(rect[1], page_h))
+    x1 = max(0.0, min(rect[2], page_w))
+    y1 = max(0.0, min(rect[3], page_h))
+    clamped = [x0, y0, x1, y1]
+    was_adjusted = bool(x0 != rect[0] or y0 != rect[1] or x1 != rect[2] or y1 != rect[3])
+    return clamped, was_adjusted
+
+
+def _apply_placement_guard(
+    target_rect: list[float],
+    matched_field: "FieldRecord",
+    all_fields: list["FieldRecord"],
+) -> tuple[list[float], bool]:
+    """Apply OOB fallback then clamp, returning (final_rect, was_adjusted).
+
+    If target_rect is out-of-bounds:
+      1. Find all fields on the same page with the same label (case-insensitive).
+      2. Use the leftmost one (smallest rect[0]) as the target rect directly.
+    Then always apply _clamp_to_page as a final safety net.
+    """
+    page_w = matched_field.page_width
+    page_h = matched_field.page_height
+    adjusted = False
+
+    if _is_oob(target_rect, page_w, page_h):
+        peers = [
+            f for f in all_fields
+            if f.page == matched_field.page
+            and _norm(f.label) == _norm(matched_field.label)
+            and f.id != matched_field.id
+        ]
+        if peers:
+            leftmost = min(peers, key=lambda f: f.rect[0])
+            target_rect = list(leftmost.rect)
+            adjusted = True
+
+    clamped, clamp_fired = _clamp_to_page(target_rect, page_w, page_h)
+    return clamped, adjusted or clamp_fired
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -127,31 +211,40 @@ def _exact_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
-    unmatched_field_ids: set[str],
     exact_threshold: float,
 ) -> list[MatchRecord]:
-    """Pass 1: exact form_name + anchor_text == field label (case-insensitive)."""
+    """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
+
+    Fields are reusable anchors — multiple annotations sharing the same
+    anchor_text + form_name all match the same field and each get their own
+    target_rect via _apply_anchor_offset.
+    """
     results: list[MatchRecord] = []
     for annot in annotations:
         if annot.id not in unmatched_annot_ids:
             continue
         for field in fields:
-            if field.id not in unmatched_field_ids:
-                continue
             if (
                 _norm(annot.form_name) == _norm(field.form_name)
                 and _norm(annot.anchor_text) == _norm(field.label)
                 and annot.anchor_text.strip() != ""
             ):
+                final_rect, placement_adjusted = _apply_placement_guard(
+                    _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                    if annot.anchor_rect
+                    else list(field.rect),
+                    field,
+                    fields,
+                )
                 results.append(MatchRecord(
                     annotation_id=annot.id,
                     field_id=field.id,
                     match_type="exact",
                     confidence=exact_threshold,
-                    target_rect=list(field.rect),
+                    target_rect=final_rect,
+                    placement_adjusted=placement_adjusted,
                 ))
                 unmatched_annot_ids.discard(annot.id)
-                unmatched_field_ids.discard(field.id)
                 break
     return results
 
@@ -160,7 +253,6 @@ def _fuzzy_same_form_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
-    unmatched_field_ids: set[str],
     threshold_pct: float,
     visit_boost: float,
 ) -> list[MatchRecord]:
@@ -176,7 +268,7 @@ def _fuzzy_same_form_pass(
         grp_annots = [a for a in eligible_annots if _norm(a.form_name) == form]
         grp_fields = [
             f for f in fields
-            if f.id in unmatched_field_ids and _norm(f.form_name) == form
+            if _norm(f.form_name) == form
         ]
 
         def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
@@ -185,15 +277,21 @@ def _fuzzy_same_form_pass(
         pairs = _bipartite_assign(grp_annots, grp_fields, _score, threshold_pct)
         for ai, fi, score in pairs:
             annot, field = grp_annots[ai], grp_fields[fi]
+            raw_rect = (
+                _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                if annot.anchor_rect
+                else list(field.rect)
+            )
+            final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields)
             results.append(MatchRecord(
                 annotation_id=annot.id,
                 field_id=field.id,
                 match_type="fuzzy",
                 confidence=min(score / 100.0, 1.0),
-                target_rect=list(field.rect),
+                target_rect=final_rect,
+                placement_adjusted=placement_adjusted,
             ))
             unmatched_annot_ids.discard(annot.id)
-            unmatched_field_ids.discard(field.id)
 
     return results
 
@@ -202,7 +300,6 @@ def _fuzzy_cross_form_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
-    unmatched_field_ids: set[str],
     threshold_pct: float,
     visit_boost: float,
 ) -> list[MatchRecord]:
@@ -211,7 +308,7 @@ def _fuzzy_cross_form_pass(
         a for a in annotations
         if a.id in unmatched_annot_ids and a.anchor_text.strip() != ""
     ]
-    eligible_fields = [f for f in fields if f.id in unmatched_field_ids]
+    eligible_fields = list(fields)
 
     def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
         return _adjusted_score(a, f, _b)
@@ -220,15 +317,21 @@ def _fuzzy_cross_form_pass(
     results: list[MatchRecord] = []
     for ai, fi, score in pairs:
         annot, field = eligible_annots[ai], eligible_fields[fi]
+        raw_rect = (
+            _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+            if annot.anchor_rect
+            else list(field.rect)
+        )
+        final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields)
         results.append(MatchRecord(
             annotation_id=annot.id,
             field_id=field.id,
             match_type="fuzzy",
             confidence=min(score / 100.0, 1.0),
-            target_rect=list(field.rect),
+            target_rect=final_rect,
+            placement_adjusted=placement_adjusted,
         ))
         unmatched_annot_ids.discard(annot.id)
-        unmatched_field_ids.discard(field.id)
     return results
 
 
@@ -249,12 +352,16 @@ def _position_pass(
             continue
 
         if annot.category == "domain_label":
+            tgt_dims = target_page_dims.get(annot.page, (0.0, 0.0))
+            tgt_w, tgt_h = tgt_dims
+            clamped, placement_adjusted = _clamp_to_page(list(annot.rect), tgt_w, tgt_h)
             results.append(MatchRecord(
                 annotation_id=annot.id,
                 field_id=None,
                 match_type="position_only",
                 confidence=position_fallback_confidence,
-                target_rect=list(annot.rect),
+                target_rect=clamped,
+                placement_adjusted=placement_adjusted,
             ))
             unmatched_annot_ids.discard(annot.id)
             continue
@@ -262,13 +369,16 @@ def _position_pass(
         if _norm(annot.form_name) in form_names_in_fields:
             src_dims = source_page_dims.get(annot.page, (595.0, 842.0))
             tgt_dims = target_page_dims.get(annot.page, src_dims)
+            tgt_w, tgt_h = tgt_dims
             scaled = _compute_scaled_rect(list(annot.rect), src_dims, tgt_dims)
+            clamped, placement_adjusted = _clamp_to_page(scaled, tgt_w, tgt_h)
             results.append(MatchRecord(
                 annotation_id=annot.id,
                 field_id=None,
                 match_type="position_only",
                 confidence=position_fallback_confidence,
-                target_rect=scaled,
+                target_rect=clamped,
+                placement_adjusted=placement_adjusted,
             ))
         else:
             results.append(MatchRecord(
@@ -304,18 +414,17 @@ def match_annotations(
     config = profile.matching_config
     visit_boost = config.visit_boost
     unmatched_annot_ids: set[str] = {a.id for a in annotations}
-    unmatched_field_ids: set[str] = {f.id for f in fields}
     results: list[MatchRecord] = []
 
     results += _exact_pass(
-        annotations, fields, unmatched_annot_ids, unmatched_field_ids, config.exact_threshold,
+        annotations, fields, unmatched_annot_ids, config.exact_threshold,
     )
     results += _fuzzy_same_form_pass(
-        annotations, fields, unmatched_annot_ids, unmatched_field_ids,
+        annotations, fields, unmatched_annot_ids,
         config.fuzzy_same_form_threshold * 100, visit_boost,
     )
     results += _fuzzy_cross_form_pass(
-        annotations, fields, unmatched_annot_ids, unmatched_field_ids,
+        annotations, fields, unmatched_annot_ids,
         config.fuzzy_cross_form_threshold * 100, visit_boost,
     )
     results += _position_pass(

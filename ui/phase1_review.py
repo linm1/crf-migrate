@@ -353,7 +353,7 @@ def _render_review_panel(
                 badge = annot.category or "—"
                 suffix = (annot.content[:60] if annot.content else annot.anchor_text[:60]) or "—"
                 label = f":{color}[**{badge}**] :gray[*{suffix}*]"
-                container_key = f"p1_annot_{local_idx}"
+                container_key = f"p1_annot_p{selected_page}_{local_idx}"
                 st.markdown(
                     f"<style>.st-key-{container_key} details"
                     f"{{background:{bg} !important}}</style>",
@@ -365,34 +365,34 @@ def _render_review_panel(
                         with c1:
                             content = st.text_area(
                                 "Content", value=annot.content,
-                                key=f"p1_a_{local_idx}_content",
+                                key=f"p1_a_p{selected_page}_{local_idx}_content",
                             )
                             domain = st.text_input(
                                 "Domain", value=annot.domain,
-                                key=f"p1_a_{local_idx}_domain",
+                                key=f"p1_a_p{selected_page}_{local_idx}_domain",
                             )
                             cat_idx = _ANNOT_CATEGORIES.index(annot.category) \
                                 if annot.category in _ANNOT_CATEGORIES else 0
                             category = st.selectbox(
                                 "Category", _ANNOT_CATEGORIES, index=cat_idx,
-                                key=f"p1_a_{local_idx}_cat",
+                                key=f"p1_a_p{selected_page}_{local_idx}_cat",
                             )
                         with c2:
                             anchor = st.text_input(
                                 "Anchor Text", value=annot.anchor_text,
-                                key=f"p1_a_{local_idx}_anchor",
+                                key=f"p1_a_p{selected_page}_{local_idx}_anchor",
                             )
                             form_name = st.text_input(
                                 "Form Name", value=annot.form_name,
-                                key=f"p1_a_{local_idx}_form",
+                                key=f"p1_a_p{selected_page}_{local_idx}_form",
                             )
                             visit = st.text_input(
                                 "Visit", value=annot.visit,
-                                key=f"p1_a_{local_idx}_visit",
+                                key=f"p1_a_p{selected_page}_{local_idx}_visit",
                             )
                         btn_save, btn_del, _ = st.columns([1, 1, 4], gap="small")
                         with btn_save:
-                            if st.button("Save", key=f"p1_a_{local_idx}_save",
+                            if st.button("Save", key=f"p1_a_p{selected_page}_{local_idx}_save",
                                          use_container_width=True):
                                 updated = annot.model_copy(update={
                                     "content": content, "domain": domain,
@@ -408,7 +408,7 @@ def _render_review_panel(
                                 invalidate_phases([3, 4])
                                 st.rerun()
                         with btn_del:
-                            if st.button("Delete", key=f"p1_a_{local_idx}_del",
+                            if st.button("Delete", key=f"p1_a_p{selected_page}_{local_idx}_del",
                                          use_container_width=True):
                                 new_list = [
                                     a for i, a in enumerate(st.session_state["annotations"])
@@ -433,7 +433,7 @@ def _render_review_panel(
                 badge = field.field_type or "—"
                 suffix = field.label[:60] if field.label else "—"
                 label = f":{color}[**{badge}**] :gray[*{suffix}*]"
-                container_key = f"p1_field_{local_idx}"
+                container_key = f"p1_field_p{selected_page_f}_{local_idx}"
                 st.markdown(
                     f"<style>.st-key-{container_key} details"
                     f"{{background:{bg} !important}}</style>",
@@ -445,26 +445,26 @@ def _render_review_panel(
                         with c1:
                             label_val = st.text_input(
                                 "Label", value=field.label,
-                                key=f"p1_f_{local_idx}_label",
+                                key=f"p1_f_p{selected_page_f}_{local_idx}_label",
                             )
                             form_name = st.text_input(
                                 "Form Name", value=field.form_name,
-                                key=f"p1_f_{local_idx}_form",
+                                key=f"p1_f_p{selected_page_f}_{local_idx}_form",
                             )
                             visit = st.text_input(
                                 "Visit", value=field.visit,
-                                key=f"p1_f_{local_idx}_visit",
+                                key=f"p1_f_p{selected_page_f}_{local_idx}_visit",
                             )
                         with c2:
                             type_idx = _FIELD_TYPES.index(field.field_type) \
                                 if field.field_type in _FIELD_TYPES else 0
                             field_type = st.selectbox(
                                 "Field Type", _FIELD_TYPES, index=type_idx,
-                                key=f"p1_f_{local_idx}_type",
+                                key=f"p1_f_p{selected_page_f}_{local_idx}_type",
                             )
                         btn_save, btn_del, _ = st.columns([1, 1, 4], gap="small")
                         with btn_save:
-                            if st.button("Save", key=f"p1_f_{local_idx}_save",
+                            if st.button("Save", key=f"p1_f_p{selected_page_f}_{local_idx}_save",
                                          use_container_width=True):
                                 updated = field.model_copy(update={
                                     "label": label_val, "form_name": form_name,
@@ -477,7 +477,7 @@ def _render_review_panel(
                                 st.session_state["source_fields"] = new_list
                                 st.rerun()
                         with btn_del:
-                            if st.button("Delete", key=f"p1_f_{local_idx}_del",
+                            if st.button("Delete", key=f"p1_f_p{selected_page_f}_{local_idx}_del",
                                          use_container_width=True):
                                 new_list = [
                                     f for i, f in enumerate(st.session_state["source_fields"])

@@ -10,7 +10,7 @@ from src.models import AnnotationRecord, FieldRecord, MatchRecord
 
 
 # Columns that hold JSON-serialized nested structures
-_JSON_COLUMNS = {"rect", "style"}
+_JSON_COLUMNS = {"rect", "style", "anchor_rect"}
 
 
 def _flatten_record(record: AnnotationRecord) -> dict:
@@ -19,6 +19,7 @@ def _flatten_record(record: AnnotationRecord) -> dict:
     # Serialize nested objects to JSON strings for CSV compatibility
     data["rect"] = json.dumps(data["rect"])
     data["style"] = json.dumps(data["style"])
+    data["anchor_rect"] = json.dumps(data["anchor_rect"])
     return data
 
 
@@ -30,6 +31,9 @@ def _unflatten_row(row: dict) -> dict:
         result["rect"] = json.loads(result["rect"])
     if "style" in result and isinstance(result["style"], str):
         result["style"] = json.loads(result["style"])
+    if "anchor_rect" in result and isinstance(result["anchor_rect"], str):
+        parsed = json.loads(result["anchor_rect"]) if result["anchor_rect"] else None
+        result["anchor_rect"] = parsed
     # Convert NaN to empty string for optional string fields
     for key in ("anchor_text", "form_name", "visit", "matched_rule", "domain"):
         if key in result and (result[key] != result[key]):  # NaN check

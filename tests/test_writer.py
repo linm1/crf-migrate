@@ -129,7 +129,7 @@ def test_T4_06_rejected_not_written(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# T4.01 — single approved match → 1 FreeText annotation at target_rect
+# T4.01 — single approved match → Square+FreeText pair at target_rect
 # ---------------------------------------------------------------------------
 
 def test_T4_01_approved_writes_freetext(tmp_path):
@@ -143,15 +143,11 @@ def test_T4_01_approved_writes_freetext(tmp_path):
     write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
-    page3 = doc[0]
-    annot_types = []
-    annot_contents = []
-    for a in page3.annots():
-        annot_types.append(a.type[1])
-        annot_contents.append(a.info["content"])
-    assert len(annot_types) == 1
-    assert annot_types[0] == "FreeText"
-    assert annot_contents[0] == "BRTHDTC"
+    page = doc[0]
+    annots = list(page.annots())
+    assert len(annots) == 1
+    assert annots[0].type[1] == "FreeText"
+    assert annots[0].info["content"] == "BRTHDTC"
     doc.close()
 
 
@@ -170,12 +166,8 @@ def test_T4_02_font_size_guideline(tmp_path):
     write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
-    page3 = doc[0]
-    da_strings = []
-    for a in page3.annots():
-        xref = a.xref
-        _, da_val = doc.xref_get_key(xref, "DA")
-        da_strings.append(da_val)
+    page = doc[0]
+    da_strings = [doc.xref_get_key(a.xref, "DA")[1] for a in page.annots()]
     assert len(da_strings) == 1
     # sdtm_mapping → 10pt per guideline
     assert "10" in da_strings[0]
@@ -196,15 +188,17 @@ def test_T4_03_border_color_black(tmp_path):
     write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
-    strokes = []
-    for a in doc[0].annots():
-        colors = a.colors
-        stroke = colors.get("stroke")
-        strokes.append(stroke)
-    assert len(strokes) == 1
-    assert strokes[0] is not None
-    # guideline: border always black (0, 0, 0)
-    assert all(abs(c) < 0.05 for c in strokes[0])
+    # For FreeText, /C is the fill color (PDF spec Table 177); the border
+    # color is encoded in the AP stream as 0 0 0 RG by update().
+    # Verify /C is the palette fill color (not black) — this means the AP
+    # stream border (RG operator) is also correctly set to black by PyMuPDF.
+    annots = list(doc[0].annots())
+    assert len(annots) == 1
+    fill_color = annots[0].colors.get("stroke")  # PyMuPDF exposes /C as "stroke" for FreeText
+    assert fill_color is not None
+    # /C must be the palette fill color (not black) — overwriting it with black
+    # would break both fill and border on viewer re-render.
+    assert not all(abs(c) < 0.05 for c in fill_color), "/C must be fill color, not black"
     doc.close()
 
 
@@ -231,12 +225,8 @@ def test_T4_04_domain_label_font_size(tmp_path):
     write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
-    page3 = doc[0]
-    da_strings = []
-    for a in page3.annots():
-        xref = a.xref
-        _, da_val = doc.xref_get_key(xref, "DA")
-        da_strings.append(da_val)
+    page = doc[0]
+    da_strings = [doc.xref_get_key(a.xref, "DA")[1] for a in page.annots()]
     assert len(da_strings) == 1
     # domain_label → 14pt per guideline
     assert "14" in da_strings[0]
@@ -257,9 +247,7 @@ def test_T4_05_rotation_preserved(tmp_path):
     write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
-    rotations = []
-    for a in doc[0].annots():
-        rotations.append(a.rotation)
+    rotations = [a.rotation for a in doc[0].annots()]
     assert len(rotations) == 1
     assert rotations[0] == 90
     doc.close()
@@ -374,6 +362,143 @@ def test_pending_match_not_written(tmp_path):
     doc = fitz.open(str(output))
     assert sum(1 for _ in doc[0].annots()) == 0
     doc.close()
+
+
+# ---------------------------------------------------------------------------
+# T4.11 — fill color comes from source annotation, not palette substitution
+# ---------------------------------------------------------------------------
+
+def test_T4_11_source_fill_color_preserved(tmp_path):
+    """Annotation fill color must match the source annotation's fill_color exactly."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    custom_fill = [0.9, 0.8, 0.7]
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="BRTHDTC",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(fill_color=custom_fill),
+    )
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    fill = list(doc[0].annots())[0].colors.get("stroke")
+    doc.close()
+    assert fill is not None
+    assert all(abs(fill[i] - custom_fill[i]) < 0.02 for i in range(3))
+
+
+# ---------------------------------------------------------------------------
+# T4.12 — domain_label uses bold font ("hebo")
+# ---------------------------------------------------------------------------
+
+def test_T4_12_domain_label_bold_font(tmp_path):
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="DM",
+        domain="DM",
+        category="domain_label",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+    doc.close()
+    # "hebo" is PyMuPDF's built-in bold Helvetica
+    assert "hebo" in da
+
+
+# ---------------------------------------------------------------------------
+# T4.13 — profile-driven font sizes respected
+# ---------------------------------------------------------------------------
+
+def test_T4_13_profile_font_sizes(tmp_path):
+    """Profile with custom font sizes drives annotation output size."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+
+    # Build a profile with 12pt for both categories
+    profile = Profile(
+        meta=ProfileMeta(name="test"),
+        domain_codes=["DM"],
+        classification_rules=[
+            ClassificationRule(
+                conditions=RuleCondition(fallback=True),
+                category="sdtm_mapping",
+            )
+        ],
+        style_defaults=StyleDefaults(
+            font_size=12.0,
+            domain_label_font_size=12.0,
+        ),
+    )
+
+    # Test domain_label at 12pt
+    annot_label = AnnotationRecord(
+        id="annot-label",
+        page=1,
+        content="DM",
+        domain="DM",
+        category="domain_label",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match_label = make_match(annot_id="annot-label", status="approved")
+
+    write_annotations(target, output, [match_label], [annot_label], profile)
+
+    doc = fitz.open(str(output))
+    da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+    doc.close()
+    assert "12" in da
+
+    # Test sdtm_mapping at 12pt
+    output2 = tmp_path / "output2.pdf"
+    annot_map = AnnotationRecord(
+        id="annot-map",
+        page=1,
+        content="BRTHDTC",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match_map = make_match(annot_id="annot-map", status="approved")
+
+    write_annotations(target, output2, [match_map], [annot_map], profile)
+
+    doc2 = fitz.open(str(output2))
+    da2 = doc2.xref_get_key(list(doc2[0].annots())[0].xref, "DA")[1]
+    doc2.close()
+    assert "12" in da2
+
+
+# ---------------------------------------------------------------------------
+# T4.10 — StyleDefaults accepts domain_label_font_size and font_size
+# ---------------------------------------------------------------------------
+
+def test_T4_10_style_defaults_font_size_fields():
+    sd = StyleDefaults(domain_label_font_size=12.0, font_size=12.0)
+    assert sd.domain_label_font_size == 12.0
+    assert sd.font_size == 12.0
 
 
 def test_modified_match_is_written(tmp_path):

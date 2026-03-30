@@ -49,6 +49,160 @@ class TestEmptyFormNameSkip:
         assert fields == [], f"Expected no fields, got {len(fields)}: {fields}"
 
 
+class TestFormNameFromTopLeftField:
+    """form_name must equal the label of the topmost-leftmost FieldRecord on the page.
+
+    Regression: previously, form_name was derived from raw text blocks via
+    extract_form_name() which was fragile and could return values from prior pages.
+    Now form_name is taken directly from the extracted field with smallest (y0, x0).
+    """
+
+    def test_form_name_is_label_of_top_left_field(self, tmp_path):
+        """form_name equals the label of the topmost-leftmost extracted field."""
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+
+        # Top-left text block — this should become the form_name
+        page.insert_text((50, 40), "Coagulation (Local)", fontsize=12)
+
+        # A field label + marker lower on the page
+        page.insert_text((50, 120), "aPTT", fontsize=9)
+        page.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        pdf_path = tmp_path / "coag.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_fields(pdf_path, profile, engine)
+        assert records, "Expected at least one field record"
+        for r in records:
+            assert r.form_name == "Coagulation (Local)", (
+                f"Expected form_name='Coagulation (Local)', got '{r.form_name}'"
+            )
+
+    def test_form_name_independent_per_page(self, tmp_path):
+        """Each page independently derives its own form_name from its top-left field.
+
+        Regression: form_name from page N must NOT bleed into page N+1.
+        """
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+
+        # Page 1: Coagulation (Local)
+        p1 = doc.new_page(width=595, height=841)
+        p1.insert_text((50, 40), "Coagulation (Local)", fontsize=12)
+        p1.insert_text((50, 120), "aPTT", fontsize=9)
+        p1.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        # Page 2: Hematology — different form, no mention of Coagulation
+        p2 = doc.new_page(width=595, height=841)
+        p2.insert_text((50, 40), "Hematology", fontsize=12)
+        p2.insert_text((50, 120), "WBC", fontsize=9)
+        p2.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        pdf_path = tmp_path / "two_forms.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_fields(pdf_path, profile, engine)
+
+        page1_records = [r for r in records if r.page == 1]
+        page2_records = [r for r in records if r.page == 2]
+
+        assert page1_records, "Expected records on page 1"
+        assert page2_records, "Expected records on page 2"
+
+        for r in page1_records:
+            assert r.form_name == "Coagulation (Local)", (
+                f"Page 1: expected 'Coagulation (Local)', got '{r.form_name}'"
+            )
+        for r in page2_records:
+            assert r.form_name == "Hematology", (
+                f"Page 2: expected 'Hematology', got '{r.form_name}' — bled from page 1"
+            )
+
+
+class TestGetTextBlocksFreeTextOnlyFilter:
+    """Regression: _get_text_blocks must filter only FreeText annotation rects.
+
+    The previous code called get_annotation_rects(page) with no type filter,
+    which collected ALL annotation rects including AcroForm Widget boxes.
+    Widget rects overlap nearby label text, causing those labels to be silently
+    excluded from text_blocks.  find_nearest_label() then fell back to wrong or
+    stale labels from earlier pages.
+
+    Fix: filter only FreeText annotation rects — Widget rects are ignored so
+    that label text adjacent to form fields is preserved.  FreeText filtering is
+    still required to prevent SDTM annotation appearance text from being
+    misclassified as CRF fields (see test_t2_09 in test_phase2_fields.py).
+    """
+
+    def test_label_not_excluded_by_widget_rect_overlap(self, tmp_path):
+        """Label text overlapping a non-FreeText annotation must still be extracted.
+
+        Builds a PDF page where:
+          - A FreeText annotation with empty text covers the label "Subject ID"
+          - The label text is rendered as native page content
+          - A date marker "DD/MON/YYYY" sits to the right
+
+        The annotation here uses type FreeText but carries empty content, so its
+        appearance stream produces no rendered text.  The label "Subject ID" is
+        native page text that happens to spatially overlap the annotation rect.
+        After the fix, the label must still be found and assigned to the field.
+        """
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+
+        # Page title — needed for extract_form_name to succeed
+        page.insert_text((50, 50), "Demographics", fontsize=14, fontname="helv")
+
+        # Field label at (50, 120) — width ~80px
+        page.insert_text((50, 120), "Subject ID", fontsize=9)
+
+        # Date marker at (200, 120) — to the right of the label
+        page.insert_text((200, 120), "DD/MON/YYYY", fontsize=9)
+
+        # Non-FreeText annotation (simulating a Widget/highlight) overlapping the label
+        # Use highlight which is not FreeText — its rect must NOT exclude the label
+        hl = page.add_highlight_annot(fitz.Rect(45, 113, 130, 127))
+        hl.update()
+
+        pdf_path = tmp_path / "widget_overlap.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        date_fields = [f for f in fields if f.field_type == "date_field"]
+        assert date_fields, f"Expected a date_field, got: {fields}"
+        assert date_fields[0].label == "Subject ID", (
+            f"Expected label='Subject ID', got '{date_fields[0].label}'. "
+            "Non-FreeText annotation rect is incorrectly excluding the label."
+        )
+
+
 class TestCollectSectionHeaders:
     def _make_block(self, text, bold, font_size, x0=78, y0=100):
         from src.rule_engine import TextBlock
@@ -66,6 +220,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=2, form_name="Adverse Events", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert len(records) == 1
         assert records[0].label == "Adverse Events"
@@ -81,6 +236,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=4, form_name="Adverse Events", visit="",
             min_header_size=6.5, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == [], f"Expected no records, got {records}"
 
@@ -92,6 +248,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -103,6 +260,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert len(records) == 1
         assert records[0].label == "BIG HEADER"
@@ -114,6 +272,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             [], page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -125,6 +284,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=1, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -136,6 +296,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=5, form_name="TestForm", visit="",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert records == []
 
@@ -147,6 +308,7 @@ class TestCollectSectionHeaders:
         records = _collect_section_headers(
             blocks, page_num=3, form_name="Adverse Events", visit="Baseline",
             min_header_size=8.0, exclude_patterns=engine.anchor_exclude_patterns,
+            page_width=595.0, page_height=841.0,
         )
         assert len(records) == 1
         r = records[0]
@@ -155,3 +317,112 @@ class TestCollectSectionHeaders:
         assert r.visit == "Baseline"
         assert r.field_type == "section_header"
         assert r.label == "My Section"
+
+
+class TestCheckboxRE:
+    """_CHECKBOX_RE must match standalone yes/no tokens and symbols only.
+
+    Regression: previously \bno\b matched the word 'No' inside sentences like
+    'If No, enter reason for terminating post treatment follow-up', causing those
+    label spans to be misclassified as checkbox markers and dropped from section
+    header extraction.
+    """
+
+    def test_no_false_positive_if_no_sentence(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search(
+            "If No, enter reason for terminating post treatment follow-up"
+        )
+
+    def test_no_false_positive_yes_in_sentence(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search("Yes, the subject completed the visit")
+
+    def test_no_false_positive_no_at_end(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search("Did the subject say No")
+
+    def test_matches_standalone_yes(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Yes")
+
+    def test_matches_standalone_no(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("No")
+
+    def test_matches_yn(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Y/N")
+
+    def test_matches_checkbox_symbol(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("☐")
+
+    def test_matches_checkmark_symbol(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("✓")
+
+    def test_matches_yes_with_whitespace(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("  Yes  ")
+
+    def test_matches_no_with_whitespace(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("  No  ")
+
+    def test_matches_yes_slash_no(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Yes / No")
+
+    def test_matches_yes_slash_no_no_spaces(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Yes/No")
+
+    def test_no_false_positive_sex_yes_no_label(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search("Sex: Yes / No")
+
+
+class TestDateRE:
+    """_DATE_RE must match standalone date placeholders only.
+
+    Regression: previously \\bDD\\b matched 'DD' inside label text like
+    'Collection Date (DD/MON/YYYY)', causing those spans to be misclassified
+    as date_field markers and dropped from section header extraction.
+    """
+
+    def test_no_false_positive_collection_date_label(self):
+        from src.field_parser import _DATE_RE
+        assert not _DATE_RE.search("Collection Date (DD/MON/YYYY)")
+
+    def test_no_false_positive_date_of_birth_label(self):
+        from src.field_parser import _DATE_RE
+        assert not _DATE_RE.search("Date of Birth (DD/MON/YYYY)")
+
+    def test_no_false_positive_label_with_yyyy(self):
+        from src.field_parser import _DATE_RE
+        assert not _DATE_RE.search("Enter YYYY value for expiry")
+
+    def test_matches_standalone_ddmonyyyy(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("DD/MON/YYYY")
+
+    def test_matches_standalone_mmddyyyy(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("MM/DD/YYYY")
+
+    def test_matches_standalone_ddmonyy(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("DD/MON/YY")
+
+    def test_matches_standalone_with_whitespace(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("  DD/MON/YYYY  ")
+
+    def test_matches_numeric_date(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("15/03/2024")
+
+    def test_matches_numeric_date_us_format(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("03/15/24")
