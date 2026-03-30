@@ -211,17 +211,19 @@ def _exact_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
-    unmatched_field_ids: set[str],
     exact_threshold: float,
 ) -> list[MatchRecord]:
-    """Pass 1: exact form_name + anchor_text == field label (case-insensitive)."""
+    """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
+
+    Fields are reusable anchors — multiple annotations sharing the same
+    anchor_text + form_name all match the same field and each get their own
+    target_rect via _apply_anchor_offset.
+    """
     results: list[MatchRecord] = []
     for annot in annotations:
         if annot.id not in unmatched_annot_ids:
             continue
         for field in fields:
-            if field.id not in unmatched_field_ids:
-                continue
             if (
                 _norm(annot.form_name) == _norm(field.form_name)
                 and _norm(annot.anchor_text) == _norm(field.label)
@@ -243,7 +245,6 @@ def _exact_pass(
                     placement_adjusted=placement_adjusted,
                 ))
                 unmatched_annot_ids.discard(annot.id)
-                unmatched_field_ids.discard(field.id)
                 break
     return results
 
@@ -252,7 +253,6 @@ def _fuzzy_same_form_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
-    unmatched_field_ids: set[str],
     threshold_pct: float,
     visit_boost: float,
 ) -> list[MatchRecord]:
@@ -268,7 +268,7 @@ def _fuzzy_same_form_pass(
         grp_annots = [a for a in eligible_annots if _norm(a.form_name) == form]
         grp_fields = [
             f for f in fields
-            if f.id in unmatched_field_ids and _norm(f.form_name) == form
+            if _norm(f.form_name) == form
         ]
 
         def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
@@ -292,7 +292,6 @@ def _fuzzy_same_form_pass(
                 placement_adjusted=placement_adjusted,
             ))
             unmatched_annot_ids.discard(annot.id)
-            unmatched_field_ids.discard(field.id)
 
     return results
 
@@ -301,7 +300,6 @@ def _fuzzy_cross_form_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
-    unmatched_field_ids: set[str],
     threshold_pct: float,
     visit_boost: float,
 ) -> list[MatchRecord]:
@@ -310,7 +308,7 @@ def _fuzzy_cross_form_pass(
         a for a in annotations
         if a.id in unmatched_annot_ids and a.anchor_text.strip() != ""
     ]
-    eligible_fields = [f for f in fields if f.id in unmatched_field_ids]
+    eligible_fields = list(fields)
 
     def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
         return _adjusted_score(a, f, _b)
@@ -334,7 +332,6 @@ def _fuzzy_cross_form_pass(
             placement_adjusted=placement_adjusted,
         ))
         unmatched_annot_ids.discard(annot.id)
-        unmatched_field_ids.discard(field.id)
     return results
 
 
@@ -417,18 +414,17 @@ def match_annotations(
     config = profile.matching_config
     visit_boost = config.visit_boost
     unmatched_annot_ids: set[str] = {a.id for a in annotations}
-    unmatched_field_ids: set[str] = {f.id for f in fields}
     results: list[MatchRecord] = []
 
     results += _exact_pass(
-        annotations, fields, unmatched_annot_ids, unmatched_field_ids, config.exact_threshold,
+        annotations, fields, unmatched_annot_ids, config.exact_threshold,
     )
     results += _fuzzy_same_form_pass(
-        annotations, fields, unmatched_annot_ids, unmatched_field_ids,
+        annotations, fields, unmatched_annot_ids,
         config.fuzzy_same_form_threshold * 100, visit_boost,
     )
     results += _fuzzy_cross_form_pass(
-        annotations, fields, unmatched_annot_ids, unmatched_field_ids,
+        annotations, fields, unmatched_annot_ids,
         config.fuzzy_cross_form_threshold * 100, visit_boost,
     )
     results += _position_pass(

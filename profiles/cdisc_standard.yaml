@@ -146,7 +146,6 @@ form_name_rules:
   - ^Study\b
   - '^Design\s*:'
   - '^Codelist\s*:'
-  - \S+\s*:\s*$
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
@@ -176,7 +175,6 @@ anchor_text_config:
   - ^Study\b
   - '^Design\s*:'
   - '^Codelist\s*:'
-  - \S+\s*:\s*$
   - ^Assessment Date
   - \bPage\s+\d+\s+of\s+\d+\b
   - ^\[\d{6}
@@ -203,7 +201,7 @@ style_defaults:
   - 0.0
   - 0.0
   border_color:
-  - 0.75
-  - 1.0
-  - 1.0
+  - 0.0
+  - 0.0
+  - 0.0
   fill_color: null

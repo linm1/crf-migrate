@@ -23,12 +23,12 @@ _CODELIST_PAGE_RE = re.compile(r"^Codelist\b", re.IGNORECASE)
 
 # Regex patterns for field-type heuristics
 _DATE_RE = re.compile(
-    r"\b(MM|DD|YYYY|mm|dd|yyyy)\b"
+    r"^\s*(?:(?:MM|DD|MON|YYYY|YY)[\s/\-]*)+\s*$"
     r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
     re.IGNORECASE,
 )
 _CHECKBOX_RE = re.compile(
-    r"\b(yes|no|y/n)\b|[□☐☑✓✗]",
+    r"^\s*(yes|no|y\s*/\s*n|yes\s*/\s*no)\s*$|[□☐☑✓✗]",
     re.IGNORECASE,
 )
 _TEXT_FIELD_RE = re.compile(r"_{3,}")

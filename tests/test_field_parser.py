@@ -317,3 +317,112 @@ class TestCollectSectionHeaders:
         assert r.visit == "Baseline"
         assert r.field_type == "section_header"
         assert r.label == "My Section"
+
+
+class TestCheckboxRE:
+    """_CHECKBOX_RE must match standalone yes/no tokens and symbols only.
+
+    Regression: previously \bno\b matched the word 'No' inside sentences like
+    'If No, enter reason for terminating post treatment follow-up', causing those
+    label spans to be misclassified as checkbox markers and dropped from section
+    header extraction.
+    """
+
+    def test_no_false_positive_if_no_sentence(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search(
+            "If No, enter reason for terminating post treatment follow-up"
+        )
+
+    def test_no_false_positive_yes_in_sentence(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search("Yes, the subject completed the visit")
+
+    def test_no_false_positive_no_at_end(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search("Did the subject say No")
+
+    def test_matches_standalone_yes(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Yes")
+
+    def test_matches_standalone_no(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("No")
+
+    def test_matches_yn(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Y/N")
+
+    def test_matches_checkbox_symbol(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("☐")
+
+    def test_matches_checkmark_symbol(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("✓")
+
+    def test_matches_yes_with_whitespace(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("  Yes  ")
+
+    def test_matches_no_with_whitespace(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("  No  ")
+
+    def test_matches_yes_slash_no(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Yes / No")
+
+    def test_matches_yes_slash_no_no_spaces(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert _CHECKBOX_RE.search("Yes/No")
+
+    def test_no_false_positive_sex_yes_no_label(self):
+        from src.field_parser import _CHECKBOX_RE
+        assert not _CHECKBOX_RE.search("Sex: Yes / No")
+
+
+class TestDateRE:
+    """_DATE_RE must match standalone date placeholders only.
+
+    Regression: previously \\bDD\\b matched 'DD' inside label text like
+    'Collection Date (DD/MON/YYYY)', causing those spans to be misclassified
+    as date_field markers and dropped from section header extraction.
+    """
+
+    def test_no_false_positive_collection_date_label(self):
+        from src.field_parser import _DATE_RE
+        assert not _DATE_RE.search("Collection Date (DD/MON/YYYY)")
+
+    def test_no_false_positive_date_of_birth_label(self):
+        from src.field_parser import _DATE_RE
+        assert not _DATE_RE.search("Date of Birth (DD/MON/YYYY)")
+
+    def test_no_false_positive_label_with_yyyy(self):
+        from src.field_parser import _DATE_RE
+        assert not _DATE_RE.search("Enter YYYY value for expiry")
+
+    def test_matches_standalone_ddmonyyyy(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("DD/MON/YYYY")
+
+    def test_matches_standalone_mmddyyyy(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("MM/DD/YYYY")
+
+    def test_matches_standalone_ddmonyy(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("DD/MON/YY")
+
+    def test_matches_standalone_with_whitespace(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("  DD/MON/YYYY  ")
+
+    def test_matches_numeric_date(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("15/03/2024")
+
+    def test_matches_numeric_date_us_format(self):
+        from src.field_parser import _DATE_RE
+        assert _DATE_RE.search("03/15/24")
