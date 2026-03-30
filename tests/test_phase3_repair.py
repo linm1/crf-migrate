@@ -125,3 +125,13 @@ def test_field_display_label_with_field():
 
 def test_field_display_label_none():
     assert _field_display_label(None) == "—"
+
+
+def test_field_type_badge_colors():
+    """Each field_type maps to the Phase 2 color system."""
+    from ui.phase3_review import _FIELD_TYPE_BADGE
+    assert _FIELD_TYPE_BADGE["text_field"]     == ("TF", "#EEF2FF", "#C7D2FE", "#4F46E5")
+    assert _FIELD_TYPE_BADGE["checkbox"]       == ("CB", "#FEF9C3", "#FDE047", "#A16207")
+    assert _FIELD_TYPE_BADGE["date_field"]     == ("DF", "#F0FDF4", "#BBF7D0", "#16A34A")
+    assert _FIELD_TYPE_BADGE["table_row"]      == ("TR", "#F4EFEA", "#D4CEC8", "#6B7280")
+    assert _FIELD_TYPE_BADGE["section_header"] == ("SH", "#F4EFEA", "#D4CEC8", "#383838")

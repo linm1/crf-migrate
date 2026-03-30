@@ -44,6 +44,28 @@ def _field_display_label(field: FieldRecord | None) -> str:
     return f"{field.label}  ·  {field.form_name}  ·  p.{field.page}"
 
 
+# (label_text, fill, border, text_color) — matches Phase 2 field-type color system
+_FIELD_TYPE_BADGE: dict[str, tuple[str, str, str, str]] = {
+    "text_field":     ("TF", "#EEF2FF", "#C7D2FE", "#4F46E5"),
+    "checkbox":       ("CB", "#FEF9C3", "#FDE047", "#A16207"),
+    "date_field":     ("DF", "#F0FDF4", "#BBF7D0", "#16A34A"),
+    "table_row":      ("TR", "#F4EFEA", "#D4CEC8", "#6B7280"),
+    "section_header": ("SH", "#F4EFEA", "#D4CEC8", "#383838"),
+}
+
+
+def _render_field_type_badge(field_type: str) -> None:
+    """Render a Phase-2-consistent field-type badge via st.markdown."""
+    label, fill, border, color = _FIELD_TYPE_BADGE.get(
+        field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
+    )
+    st.markdown(
+        f'<span style="background:{fill};border:1px solid {border};color:{color};'
+        f'padding:2px 6px;font-size:10px;font-weight:700;border-radius:3px">{label}</span>',
+        unsafe_allow_html=True,
+    )
+
+
 def _inject_page_css() -> None:
     st.markdown(
         """
