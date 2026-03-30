@@ -1,16 +1,23 @@
 """Phase 3: Match review UI."""
+from __future__ import annotations
+
 import streamlit as st
+from rapidfuzz import fuzz as _fuzz
 
 from src.csv_handler import export_matches_csv, import_matches_csv
 from src.matcher import apply_manual_match, batch_approve_exact, compute_target_rect, match_annotations
 from src.models import AnnotationRecord, FieldRecord, MatchRecord
-from rapidfuzz import fuzz as _fuzz
+from src.session import Session
 from ui.components import (
     get_page_dims_from_pdf,
     invalidate_phases,
     render_confidence_badge,
     render_match_type_badge,
 )
+
+_DEFAULT_VISIT_BOOST: float = 5.0
+_DEFAULT_CROSS_FORM_THRESHOLD: float = 0.5
+_HIGH_CONFIDENCE_THRESHOLD: float = 0.9
 
 
 def _compute_predicted_confidence(
@@ -138,7 +145,13 @@ def render_phase3() -> None:
 # A. Topbar
 # ---------------------------------------------------------------------------
 
-def _render_topbar(session, profile, annotations: list, fields: list, matches: list) -> None:
+def _render_topbar(
+    session: Session | None,
+    profile: object,
+    annotations: list[AnnotationRecord],
+    fields: list[FieldRecord],
+    matches: list[MatchRecord],
+) -> None:
     """Header + toolbar: Run Matching | Export CSV | Import CSV."""
     st.header("Phase 3: Match Annotations to Fields")
 
@@ -236,7 +249,7 @@ def _render_dashboard(matches: list[MatchRecord]) -> None:
 
 def _render_filters(matches: list[MatchRecord]) -> list[MatchRecord]:
     st.subheader("Filters")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
 
@@ -246,8 +259,6 @@ def _render_filters(matches: list[MatchRecord]) -> list[MatchRecord]:
         sel_statuses = st.multiselect("Status", all_statuses, default=all_statuses, key="p3_filter_status")
     with col3:
         min_conf = st.slider("Min Confidence", 0.0, 1.0, 0.0, 0.01, key="p3_filter_conf")
-    with col4:
-        pass  # domain filter omitted (not in MatchRecord)
 
     filtered = [
         m for m in matches
@@ -263,23 +274,70 @@ def _render_filters(matches: list[MatchRecord]) -> list[MatchRecord]:
 # E. Match rows
 # ---------------------------------------------------------------------------
 
+def _render_row_actions(
+    m: MatchRecord,
+    is_open: bool,
+    updated_matches: list[MatchRecord],
+    match_index: dict[str, int],
+) -> bool:
+    """Render approve/reject/cancel buttons for one match row. Returns True if action taken."""
+    approve_key = f"p3_approve_{m.annotation_id}"
+    reject_key = f"p3_reject_{m.annotation_id}"
+    cancel_key = f"p3_cancel_{m.annotation_id}"
+    bcols = st.columns(3 if is_open else 2)
+
+    if is_open:
+        if bcols[0].button("✓", key=approve_key, help="Approve"):
+            idx = match_index.get(m.annotation_id)
+            if idx is not None:
+                updated_matches[idx] = m.model_copy(update={"status": "approved"})
+                st.session_state.pop("_p3_repairing", None)
+                st.session_state.pop("_p3_repair_search", None)
+                return True
+        if bcols[1].button("✕", key=cancel_key, help="Cancel re-pair"):
+            idx = match_index.get(m.annotation_id)
+            if idx is not None:
+                updated_matches[idx] = m.model_copy(update={"status": "pending"})
+                st.session_state.pop("_p3_repairing", None)
+                st.session_state.pop("_p3_repair_search", None)
+                return True
+    else:
+        if bcols[0].button("✓", key=approve_key, help="Approve"):
+            idx = match_index.get(m.annotation_id)
+            if idx is not None:
+                updated_matches[idx] = m.model_copy(update={"status": "approved"})
+                return True
+        if bcols[1].button("✕", key=reject_key, help="Reject"):
+            idx = match_index.get(m.annotation_id)
+            if idx is not None:
+                updated_matches[idx] = m.model_copy(update={"status": "rejected"})
+                if _is_repair_eligible(m.match_type):
+                    st.session_state["_p3_repairing"] = m.annotation_id
+                    st.session_state.pop("_p3_repair_search", None)
+                return True
+    return False
+
+
 def _render_match_rows(
     filtered: list[MatchRecord],
     all_matches: list[MatchRecord],
-    session,
+    session: Session,
 ) -> None:
     st.subheader("Matches")
-    annotations = st.session_state.get("annotations", [])
+    annotations: list[AnnotationRecord] = st.session_state.get("annotations", [])
     annot_by_id = {a.id: a for a in annotations}
-    fields = st.session_state.get("fields", [])
+    fields: list[FieldRecord] = st.session_state.get("fields", [])
     field_by_id = {f.id: f for f in fields}
     profile = st.session_state.get("profile")
-    visit_boost = profile.matching_config.visit_boost if profile else 5.0
-    cross_form_threshold = profile.matching_config.fuzzy_cross_form_threshold if profile else 0.5
+    visit_boost: float = profile.matching_config.visit_boost if profile else _DEFAULT_VISIT_BOOST
+    cross_form_threshold: float = (
+        profile.matching_config.fuzzy_cross_form_threshold if profile
+        else _DEFAULT_CROSS_FORM_THRESHOLD
+    )
 
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
-    repairing_id = st.session_state.get("_p3_repairing")
+    repairing_id: str | None = st.session_state.get("_p3_repairing")
 
     action_taken = False
     for m in filtered:
@@ -288,12 +346,12 @@ def _render_match_rows(
         annot_label = annot.content[:40] if annot else m.annotation_id[:12]
         is_open = repairing_id == m.annotation_id
 
-        status_extra = " · re-pairing" if is_open else ""
         col1, col2, col3, col4, col5 = st.columns([3, 3, 1, 1, 2])
         with col1:
             st.write(f"**{annot_label}**")
         with col2:
-            st.write(_field_display_label(field) + status_extra)
+            suffix = "  · re-pairing" if is_open else ""
+            st.write(_field_display_label(field) + suffix)
             if m.match_type == "manual" and not is_open:
                 st.caption("manually paired · rect recomputed")
         with col3:
@@ -309,55 +367,127 @@ def _render_match_rows(
             else:
                 render_match_type_badge(m.match_type)
         with col5:
-            approve_key = f"p3_approve_{m.annotation_id}"
-            reject_key = f"p3_reject_{m.annotation_id}"
-            cancel_key = f"p3_cancel_{m.annotation_id}"
-            bcols = st.columns(3 if is_open else 2)
-
-            if is_open:
-                if bcols[0].button("✓", key=approve_key, help="Approve"):
-                    idx = match_index.get(m.annotation_id)
-                    if idx is not None:
-                        updated_matches[idx] = m.model_copy(update={"status": "approved"})
-                        st.session_state.pop("_p3_repairing", None)
-                        st.session_state.pop("_p3_repair_search", None)
-                        action_taken = True
-                if bcols[1].button("✕", key=cancel_key, help="Cancel re-pair"):
-                    idx = match_index.get(m.annotation_id)
-                    if idx is not None:
-                        updated_matches[idx] = m.model_copy(update={"status": "pending"})
-                        st.session_state.pop("_p3_repairing", None)
-                        st.session_state.pop("_p3_repair_search", None)
-                        action_taken = True
-            else:
-                if bcols[0].button("✓", key=approve_key, help="Approve"):
-                    idx = match_index.get(m.annotation_id)
-                    if idx is not None:
-                        updated_matches[idx] = m.model_copy(update={"status": "approved"})
-                        action_taken = True
-                if bcols[1].button("✗", key=reject_key, help="Reject"):
-                    idx = match_index.get(m.annotation_id)
-                    if idx is not None:
-                        if _is_repair_eligible(m.match_type):
-                            updated_matches[idx] = m.model_copy(update={"status": "rejected"})
-                            st.session_state["_p3_repairing"] = m.annotation_id
-                            st.session_state.pop("_p3_repair_search", None)
-                        else:
-                            updated_matches[idx] = m.model_copy(update={"status": "rejected"})
-                        action_taken = True
+            action_taken = _render_row_actions(m, is_open, updated_matches, match_index) or action_taken
 
         if is_open and annot:
-            _render_repair_panel(
+            new_matches = _render_repair_panel(
                 m, annot, fields, field_by_id, updated_matches,
-                match_index, session, visit_boost, cross_form_threshold,
+                match_index, visit_boost, cross_form_threshold,
             )
-            action_taken = st.session_state.pop("_p3_repair_confirmed", False) or action_taken
+            if new_matches is not None:
+                updated_matches = new_matches
+                action_taken = True
 
     if action_taken:
         session.save_matches(updated_matches)
         st.session_state["matches"] = updated_matches
         invalidate_phases([4])
         st.rerun()
+
+
+def _render_annotation_detail(
+    m: MatchRecord,
+    annot: AnnotationRecord,
+    field_by_id: dict[str, FieldRecord],
+) -> None:
+    """Left panel: annotation context card."""
+    st.markdown("**ANNOTATION**")
+    with st.container(border=True):
+        st.markdown(f"**{annot.anchor_text or annot.content[:30]}**")
+        st.caption(annot.content[:60])
+        st.markdown(
+            f"**Domain:** {annot.domain}  \n"
+            f"**Form:** {annot.form_name}  \n"
+            f"**Anchor:** {annot.anchor_text}",
+        )
+        current_field = field_by_id.get(m.field_id) if m.field_id else None
+        st.caption(
+            f"Current confidence: {m.confidence:.2f}"
+            + (f" → {_field_display_label(current_field)}" if current_field else "")
+        )
+
+
+def _render_field_row(
+    annotation_id: str,
+    score: float,
+    f: FieldRecord,
+    chosen_field_id: str | None,
+) -> None:
+    """Render one selectable field row in the picker."""
+    is_selected = f.id == chosen_field_id
+    bg = "#FFF9E6" if is_selected else "#FAFAFA"
+    border = "2px solid #F59E0B" if is_selected else "1px solid #E8E2DC"
+    is_high = score >= _HIGH_CONFIDENCE_THRESHOLD
+    conf_color = "#065F46" if is_high else "#6B7280"
+    conf_bg = "#D1FAE5" if is_high else "#F3F4F6"
+    label_txt, fill, brd, txt = _FIELD_TYPE_BADGE.get(
+        f.field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
+    )
+    st.markdown(
+        f'<div style="background:{bg};border:{border};padding:6px 10px;'
+        f'margin:2px 0;display:flex;align-items:center;gap:8px">'
+        f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
+        f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
+        f'<span style="flex:1;font-size:12px;font-weight:600">{f.label}</span>'
+        f'<span style="font-size:10px;color:#8A847F">{f.field_type} · p.{f.page}</span>'
+        f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
+        f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "✓ Selected" if is_selected else "Select",
+        key=f"p3_pick_{annotation_id}_{f.id}",
+    ):
+        sel = dict(st.session_state.get("_p3_repair_selected", {}))
+        sel[annotation_id] = f.id
+        st.session_state["_p3_repair_selected"] = sel
+        st.rerun()
+
+
+def _render_field_picker(
+    m: MatchRecord,
+    annot: AnnotationRecord,
+    fields: list[FieldRecord],
+    visit_boost: float,
+    cross_form_threshold: float,
+) -> str | None:
+    """Right panel: search box + grouped field list. Returns chosen field_id or None."""
+    st.markdown("**SELECT TARGET FIELD**")
+    search_raw = st.text_input(
+        "Search by field label",
+        value=st.session_state.get("_p3_repair_search", ""),
+        key=f"p3_repair_search_{m.annotation_id}",
+        placeholder="Search by field label…",
+        label_visibility="collapsed",
+    )
+    st.session_state["_p3_repair_search"] = search_raw
+    search_lower = search_raw.lower()
+
+    scored: list[tuple[float, FieldRecord]] = sorted(
+        ((_compute_predicted_confidence(annot, f, visit_boost), f) for f in fields),
+        key=lambda x: -x[0],
+    )
+    if search_lower:
+        scored = [(s, f) for s, f in scored if search_lower in f.label.lower()]
+
+    same_form_lower = annot.form_name.lower()
+    same_form = [(s, f) for s, f in scored if f.form_name.lower() == same_form_lower]
+    cross_form = [(s, f) for s, f in scored if f.form_name.lower() != same_form_lower]
+
+    chosen_field_id: str | None = st.session_state.get("_p3_repair_selected", {}).get(m.annotation_id)
+
+    if same_form:
+        st.caption(f"**{annot.form_name.upper()}**")
+        for score, f in same_form[:5]:
+            _render_field_row(m.annotation_id, score, f, chosen_field_id)
+
+    eligible_cross = [(s, f) for s, f in cross_form if s >= cross_form_threshold]
+    if eligible_cross:
+        st.caption("**OTHER FORMS (FUZZY)**")
+        for score, f in eligible_cross[:3]:
+            _render_field_row(m.annotation_id, score, f, chosen_field_id)
+
+    return chosen_field_id
 
 
 def _render_repair_panel(
@@ -367,101 +497,26 @@ def _render_repair_panel(
     field_by_id: dict[str, FieldRecord],
     updated_matches: list[MatchRecord],
     match_index: dict[str, int],
-    session,
     visit_boost: float,
-    cross_form_threshold: float = 0.5,
-) -> None:
-    """Render the two-column inline re-pair picker for a rejected match."""
+    cross_form_threshold: float = _DEFAULT_CROSS_FORM_THRESHOLD,
+) -> list[MatchRecord] | None:
+    """Render the two-column inline re-pair picker.
+
+    Returns a new matches list when the user confirms a pairing, else None.
+    """
     st.markdown(
         '<div style="border-top:2px solid #F59E0B;margin:4px 0 8px 0"></div>',
         unsafe_allow_html=True,
     )
     left_col, right_col = st.columns([1, 2])
 
-    # --- Left: annotation details ---
     with left_col:
-        st.markdown("**ANNOTATION**")
-        with st.container(border=True):
-            st.markdown(f"**{annot.anchor_text or annot.content[:30]}**")
-            st.caption(annot.content[:60])
-            st.markdown(
-                f"**Domain:** {annot.domain}  \n"
-                f"**Form:** {annot.form_name}  \n"
-                f"**Anchor:** {annot.anchor_text}",
-            )
-            current_field = field_by_id.get(m.field_id) if m.field_id else None
-            st.caption(
-                f"Current confidence: {m.confidence:.2f}"
-                + (f" → {_field_display_label(current_field)}" if current_field else "")
-            )
+        _render_annotation_detail(m, annot, field_by_id)
 
-    # --- Right: field picker ---
     with right_col:
-        st.markdown("**SELECT TARGET FIELD**")
-        search = st.text_input(
-            "Search by field label",
-            value=st.session_state.get("_p3_repair_search", ""),
-            key=f"p3_repair_search_{m.annotation_id}",
-            placeholder="Search by field label…",
-            label_visibility="collapsed",
+        chosen_field_id = _render_field_picker(
+            m, annot, fields, visit_boost, cross_form_threshold
         )
-        st.session_state["_p3_repair_search"] = search
-
-        # Score all fields and sort by descending confidence
-        scored: list[tuple[float, FieldRecord]] = sorted(
-            ((_compute_predicted_confidence(annot, f, visit_boost), f) for f in fields),
-            key=lambda x: -x[0],
-        )
-
-        # Apply search filter
-        if search.lower():
-            scored = [(s, f) for s, f in scored if search.lower() in f.label.lower()]
-
-        same_form = [(s, f) for s, f in scored if f.form_name.lower() == annot.form_name.lower()]
-        cross_form = [(s, f) for s, f in scored if f.form_name.lower() != annot.form_name.lower()]
-
-        repair_selected = st.session_state.get("_p3_repair_selected", {})
-        chosen_field_id = repair_selected.get(m.annotation_id)
-
-        def _render_field_option(score: float, f: FieldRecord) -> None:
-            is_selected = f.id == chosen_field_id
-            bg = "#FFF9E6" if is_selected else "#FAFAFA"
-            border = "2px solid #F59E0B" if is_selected else "1px solid #E8E2DC"
-            conf_color = "#065F46" if score >= 0.9 else "#6B7280"
-            conf_bg = "#D1FAE5" if score >= 0.9 else "#F3F4F6"
-            label_txt, fill, brd, txt = _FIELD_TYPE_BADGE.get(
-                f.field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
-            )
-            st.markdown(
-                f'<div style="background:{bg};border:{border};padding:6px 10px;'
-                f'margin:2px 0;display:flex;align-items:center;gap:8px">'
-                f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
-                f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
-                f'<span style="flex:1;font-size:12px;font-weight:600">{f.label}</span>'
-                f'<span style="font-size:10px;color:#8A847F">{f.field_type} · p.{f.page}</span>'
-                f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
-                f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button(
-                "✓ Selected" if is_selected else "Select",
-                key=f"p3_pick_{m.annotation_id}_{f.id}",
-            ):
-                sel = dict(st.session_state.get("_p3_repair_selected", {}))
-                sel[m.annotation_id] = f.id
-                st.session_state["_p3_repair_selected"] = sel
-                st.rerun()
-
-        if same_form:
-            st.caption(f"**{annot.form_name.upper()}**")
-            for score, f in same_form[:5]:
-                _render_field_option(score, f)
-
-        eligible_cross = [(s, f) for s, f in cross_form if s >= cross_form_threshold]
-        if eligible_cross:
-            st.caption("**OTHER FORMS (FUZZY)**")
-            for score, f in eligible_cross[:3]:
-                _render_field_option(score, f)
 
         if st.button(
             "Confirm Pairing → rect will be recomputed",
@@ -470,7 +525,7 @@ def _render_repair_panel(
             use_container_width=True,
             type="primary",
         ):
-            chosen_field = field_by_id.get(chosen_field_id)
+            chosen_field = field_by_id.get(chosen_field_id) if chosen_field_id else None
             if chosen_field:
                 new_rect = compute_target_rect(annot, chosen_field, list(field_by_id.values()))
                 predicted = _compute_predicted_confidence(annot, chosen_field, visit_boost)
@@ -480,17 +535,17 @@ def _render_repair_panel(
                 )
                 idx = match_index.get(m.annotation_id)
                 if idx is not None:
-                    # layer on predicted confidence (apply_manual_match doesn't set this)
                     new_list[idx] = new_list[idx].model_copy(update={"confidence": predicted})
-                    updated_matches[:] = new_list
                 st.session_state.pop("_p3_repairing", None)
                 st.session_state.pop("_p3_repair_search", None)
                 sel = dict(st.session_state.get("_p3_repair_selected", {}))
                 sel.pop(m.annotation_id, None)
                 st.session_state["_p3_repair_selected"] = sel
-                st.session_state["_p3_repair_confirmed"] = True
+                return new_list
 
         st.caption("Score = fuzzy(anchor_text, label) + visit boost")
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -499,8 +554,8 @@ def _render_repair_panel(
 
 def _render_unmatched_assignment(
     matches: list[MatchRecord],
-    fields,
-    session,
+    fields: list[FieldRecord],
+    session: Session,
 ) -> None:
     unmatched = [m for m in matches if m.match_type == "unmatched"]
     if not unmatched:
@@ -546,7 +601,7 @@ def _render_unmatched_assignment(
 # G. Batch approve exact
 # ---------------------------------------------------------------------------
 
-def _render_batch_approve(matches: list[MatchRecord], session) -> None:
+def _render_batch_approve(matches: list[MatchRecord], session: Session) -> None:
     pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
     if not pending_exact:
         return
