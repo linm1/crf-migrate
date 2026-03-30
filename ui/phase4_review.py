@@ -5,9 +5,25 @@ from src.writer import write_annotations
 from src.models import MatchRecord
 
 
+def _inject_page_css() -> None:
+    st.markdown(
+        """
+        <style>
+        /* Phase 4 toolbar buttons: 12px bold monospace */
+        .st-key-p4_generate_btn button p,
+        .st-key-p4_download_btn button p {
+            font-size: 12px !important;
+            font-weight: 700 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_phase4() -> None:
     """Render Phase 4: Output page."""
-    st.header("Phase 4: Generate Output aCRF")
+    _inject_page_css()
 
     phases = st.session_state.get("phases_complete", {})
     if not phases.get(3):
@@ -22,71 +38,71 @@ def render_phase4() -> None:
         )
         return
 
-    _render_generate_section(matches)
+    _render_topbar(matches)
 
-    output_pdf_path = st.session_state.get("output_pdf_path")
-    if output_pdf_path and output_pdf_path.exists():
-        _render_download(output_pdf_path)
-        qc_report = st.session_state.get("qc_report")
-        if qc_report:
-            _render_qc_report(qc_report)
+    qc_report = st.session_state.get("qc_report")
+    if qc_report:
+        _render_qc_report(qc_report)
 
 
 # ---------------------------------------------------------------------------
-# B. Generate
+# B. Topbar: Generate | Download PDF
 # ---------------------------------------------------------------------------
 
-def _render_generate_section(matches: list[MatchRecord]) -> None:
-    st.subheader("Generate Output")
+def _render_topbar(matches: list[MatchRecord]) -> None:
+    """Header + toolbar: Generate | Download PDF."""
+    st.header("Phase 4: Generate Output aCRF")
+
+    if msg := st.session_state.pop("_p4_generate_success", None):
+        st.success(msg)
+
     session = st.session_state.get("session")
     profile = st.session_state.get("profile")
     annotations = st.session_state.get("annotations", [])
     target_pdf_path = st.session_state.get("target_pdf_path")
+    output_pdf_path = st.session_state.get("output_pdf_path")
 
-    if target_pdf_path is None or not target_pdf_path.exists():
-        st.error("Target PDF not found. Please complete Phase 2 first.")
-        return
+    _, tb_generate, tb_download = st.columns([4, 1, 1], gap="small")
 
-    if st.button("Generate Output aCRF", type="primary"):
-        output_pdf_path = session.workspace / "output_acrf.pdf"
-        with st.spinner("Writing annotations to target PDF…"):
-            try:
-                qc_report = write_annotations(
-                    target_pdf_path,
-                    output_pdf_path,
-                    matches,
-                    annotations,
-                    profile,
-                )
-                session.save_qc_report(qc_report)
-                st.session_state["output_pdf_path"] = output_pdf_path
-                st.session_state["qc_report"] = qc_report
-                st.session_state["phases_complete"][4] = True
-                session.log_action("phase4_write", qc_report)
-                st.success(
-                    f"Output generated: {qc_report['written']} annotations written."
-                )
-                st.rerun()
-            except Exception as e:
-                st.error(f"Output generation failed: {e}")
+    with tb_generate:
+        disabled = not session or target_pdf_path is None or not target_pdf_path.exists()
+        if st.button("Generate", key="p4_generate_btn", use_container_width=True, disabled=disabled):
+            out_path = session.workspace / "output_acrf.pdf"
+            with st.spinner("Writing annotations to target PDF…"):
+                try:
+                    qc_report = write_annotations(
+                        target_pdf_path,
+                        out_path,
+                        matches,
+                        annotations,
+                        profile,
+                    )
+                    session.save_qc_report(qc_report)
+                    st.session_state["output_pdf_path"] = out_path
+                    st.session_state["qc_report"] = qc_report
+                    st.session_state["phases_complete"][4] = True
+                    session.log_action("phase4_write", qc_report)
+                    st.session_state["_p4_generate_success"] = (
+                        f"Output generated: {qc_report['written']} annotations written."
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Output generation failed: {e}")
 
-
-# ---------------------------------------------------------------------------
-# C. Download
-# ---------------------------------------------------------------------------
-
-def _render_download(output_pdf_path) -> None:
-    st.subheader("Download")
-    st.download_button(
-        "Download Output aCRF PDF",
-        data=output_pdf_path.read_bytes(),
-        file_name="output_acrf.pdf",
-        mime="application/pdf",
-    )
+    with tb_download:
+        if output_pdf_path and output_pdf_path.exists():
+            st.download_button(
+                "Download PDF",
+                data=output_pdf_path.read_bytes(),
+                file_name="output_acrf.pdf",
+                mime="application/pdf",
+                key="p4_download_btn",
+                use_container_width=True,
+            )
 
 
 # ---------------------------------------------------------------------------
-# D. QC Report
+# C. QC Report
 # ---------------------------------------------------------------------------
 
 def _render_qc_report(qc_report: dict) -> None:
