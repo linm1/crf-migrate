@@ -503,16 +503,15 @@ def render_annotation_row(
 # ---------------------------------------------------------------------------
 
 def render_confidence_badge(confidence: float) -> None:
-    """Render a colored confidence badge."""
-    if confidence >= 0.9:
-        color, bg = "#155724", "#d4edda"
-    elif confidence >= 0.7:
-        color, bg = "#856404", "#fff3cd"
-    else:
-        color, bg = "#721c24", "#f8d7da"
+    """Render a monochrome progress-bar confidence widget (number above filled bar)."""
+    fill_width = int(confidence * 64)
     st.markdown(
-        f'<span style="background:{bg};color:{color};padding:2px 8px;'
-        f'border-radius:4px;font-size:12px;display:block;text-align:center">{confidence:.0%}</span>',
+        f'<span style="display:inline-flex;flex-direction:column;align-items:center;gap:3px;vertical-align:middle">'
+        f'<span style="font-size:11px;font-weight:700;color:#262730">{confidence:.0%}</span>'
+        f'<span style="display:inline-block;width:64px;height:6px;background:#E8E2DC">'
+        f'<span style="display:block;width:{fill_width}px;height:6px;background:#262730"></span>'
+        f'</span>'
+        f'</span>',
         unsafe_allow_html=True,
     )
 
