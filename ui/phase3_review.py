@@ -19,6 +19,27 @@ _DEFAULT_VISIT_BOOST: float = 5.0
 _DEFAULT_CROSS_FORM_THRESHOLD: float = 0.5
 _HIGH_CONFIDENCE_THRESHOLD: float = 0.9
 
+# Phase 2-style card typography (mirrors ui/phase2_review.py)
+_LABEL_STYLE = (
+    "font-family:Inter,sans-serif;font-size:11px;font-weight:600;"
+    "color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
+)
+_NUMBER_STYLE = (
+    "font-family:Inter,sans-serif;font-size:32px;font-weight:700;"
+    "color:#383838;line-height:1.1;margin:0 0 16px 0;"
+)
+
+# (bg, border, text) — mirrors render_match_type_badge() in ui/components.py
+_MATCH_TYPE_BADGE_COLORS: dict[str, tuple[str, str, str]] = {
+    "exact":         ("#cce5ff", "#99c9ff", "#004085"),
+    "fuzzy":         ("#e2d9f3", "#c5b3e7", "#3d1a78"),
+    "position_only": ("#fff3cd", "#ffe69c", "#7d4e00"),
+    "manual":        ("#d1ecf1", "#a3d8e4", "#0c5460"),
+    "unmatched":     ("#f8d7da", "#f1aeb5", "#721c24"),
+}
+
+_MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
+
 
 def _compute_predicted_confidence(
     annot: AnnotationRecord,
@@ -85,6 +106,13 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
+        /* ── Phase 3 card heights (matches Phase 2) ── */
+        .st-key-p3_action_card > div:first-child,
+        .st-key-p3_rate_card > div:first-child,
+        .st-key-p3_bytype_card > div:first-child {
+            height: 204px;
+            overflow: hidden;
+        }
         /* ── Phase 3 topbar ── */
         .st-key-p3_run_btn button {
             background-color: #383838 !important;
@@ -185,62 +213,27 @@ def _inject_page_css() -> None:
             border-color: #8A847F !important;
             box-shadow: none !important;
         }
+        /* ── Match type multiselect tag colors ── */
+        [data-baseweb="tag"]:has(span[title="exact"])         { background: #cce5ff !important; color: #004085 !important; }
+        [data-baseweb="tag"]:has(span[title="fuzzy"])         { background: #e2d9f3 !important; color: #3d1a78 !important; }
+        [data-baseweb="tag"]:has(span[title="position_only"]) { background: #fff3cd !important; color: #7d4e00 !important; }
+        [data-baseweb="tag"]:has(span[title="manual"])        { background: #d1ecf1 !important; color: #0c5460 !important; }
+        [data-baseweb="tag"]:has(span[title="unmatched"])     { background: #f8d7da !important; color: #721c24 !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_phase3() -> None:
-    """Render Phase 3: Match page."""
-    _inject_page_css()
-
-    phases = st.session_state.get("phases_complete", {})
-    if not phases.get(1):
-        st.warning("Phase 1 must be complete before running matching.")
-        return
-    if not phases.get(2):
-        st.warning("Phase 2 must be complete before running matching.")
-        return
-
-    session: Session | None = st.session_state.get("session")
-    profile = st.session_state.get("profile")
-    annotations: list[AnnotationRecord] = st.session_state.get("annotations", [])
-    fields: list[FieldRecord] = st.session_state.get("fields", [])
-    matches: list[MatchRecord] = st.session_state.get("matches", [])
-
-    _render_topbar(session, profile, annotations, fields, matches)
-
-    if session is None:
-        st.error("No active session. Please restart the app.")
-        return
-
-    if not matches:
-        return
-
-    _render_dashboard(matches)
-    filtered = _render_filters(matches, session)
-    _render_match_rows(filtered, matches, session)
-    _render_unmatched_assignment(matches, fields, session)
-
-
-# ---------------------------------------------------------------------------
-# A. Topbar
-# ---------------------------------------------------------------------------
-
-def _render_topbar(
+def _render_action_card(
     session: Session | None,
     profile: object,
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
     matches: list[MatchRecord],
 ) -> None:
-    """Header + toolbar: Run Matching | Export CSV | Import CSV."""
-    st.header("Phase 3: Match Annotations to Fields")
-
-    _, tb_run, tb_export, tb_import = st.columns([3, 1, 1, 1], gap="small")
-
-    with tb_run:
+    """Card 1: Run Matching button + Export / Import CSV controls."""
+    with st.container(border=True, key="p3_action_card"):
         if st.button("Run Matching", key="p3_run_btn", use_container_width=True):
             if not session:
                 st.error("No active session. Please restart the app.")
@@ -261,28 +254,28 @@ def _render_topbar(
                         st.rerun()
                     except Exception as e:
                         st.error(f"Matching failed: {e}")
+        col_export, col_import = st.columns(2, gap="small")
+        with col_export:
+            if st.button("Export CSV", key="p3_export_btn", use_container_width=True):
+                st.session_state.pop("_p3_csv_ready", None)
+                if matches and session:
+                    csv_path = session.workspace / "matches_export.csv"
+                    export_matches_csv(matches, csv_path)
+                    st.session_state["_p3_csv_ready"] = csv_path.read_bytes()
+            if st.session_state.get("_p3_csv_ready"):
+                st.download_button(
+                    "Download CSV",
+                    data=st.session_state["_p3_csv_ready"],
+                    file_name="matches.csv",
+                    mime="text/csv",
+                    key="p3_csv_dl",
+                    use_container_width=True,
+                )
+        with col_import:
+            if st.button("Import CSV", key="p3_import_btn", use_container_width=True):
+                st.session_state["_p3_show_import"] = not st.session_state.get("_p3_show_import", False)
 
-    with tb_export:
-        if st.button("Export CSV", key="p3_export_btn", use_container_width=True):
-            st.session_state.pop("_p3_csv_ready", None)
-            if matches and session:
-                csv_path = session.workspace / "matches_export.csv"
-                export_matches_csv(matches, csv_path)
-                st.session_state["_p3_csv_ready"] = csv_path.read_bytes()
-        if st.session_state.get("_p3_csv_ready"):
-            st.download_button(
-                "Download CSV",
-                data=st.session_state["_p3_csv_ready"],
-                file_name="matches.csv",
-                mime="text/csv",
-                key="p3_csv_dl",
-                use_container_width=True,
-            )
-
-    with tb_import:
-        if st.button("Import CSV", key="p3_import_btn", use_container_width=True):
-            st.session_state["_p3_show_import"] = not st.session_state.get("_p3_show_import", False)
-
+    # Import uploader lives OUTSIDE the fixed-height card container
     if st.session_state.get("_p3_show_import", False):
         if not matches:
             st.info("Run matching first before importing a CSV.")
@@ -301,38 +294,96 @@ def _render_topbar(
                 st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# C. Dashboard
-# ---------------------------------------------------------------------------
+def _render_rate_card(matches: list[MatchRecord]) -> None:
+    """Card 2: Match Rate % and exact count."""
+    total_annotations = len(st.session_state.get("annotations", []))
+    exact_count = len([m for m in matches if m.match_type == "exact"])
+    pct = round(exact_count / total_annotations * 100) if total_annotations else 0
 
-_MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
-
-
-def _render_dashboard(matches: list[MatchRecord]) -> None:
-    type_counts: dict[str, int] = {}
-    for m in matches:
-        type_counts[m.match_type] = type_counts.get(m.match_type, 0) + 1
-
-    ordered = [(mt, type_counts[mt]) for mt in _MATCH_TYPE_ORDER if mt in type_counts]
-    ordered += [(mt, c) for mt, c in type_counts.items() if mt not in _MATCH_TYPE_ORDER]
-
-    if not ordered:
-        return
-
-    label_map = {
-        "exact": "Exact", "fuzzy": "Fuzzy",
-        "position_only": "Position", "unmatched": "Unmatched", "manual": "Manual",
-    }
-    cols = st.columns(len(ordered))
-    for col, (mt, count) in zip(cols, ordered):
-        lbl = label_map.get(mt, mt.title())
-        col.markdown(
-            f'<div class="p3-stat-card">'
-            f'<span class="p3-stat-num">{count}</span>'
-            f'<span class="p3-stat-lbl">{lbl}</span>'
-            f'</div>',
+    with st.container(border=True, key="p3_rate_card"):
+        st.markdown(
+            f'<div style="{_LABEL_STYLE}">Match Rate</div>'
+            f'<div style="{_NUMBER_STYLE}">{pct}%</div>'
+            f'<div style="{_LABEL_STYLE}">Exact Matches</div>'
+            f'<div style="font-family:Inter,sans-serif;font-size:24px;font-weight:700;'
+            f'color:#383838;line-height:1.1;margin:0;">{exact_count}</div>',
             unsafe_allow_html=True,
         )
+
+
+def _render_bytype_card_p3(matches: list[MatchRecord]) -> None:
+    """Card 3: By Match Type breakdown with badge-colored rows."""
+    type_counts: dict[str, int] = {mt: 0 for mt in _MATCH_TYPE_ORDER}
+    for m in matches:
+        if m.match_type in type_counts:
+            type_counts[m.match_type] += 1
+
+    type_rows = ""
+    for mt in _MATCH_TYPE_ORDER:
+        count = type_counts[mt]
+        bg, border, text = _MATCH_TYPE_BADGE_COLORS[mt]
+        type_rows += (
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'padding:3px 0;font-family:Inter,sans-serif;font-size:12px;">'
+            f'<span style="background:{bg};color:{text};padding:1px 7px;font-weight:600;'
+            f'border:1px solid {border};">{mt}</span>'
+            f'<strong style="color:#383838;">{count}</strong>'
+            f'</div>'
+        )
+
+    with st.container(border=True, key="p3_bytype_card"):
+        st.markdown(
+            f'<div style="{_LABEL_STYLE}">By Match Type</div>'
+            f'{type_rows}',
+            unsafe_allow_html=True,
+        )
+
+
+def _render_cards(
+    session: Session | None,
+    profile: object,
+    annotations: list[AnnotationRecord],
+    fields: list[FieldRecord],
+    matches: list[MatchRecord],
+) -> None:
+    """Always-visible 3-column card row (Phase 2 pattern)."""
+    st.header("Phase 3: Match Annotations to Fields")
+    c1, c2, c3 = st.columns(3, gap="large")
+    with c1:
+        _render_action_card(session, profile, annotations, fields, matches)
+    with c2:
+        _render_rate_card(matches)
+    with c3:
+        _render_bytype_card_p3(matches)
+
+
+def render_phase3() -> None:
+    """Render Phase 3: Match page."""
+    _inject_page_css()
+
+    phases = st.session_state.get("phases_complete", {})
+    if not phases.get(1):
+        st.warning("Phase 1 must be complete before running matching.")
+        return
+    if not phases.get(2):
+        st.warning("Phase 2 must be complete before running matching.")
+        return
+
+    session: Session | None = st.session_state.get("session")
+    profile = st.session_state.get("profile")
+    annotations: list[AnnotationRecord] = st.session_state.get("annotations", [])
+    fields: list[FieldRecord] = st.session_state.get("fields", [])
+    matches: list[MatchRecord] = st.session_state.get("matches", [])
+
+    _render_cards(session, profile, annotations, fields, matches)
+
+    if session is None:
+        st.error("No active session. Please restart the app.")
+        return
+
+    filtered = _render_filters(matches, session)
+    _render_match_rows(filtered, matches, session)
+    _render_unmatched_assignment(matches, fields, session)
 
 
 # ---------------------------------------------------------------------------
