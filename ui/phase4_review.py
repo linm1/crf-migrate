@@ -53,9 +53,6 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
     """Header + toolbar: Generate | Download PDF."""
     st.header("Phase 4: Generate Output aCRF")
 
-    if msg := st.session_state.pop("_p4_generate_success", None):
-        st.success(msg)
-
     session = st.session_state.get("session")
     profile = st.session_state.get("profile")
     annotations = st.session_state.get("annotations", [])
@@ -82,9 +79,6 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
                     st.session_state["qc_report"] = qc_report
                     st.session_state["phases_complete"][4] = True
                     session.log_action("phase4_write", qc_report)
-                    st.session_state["_p4_generate_success"] = (
-                        f"Output generated: {qc_report['written']} annotations written."
-                    )
                     st.rerun()
                 except Exception as e:
                     st.error(f"Output generation failed: {e}")
