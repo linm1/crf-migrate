@@ -109,15 +109,20 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
-        /* ── Phase 3 card heights (matches Phase 2) ── */
-        .st-key-p3_rate_card > div:first-child,
-        .st-key-p3_bytype_card > div:first-child {
-            height: 204px;
-            overflow: hidden;
+        /* ── Phase 3 card heights (matches Phase 2 pattern exactly) ── */
+        .st-key-p3_action_card,
+        .st-key-p3_rate_card,
+        .st-key-p3_bytype_card {
+            min-height: 220px !important;
+            height: 220px !important;
+            box-sizing: border-box !important;
+            margin-top: 0 !important;
         }
-        .st-key-p3_action_card > div:first-child {
-            height: 204px;
-            overflow: hidden;
+        .st-key-p3_action_card > div[data-testid="stVerticalBlock"],
+        .st-key-p3_rate_card > div[data-testid="stVerticalBlock"],
+        .st-key-p3_bytype_card > div[data-testid="stVerticalBlock"] {
+            min-height: 204px !important;
+            height: 100% !important;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -404,6 +409,7 @@ def _render_cards(
 
 def render_phase3() -> None:
     """Render Phase 3: Match page."""
+    st.header("Phase 3: Match Annotations to Fields")
     _inject_page_css()
 
     phases = st.session_state.get("phases_complete", {})
