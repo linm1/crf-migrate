@@ -1,4 +1,6 @@
 """Phase 4: Output generation UI."""
+from pathlib import Path
+
 import streamlit as st
 
 from src.writer import write_annotations
@@ -58,6 +60,10 @@ def render_phase4() -> None:
 
     _render_topbar(matches)
 
+    output_pdf_path = st.session_state.get("output_pdf_path")
+    if output_pdf_path and output_pdf_path.exists():
+        _render_pdf_preview(output_pdf_path)
+
 
 # ---------------------------------------------------------------------------
 # B. Topbar: Generate | Download PDF
@@ -109,3 +115,12 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# C. PDF Preview
+# ---------------------------------------------------------------------------
+
+def _render_pdf_preview(output_pdf_path: Path) -> None:
+    """Render inline PDF viewer for the generated output aCRF."""
+    st.markdown("---")
+    st.subheader("Preview")
+    st.pdf(output_pdf_path.read_bytes(), height=800)
