@@ -85,14 +85,94 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
-        /* Phase 3 toolbar buttons: 12px bold monospace */
-        .st-key-p3_run_btn button p,
-        .st-key-p3_export_btn button p,
-        .st-key-p3_import_btn button p {
+        /* ── Phase 3 topbar ── */
+        .st-key-p3_run_btn button {
+            background-color: #383838 !important;
+            border: 1px solid #383838 !important;
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+            font-size: 14px !important;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.22) !important;
+        }
+        .st-key-p3_export_btn button,
+        .st-key-p3_import_btn button {
+            background-color: #FFFFFF !important;
+            border: 1px solid #D4CEC8 !important;
+            color: #383838 !important;
+            font-size: 13px !important;
+        }
+        /* ── Stat cards ── */
+        .p3-stat-card {
+            background: #FFFFFF;
+            border: 1px solid #E8E2DC;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.07);
+            padding: 14px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .p3-stat-num  { font-size: 24px; font-weight: 700; color: #383838; }
+        .p3-stat-lbl  { font-size: 11px; color: #8A847F; }
+        /* ── Filter bar ── */
+        .p3-filter-bar {
+            background: #F4EFEA;
+            border: 1px solid #D4CEC8;
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .p3-filter-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #262730;
+            white-space: nowrap;
+        }
+        /* ── Batch approve button ── */
+        .st-key-p3_batch_approve button {
+            background-color: #383838 !important;
+            border: 1px solid #383838 !important;
+            color: #FFFFFF !important;
             font-size: 12px !important;
             font-weight: 700 !important;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.22) !important;
+            padding: 2px 12px !important;
+            height: 30px !important;
         }
-        /* Re-pair confirm button: dark neo-brutalist style */
+        /* ── Match row cards — applied via container key ── */
+        [class*="st-key-row_"] > div:first-child {
+            border: 1px solid #383838;
+            box-shadow: 3px 3px 0 rgba(0,0,0,0.07);
+            padding: 4px 16px 4px 8px;
+            margin-bottom: 4px;
+            background: #FFFFFF;
+        }
+        /* Repair state: amber border */
+        [class*="st-key-row_repair_"] > div:first-child {
+            border: 2px solid #F59E0B !important;
+            background: #FFFBEF !important;
+            box-shadow: 3px 3px 0 rgba(0,0,0,0.09) !important;
+        }
+        /* Manual state: teal border */
+        [class*="st-key-row_manual_"] > div:first-child {
+            border: 1px solid #0c5460 !important;
+            background: #F0FAFA !important;
+        }
+        /* Domain badge */
+        .p3-domain-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #D0D0D0;
+            background: #FFFFFF;
+            width: 36px;
+            height: 22px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #262730;
+        }
+        /* ── Re-pair confirm button: dark neo-brutalist style ── */
         [class*="st-key-p3_confirm_repair_"] button {
             background-color: #383838 !important;
             border: 1px solid #383838 !important;
@@ -139,8 +219,7 @@ def render_phase3() -> None:
         return
 
     _render_dashboard(matches)
-    _render_batch_approve(matches, session)
-    filtered = _render_filters(matches)
+    filtered = _render_filters(matches, session)
     _render_match_rows(filtered, matches, session)
     _render_unmatched_assignment(matches, fields, session)
 
@@ -158,9 +237,6 @@ def _render_topbar(
 ) -> None:
     """Header + toolbar: Run Matching | Export CSV | Import CSV."""
     st.header("Phase 3: Match Annotations to Fields")
-
-    if msg_count := st.session_state.pop("_p3_match_success", None):
-        st.success(f"Matched {msg_count} annotations.")
 
     _, tb_run, tb_export, tb_import = st.columns([3, 1, 1, 1], gap="small")
 
@@ -182,7 +258,6 @@ def _render_topbar(
                         invalidate_phases([4])
                         st.session_state.pop("_p3_csv_ready", None)
                         session.log_action("phase3_match", {"count": len(new_matches)})
-                        st.session_state["_p3_match_success"] = len(new_matches)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Matching failed: {e}")
@@ -230,39 +305,68 @@ def _render_topbar(
 # C. Dashboard
 # ---------------------------------------------------------------------------
 
+_MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
+
+
 def _render_dashboard(matches: list[MatchRecord]) -> None:
-    st.subheader("Match Dashboard")
     type_counts: dict[str, int] = {}
-    status_counts: dict[str, int] = {}
     for m in matches:
         type_counts[m.match_type] = type_counts.get(m.match_type, 0) + 1
-        status_counts[m.status] = status_counts.get(m.status, 0) + 1
 
-    all_types = list(type_counts.keys())
-    if all_types:
-        cols = st.columns(len(all_types))
-        for col, mt in zip(cols, all_types):
-            col.metric(mt, type_counts[mt])
+    ordered = [(mt, type_counts[mt]) for mt in _MATCH_TYPE_ORDER if mt in type_counts]
+    ordered += [(mt, c) for mt, c in type_counts.items() if mt not in _MATCH_TYPE_ORDER]
 
-    st.write("**By Status:**", " | ".join(f"{s}: {c}" for s, c in status_counts.items()))
+    if not ordered:
+        return
+
+    label_map = {
+        "exact": "Exact", "fuzzy": "Fuzzy",
+        "position_only": "Position", "unmatched": "Unmatched", "manual": "Manual",
+    }
+    cols = st.columns(len(ordered))
+    for col, (mt, count) in zip(cols, ordered):
+        lbl = label_map.get(mt, mt.title())
+        col.markdown(
+            f'<div class="p3-stat-card">'
+            f'<span class="p3-stat-num">{count}</span>'
+            f'<span class="p3-stat-lbl">{lbl}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ---------------------------------------------------------------------------
 # D. Filters
 # ---------------------------------------------------------------------------
 
-def _render_filters(matches: list[MatchRecord]) -> list[MatchRecord]:
-    st.subheader("Filters")
-    col1, col2, col3 = st.columns(3)
+def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchRecord]:
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
 
-    with col1:
-        sel_types = st.multiselect("Match Type", all_types, default=all_types, key="p3_filter_type")
-    with col2:
-        sel_statuses = st.multiselect("Status", all_statuses, default=all_statuses, key="p3_filter_status")
-    with col3:
-        min_conf = st.slider("Min Confidence", 0.0, 1.0, 0.0, 0.01, key="p3_filter_conf")
+    st.markdown('<div class="p3-filter-bar">', unsafe_allow_html=True)
+    lbl_col, t_col, s_col, c_col, spacer, ba_col = st.columns([0.5, 2, 2, 2, 1, 2])
+    with lbl_col:
+        st.markdown('<span class="p3-filter-label">Filter:</span>', unsafe_allow_html=True)
+    with t_col:
+        sel_types = st.multiselect("Match Type", all_types, default=all_types,
+                                   key="p3_filter_type", label_visibility="collapsed")
+    with s_col:
+        sel_statuses = st.multiselect("Status", all_statuses, default=all_statuses,
+                                      key="p3_filter_status", label_visibility="collapsed")
+    with c_col:
+        min_conf = st.slider("Min Confidence", 0.0, 1.0, 0.0, 0.01,
+                             key="p3_filter_conf", label_visibility="collapsed")
+    with ba_col:
+        pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
+        if pending_exact:
+            if st.button(f"Batch Approve Exact ({len(pending_exact)})",
+                         key="p3_batch_approve", use_container_width=True):
+                updated = batch_approve_exact(matches)
+                session.save_matches(updated)
+                st.session_state["matches"] = updated
+                invalidate_phases([4])
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     filtered = [
         m for m in matches
@@ -327,7 +431,6 @@ def _render_match_rows(
     all_matches: list[MatchRecord],
     session: Session,
 ) -> None:
-    st.subheader("Matches")
     annotations: list[AnnotationRecord] = st.session_state.get("annotations", [])
     annot_by_id = {a.id: a for a in annotations}
     fields: list[FieldRecord] = st.session_state.get("fields", [])
@@ -349,29 +452,52 @@ def _render_match_rows(
         field = field_by_id.get(m.field_id) if m.field_id else None
         annot_label = annot.content[:40] if annot else m.annotation_id[:12]
         is_open = repairing_id == m.annotation_id
+        domain = annot.domain[:4] if annot and annot.domain else "—"
 
-        col1, col2, col3, col4, col5 = st.columns([3, 3, 1, 1, 2])
-        with col1:
-            st.write(f"**{annot_label}**")
-        with col2:
-            suffix = "  · re-pairing" if is_open else ""
-            st.write(_field_display_label(field) + suffix)
-            if m.match_type == "manual" and not is_open:
-                st.caption("manually paired · rect recomputed")
-        with col3:
-            render_confidence_badge(m.confidence)
-        with col4:
-            if is_open:
+        # card wrapper — use CSS key on st.container for border/shadow
+        if is_open:
+            row_css = "p3-match-row-repair"
+        elif m.match_type == "manual":
+            row_css = "p3-match-row-manual"
+        else:
+            row_css = "p3-match-row"
+
+        state_prefix = "repair" if is_open else ("manual" if m.match_type == "manual" else "std")
+        with st.container(key=f"row_{state_prefix}_{m.annotation_id}"):
+            col_domain, col1, col2, col3, col4, col5 = st.columns([0.5, 3, 3, 1, 1, 1.5])
+            with col_domain:
                 st.markdown(
-                    '<span style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;'
-                    'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
-                    'Rejected — Re-pair</span>',
+                    f'<span class="p3-domain-badge">{domain}</span>',
                     unsafe_allow_html=True,
                 )
-            else:
-                render_match_type_badge(m.match_type)
-        with col5:
-            action_taken = _render_row_actions(m, is_open, updated_matches, match_index) or action_taken
+            with col1:
+                st.markdown(
+                    f'<span style="font-size:13px;font-weight:600;color:#1E293B">{annot_label}</span>',
+                    unsafe_allow_html=True,
+                )
+            with col2:
+                suffix = "  · re-pairing" if is_open else ""
+                field_lbl = _field_display_label(field) + suffix
+                form_sub = "manually paired · rect recomputed" if (m.match_type == "manual" and not is_open) else ""
+                st.markdown(
+                    f'<span style="font-size:13px;font-weight:600;color:#1E293B">{field_lbl}</span>'
+                    + (f'<br><span style="font-size:11px;color:#94A3B8">{form_sub}</span>' if form_sub else ""),
+                    unsafe_allow_html=True,
+                )
+            with col3:
+                render_confidence_badge(m.confidence)
+            with col4:
+                if is_open:
+                    st.markdown(
+                        '<span style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;'
+                        'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
+                        'Rejected — Re-pair</span>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    render_match_type_badge(m.match_type)
+            with col5:
+                action_taken = _render_row_actions(m, is_open, updated_matches, match_index) or action_taken
 
         if is_open and annot:
             new_matches = _render_repair_panel(
@@ -606,18 +732,3 @@ def _render_unmatched_assignment(
                     st.error(str(e))
 
 
-# ---------------------------------------------------------------------------
-# G. Batch approve exact
-# ---------------------------------------------------------------------------
-
-def _render_batch_approve(matches: list[MatchRecord], session: Session) -> None:
-    pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
-    if not pending_exact:
-        return
-    st.info(f"{len(pending_exact)} pending exact matches.")
-    if st.button(f"Batch Approve {len(pending_exact)} Exact Matches"):
-        updated = batch_approve_exact(matches)
-        session.save_matches(updated)
-        st.session_state["matches"] = updated
-        invalidate_phases([4])
-        st.rerun()
