@@ -141,22 +141,6 @@ def _inject_page_css() -> None:
         }
         .p3-stat-num  { font-size: 24px; font-weight: 700; color: #383838; }
         .p3-stat-lbl  { font-size: 11px; color: #8A847F; }
-        /* ── Filter bar ── */
-        .p3-filter-bar {
-            background: #F4EFEA;
-            border: 1px solid #D4CEC8;
-            padding: 6px 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-        .p3-filter-label {
-            font-size: 13px;
-            font-weight: 600;
-            color: #262730;
-            white-space: nowrap;
-        }
         /* ── Batch approve button ── */
         .st-key-p3_batch_approve button {
             background-color: #383838 !important;
@@ -397,19 +381,16 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
 
-    st.markdown('<div class="p3-filter-bar">', unsafe_allow_html=True)
-    lbl_col, t_col, s_col, c_col, spacer, ba_col = st.columns([0.5, 2, 2, 2, 1, 2])
-    with lbl_col:
-        st.markdown('<span class="p3-filter-label">Filter:</span>', unsafe_allow_html=True)
+    t_col, s_col, c_col, spacer, ba_col = st.columns([2, 2, 2, 1, 2])
     with t_col:
-        sel_types = st.multiselect("Match Type", all_types, default=all_types,
-                                   key="p3_filter_type", label_visibility="collapsed")
+        sel_types = st.multiselect("Match Type \u25be", all_types, default=all_types,
+                                   key="p3_filter_type", label_visibility="visible")
     with s_col:
-        sel_statuses = st.multiselect("Status", all_statuses, default=all_statuses,
-                                      key="p3_filter_status", label_visibility="collapsed")
+        sel_statuses = st.multiselect("Status \u25be", all_statuses, default=all_statuses,
+                                      key="p3_filter_status", label_visibility="visible")
     with c_col:
-        min_conf = st.slider("Min Confidence", 0.0, 1.0, 0.0, 0.01,
-                             key="p3_filter_conf", label_visibility="collapsed")
+        min_conf = st.slider("Confidence", 0.0, 1.0, 0.0, 0.01,
+                             key="p3_filter_conf", label_visibility="visible")
     with ba_col:
         pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
         if pending_exact:
@@ -420,7 +401,6 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
                 st.session_state["matches"] = updated
                 invalidate_phases([4])
                 st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
     filtered = [
         m for m in matches
