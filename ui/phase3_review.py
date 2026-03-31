@@ -1,6 +1,8 @@
 """Phase 3: Match review UI."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 from rapidfuzz import fuzz as _fuzz
 
@@ -107,11 +109,17 @@ def _inject_page_css() -> None:
         """
         <style>
         /* ── Phase 3 card heights (matches Phase 2) ── */
-        .st-key-p3_action_card > div:first-child,
         .st-key-p3_rate_card > div:first-child,
         .st-key-p3_bytype_card > div:first-child {
             height: 204px;
             overflow: hidden;
+        }
+        .st-key-p3_action_card > div:first-child {
+            height: 204px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
         /* ── Phase 3 topbar ── */
         .st-key-p3_run_btn button {
@@ -265,9 +273,23 @@ def _render_action_card(
     fields: list[FieldRecord],
     matches: list[MatchRecord],
 ) -> None:
-    """Card 1: Run Matching button."""
+    """Card 1: Source/Target filenames + Run Matching button at bottom."""
+    source_path = st.session_state.get("source_pdf_path")
+    target_path = st.session_state.get("target_pdf_path")
+    source_name = Path(source_path).name if source_path else "—"
+    target_name = Path(target_path).name if target_path else "—"
+
     _no_session_error = False
     with st.container(border=True, key="p3_action_card"):
+        st.markdown(
+            f'<div style="{_LABEL_STYLE}">Source aCRF</div>'
+            f'<div style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;'
+            f'color:#383838;margin:0 0 12px 0;word-break:break-all;">{source_name}</div>'
+            f'<div style="{_LABEL_STYLE}">Target CRF</div>'
+            f'<div style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;'
+            f'color:#383838;margin:0 0 0 0;word-break:break-all;">{target_name}</div>',
+            unsafe_allow_html=True,
+        )
         if st.button("Run Matching", key="p3_run_btn", use_container_width=True):
             if not session:
                 _no_session_error = True
