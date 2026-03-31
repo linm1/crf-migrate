@@ -334,7 +334,6 @@ def _render_cards(
     matches: list[MatchRecord],
 ) -> None:
     """Always-visible 3-column card row (Phase 2 pattern)."""
-    st.header("Phase 3: Match Annotations to Fields")
     c1, c2, c3 = st.columns(3, gap="large")
     with c1:
         _render_action_card(session, profile, annotations, fields, matches)
