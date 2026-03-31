@@ -129,6 +129,12 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
     with fitz.open(str(output_pdf_path)) as doc:
         page_count = doc.page_count
 
+    # Initialize defaults once
+    if "p4_preview_height" not in st.session_state:
+        st.session_state["p4_preview_height"] = 800
+    if "p4_preview_page" not in st.session_state:
+        st.session_state["p4_preview_page"] = 1
+
     # Controls row: height slider | page navigator
     ctrl_left, ctrl_right = st.columns([3, 1])
     with ctrl_left:
@@ -136,7 +142,6 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
             "Viewer height (px)",
             min_value=400,
             max_value=1200,
-            value=st.session_state.get("p4_preview_height", 800),
             step=50,
             key="p4_preview_height",
         )
@@ -145,7 +150,6 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
             f"Page (1–{page_count})",
             min_value=1,
             max_value=page_count,
-            value=st.session_state.get("p4_preview_page", 1),
             step=1,
             key="p4_preview_page",
         )
@@ -153,5 +157,5 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
     st.pdf(
         output_pdf_path.read_bytes(),
         height=height,
-        pages=str(page_num),
+        pages=str(int(page_num)),
     )
