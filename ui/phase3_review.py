@@ -218,7 +218,9 @@ def _render_topbar_p3(
     with tb_export:
         if st.button("Export CSV", key="p3_export_btn", use_container_width=True):
             st.session_state.pop("_p3_csv_ready", None)
-            if matches and session:
+            if not session:
+                st.error("No active session — cannot export.")
+            elif matches:
                 csv_path = session.workspace / "matches_export.csv"
                 export_matches_csv(matches, csv_path)
                 st.session_state["_p3_csv_ready"] = csv_path.read_bytes()
@@ -241,7 +243,9 @@ def _render_topbar_p3(
             st.info("Run matching first before importing a CSV.")
         else:
             csv_upload = st.file_uploader("Import Matches CSV", type=["csv"], key="p3_csv_upload")
-            if csv_upload is not None and session:
+            if csv_upload is not None and not session:
+                st.error("No active session — cannot import.")
+            elif csv_upload is not None and session:
                 csv_path = session.workspace / "matches_import.csv"
                 csv_path.write_bytes(csv_upload.read())
                 updated, flagged = import_matches_csv(csv_path, matches)
