@@ -512,7 +512,7 @@ def render_confidence_badge(confidence: float) -> None:
         color, bg = "#721c24", "#f8d7da"
     st.markdown(
         f'<span style="background:{bg};color:{color};padding:2px 8px;'
-        f'border-radius:4px;font-size:12px">{confidence:.0%}</span>',
+        f'border-radius:4px;font-size:12px;display:block;text-align:center">{confidence:.0%}</span>',
         unsafe_allow_html=True,
     )
 
@@ -529,7 +529,7 @@ def render_match_type_badge(match_type: str) -> None:
     color, bg = colors.get(match_type, ("#343a40", "#e2e3e5"))
     st.markdown(
         f'<span style="background:{bg};color:{color};padding:2px 8px;'
-        f'border-radius:4px;font-size:12px">{match_type}</span>',
+        f'border-radius:4px;font-size:12px;display:block;text-align:center">{match_type}</span>',
         unsafe_allow_html=True,
     )
 

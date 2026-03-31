@@ -85,18 +85,6 @@ _FIELD_TYPE_BADGE: dict[str, tuple[str, str, str, str]] = {
 }
 
 
-def _render_field_type_badge(field_type: str) -> None:
-    """Render a Phase-2-consistent field-type badge via st.markdown."""
-    label, fill, border, color = _FIELD_TYPE_BADGE.get(
-        field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
-    )
-    st.markdown(
-        f'<span style="background:{fill};border:1px solid {border};color:{color};'
-        f'padding:2px 6px;font-size:10px;font-weight:700;border-radius:3px">{label}</span>',
-        unsafe_allow_html=True,
-    )
-
-
 _REPAIR_ELIGIBLE_TYPES = {"fuzzy", "position_only", "unmatched", "manual"}
 
 
@@ -173,6 +161,10 @@ def _inject_page_css() -> None:
             margin-bottom: 4px;
             background: #FFFFFF;
         }
+        /* Vertically center all columns inside match rows */
+        [class*="st-key-row_"] > div:first-child [data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+        }
         /* Repair state: amber border */
         [class*="st-key-row_repair_"] > div:first-child {
             border: 2px solid #F59E0B !important;
@@ -221,6 +213,38 @@ def _inject_page_css() -> None:
         .st-key-p3_rate_card,
         .st-key-p3_bytype_card {
             background: #FFFFFF !important;
+        }
+        /* ── Vertical centering: all columns inside match rows ── */
+        [class*="st-key-row_"] > div:first-child [data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+        }
+        /* ── Tight button group: collapse gap between approve/reject columns ── */
+        [class*="st-key-row_"] [data-testid="column"]:last-child [data-testid="stHorizontalBlock"] {
+            gap: 4px !important;
+        }
+        /* ── Approve/reject buttons: same style as Export/Import CSV topbar buttons ── */
+        [class*="st-key-p3_approve_"] button,
+        [class*="st-key-p3_reject_"] button,
+        [class*="st-key-p3_cancel_"] button {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            max-width: 32px !important;
+            padding: 0 !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            border-radius: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: background-color 0.15s, color 0.15s !important;
+        }
+        [class*="st-key-p3_approve_"] button:hover,
+        [class*="st-key-p3_reject_"] button:hover,
+        [class*="st-key-p3_cancel_"] button:hover {
+            background-color: #383838 !important;
+            color: #FFFFFF !important;
+            border-color: #383838 !important;
         }
         </style>
         """,
@@ -491,17 +515,17 @@ def _render_row_actions(
     approve_key = f"p3_approve_{m.annotation_id}"
     reject_key = f"p3_reject_{m.annotation_id}"
     cancel_key = f"p3_cancel_{m.annotation_id}"
-    bcols = st.columns(3 if is_open else 2)
+    spacer, bcol0, bcol1 = st.columns([2, 1, 1])
 
     if is_open:
-        if bcols[0].button("✓", key=approve_key, help="Approve"):
+        if bcol0.button("✓", key=approve_key, help="Approve"):
             idx = match_index.get(m.annotation_id)
             if idx is not None:
                 updated_matches[idx] = m.model_copy(update={"status": "approved"})
                 st.session_state.pop("_p3_repairing", None)
                 st.session_state.pop("_p3_repair_search", None)
                 return True
-        if bcols[1].button("✕", key=cancel_key, help="Cancel re-pair"):
+        if bcol1.button("✕", key=cancel_key, help="Cancel re-pair"):
             idx = match_index.get(m.annotation_id)
             if idx is not None:
                 updated_matches[idx] = m.model_copy(update={"status": "pending"})
@@ -509,12 +533,12 @@ def _render_row_actions(
                 st.session_state.pop("_p3_repair_search", None)
                 return True
     else:
-        if bcols[0].button("✓", key=approve_key, help="Approve"):
+        if bcol0.button("✓", key=approve_key, help="Approve"):
             idx = match_index.get(m.annotation_id)
             if idx is not None:
                 updated_matches[idx] = m.model_copy(update={"status": "approved"})
                 return True
-        if bcols[1].button("✕", key=reject_key, help="Reject"):
+        if bcol1.button("✕", key=reject_key, help="Reject"):
             idx = match_index.get(m.annotation_id)
             if idx is not None:
                 updated_matches[idx] = m.model_copy(update={"status": "rejected"})
@@ -563,12 +587,17 @@ def _render_match_rows(
 
         state_prefix = "repair" if is_open else ("manual" if m.match_type == "manual" else "std")
         with st.container(key=f"row_{state_prefix}_{m.annotation_id}"):
-            col_domain, col1, col2, col3, col4, col5 = st.columns([0.5, 3, 3, 1, 1, 1.5])
-            with col_domain:
-                st.markdown(
-                    f'<span class="p3-domain-badge">{domain}</span>',
-                    unsafe_allow_html=True,
-                )
+            col_type, col1, col2, col3, col5 = st.columns([0.8, 3, 3, 1, 1.5])
+            with col_type:
+                if is_open:
+                    st.markdown(
+                        '<span style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;'
+                        'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
+                        'Re-pair</span>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    render_match_type_badge(m.match_type)
             with col1:
                 st.markdown(
                     f'<span style="font-size:13px;font-weight:600;color:#1E293B">{annot_label}</span>',
@@ -585,16 +614,6 @@ def _render_match_rows(
                 )
             with col3:
                 render_confidence_badge(m.confidence)
-            with col4:
-                if is_open:
-                    st.markdown(
-                        '<span style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;'
-                        'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
-                        'Rejected — Re-pair</span>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    render_match_type_badge(m.match_type)
             with col5:
                 action_taken = _render_row_actions(m, is_open, updated_matches, match_index) or action_taken
 
