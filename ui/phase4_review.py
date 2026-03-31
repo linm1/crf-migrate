@@ -154,8 +154,10 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
             key="p4_preview_page",
         )
 
-    st.pdf(
-        output_pdf_path.read_bytes(),
-        height=height,
-        pages=str(int(page_num)),
-    )
+    page_idx = int(page_num) - 1  # convert 1-indexed to 0-indexed
+    with fitz.open(str(output_pdf_path)) as source_doc:
+        single_page_doc = fitz.Document()
+        single_page_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
+        page_bytes = single_page_doc.tobytes()
+
+    st.pdf(page_bytes, height=height)
