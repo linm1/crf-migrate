@@ -211,6 +211,12 @@ def _inject_page_css() -> None:
         [data-baseweb="tag"]:has(span[title="position_only"]) { background: #fff3cd !important; color: #7d4e00 !important; }
         [data-baseweb="tag"]:has(span[title="manual"])        { background: #d1ecf1 !important; color: #0c5460 !important; }
         [data-baseweb="tag"]:has(span[title="unmatched"])     { background: #f8d7da !important; color: #721c24 !important; }
+        /* ── Phase 3 card white backgrounds (matches Phase 2) ── */
+        .st-key-p3_action_card,
+        .st-key-p3_rate_card,
+        .st-key-p3_bytype_card {
+            background: #FFFFFF !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -276,8 +282,14 @@ def _render_action_card(
     """Card 1: Source/Target filenames + Run Matching button at bottom."""
     source_path = st.session_state.get("source_pdf_path")
     target_path = st.session_state.get("target_pdf_path")
-    source_name = _html.escape(Path(source_path).name) if source_path else "—"
-    target_name = _html.escape(Path(target_path).name) if target_path else "—"
+    source_name = _html.escape(
+        st.session_state.get("source_pdf_name")
+        or (Path(source_path).name if source_path else "—")
+    )
+    target_name = _html.escape(
+        st.session_state.get("target_pdf_name")
+        or (Path(target_path).name if target_path else "—")
+    )
 
     _no_session_error = False
     with st.container(border=True, key="p3_action_card"):
@@ -368,6 +380,19 @@ def _render_cards(
 ) -> None:
     """Always-visible 3-column card row (Phase 2 pattern)."""
     _render_topbar_p3(matches, session)
+    _hdr = (
+        "font-family:Inter,sans-serif;font-size:12px;font-weight:700;"
+        "color:#383838;text-transform:uppercase;letter-spacing:0.5px;"
+        "margin:0;padding:0;"
+    )
+    st.markdown(
+        f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:6px;">'
+        f'<p style="{_hdr}">Match Files</p>'
+        f'<p style="{_hdr}">Exact Match Rate</p>'
+        f'<p style="{_hdr}">By Match Type</p>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
     c1, c2, c3 = st.columns(3, gap="large")
     with c1:
         _render_action_card(session, profile, annotations, fields)
