@@ -1,6 +1,7 @@
 """Phase 3: Match review UI."""
 from __future__ import annotations
 
+import html as _html
 from pathlib import Path
 
 import streamlit as st
@@ -271,13 +272,12 @@ def _render_action_card(
     profile: object,
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
-    matches: list[MatchRecord],
 ) -> None:
     """Card 1: Source/Target filenames + Run Matching button at bottom."""
     source_path = st.session_state.get("source_pdf_path")
     target_path = st.session_state.get("target_pdf_path")
-    source_name = Path(source_path).name if source_path else "—"
-    target_name = Path(target_path).name if target_path else "—"
+    source_name = _html.escape(Path(source_path).name) if source_path else "—"
+    target_name = _html.escape(Path(target_path).name) if target_path else "—"
 
     _no_session_error = False
     with st.container(border=True, key="p3_action_card"):
@@ -370,7 +370,7 @@ def _render_cards(
     _render_topbar_p3(matches, session)
     c1, c2, c3 = st.columns(3, gap="large")
     with c1:
-        _render_action_card(session, profile, annotations, fields, matches)
+        _render_action_card(session, profile, annotations, fields)
     with c2:
         _render_rate_card(matches)
     with c3:
