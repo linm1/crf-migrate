@@ -307,6 +307,7 @@ def _render_action_card(
             f'color:#383838;margin:0 0 0 0;word-break:break-all;">{target_name}</div>',
             unsafe_allow_html=True,
         )
+        st.markdown('<div style="margin-top:16px;"></div>', unsafe_allow_html=True)
         if st.button("Run Matching", key="p3_run_btn", use_container_width=True):
             if not session:
                 _no_session_error = True
