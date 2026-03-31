@@ -1,6 +1,7 @@
 """Phase 4: Output generation UI."""
 from pathlib import Path
 
+import fitz
 import streamlit as st
 
 from src.writer import write_annotations
@@ -120,7 +121,37 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
 # ---------------------------------------------------------------------------
 
 def _render_pdf_preview(output_pdf_path: Path) -> None:
-    """Render inline PDF viewer for the generated output aCRF."""
+    """Render inline PDF viewer with height slider and page navigator."""
     st.markdown("---")
     st.subheader("Preview")
-    st.pdf(output_pdf_path.read_bytes(), height=800)
+
+    # Read page count once from the PDF
+    with fitz.open(str(output_pdf_path)) as doc:
+        page_count = doc.page_count
+
+    # Controls row: height slider | page navigator
+    ctrl_left, ctrl_right = st.columns([3, 1])
+    with ctrl_left:
+        height = st.slider(
+            "Viewer height (px)",
+            min_value=400,
+            max_value=1200,
+            value=st.session_state.get("p4_preview_height", 800),
+            step=50,
+            key="p4_preview_height",
+        )
+    with ctrl_right:
+        page_num = st.number_input(
+            f"Page (1–{page_count})",
+            min_value=1,
+            max_value=page_count,
+            value=st.session_state.get("p4_preview_page", 1),
+            step=1,
+            key="p4_preview_page",
+        )
+
+    st.pdf(
+        output_pdf_path.read_bytes(),
+        height=height,
+        pages=str(page_num),
+    )
