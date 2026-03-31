@@ -197,6 +197,7 @@ def _render_upload_card(session, profile, rule_engine) -> None:
             pdf_path = session.workspace / "source_acrf.pdf"
             pdf_path.write_bytes(uploaded.read())
             st.session_state["source_pdf_path"] = pdf_path
+            st.session_state["source_pdf_name"] = uploaded.name
 
         source_pdf_path = st.session_state.get("source_pdf_path")
         has_pdf = bool(source_pdf_path and source_pdf_path.exists())
