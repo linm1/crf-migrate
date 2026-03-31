@@ -6,7 +6,6 @@ import streamlit as st
 from src.profile_loader import list_profiles, load_profile
 from src.rule_engine import RuleEngine
 from src.session import Session
-from ui.components import render_phase_status_bar
 from ui.phase1_review import render_phase1
 from ui.phase2_review import render_phase2
 from ui.phase3_review import render_phase3
@@ -350,12 +349,8 @@ def main() -> None:
         case "Phase 2: Extract Fields":
             render_phase2(PROFILES_DIR)
         case "Phase 3: Match":
-            render_phase_status_bar(phases)
-            st.divider()
             render_phase3()
         case "Phase 4: Output":
-            render_phase_status_bar(phases)
-            st.divider()
             render_phase4()
         case _:
             render_profile_editor(PROFILES_DIR)
