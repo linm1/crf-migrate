@@ -1,4 +1,4 @@
-"""Phase 4: Output generation and QC report UI."""
+"""Phase 4: Output generation UI."""
 import streamlit as st
 
 from src.writer import write_annotations
