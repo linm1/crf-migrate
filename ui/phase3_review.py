@@ -233,10 +233,11 @@ def _render_action_card(
     matches: list[MatchRecord],
 ) -> None:
     """Card 1: Run Matching button + Export / Import CSV controls."""
+    _no_session_error = False
     with st.container(border=True, key="p3_action_card"):
         if st.button("Run Matching", key="p3_run_btn", use_container_width=True):
             if not session:
-                st.error("No active session. Please restart the app.")
+                _no_session_error = True
             else:
                 source_pdf_path = st.session_state.get("source_pdf_path")
                 target_pdf_path = st.session_state.get("target_pdf_path")
@@ -275,7 +276,9 @@ def _render_action_card(
             if st.button("Import CSV", key="p3_import_btn", use_container_width=True):
                 st.session_state["_p3_show_import"] = not st.session_state.get("_p3_show_import", False)
 
-    # Import uploader lives OUTSIDE the fixed-height card container
+    # Error and import uploader live OUTSIDE the fixed-height card container
+    if _no_session_error:
+        st.error("No active session. Please restart the app.")
     if st.session_state.get("_p3_show_import", False):
         if not matches:
             st.info("Run matching first before importing a CSV.")
@@ -302,7 +305,7 @@ def _render_rate_card(matches: list[MatchRecord]) -> None:
 
     with st.container(border=True, key="p3_rate_card"):
         st.markdown(
-            f'<div style="{_LABEL_STYLE}">Match Rate</div>'
+            f'<div style="{_LABEL_STYLE}">Exact Match Rate</div>'
             f'<div style="{_NUMBER_STYLE}">{pct}%</div>'
             f'<div style="{_LABEL_STYLE}">Exact Matches</div>'
             f'<div style="font-family:Inter,sans-serif;font-size:24px;font-weight:700;'
