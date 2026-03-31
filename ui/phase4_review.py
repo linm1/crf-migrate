@@ -58,10 +58,6 @@ def render_phase4() -> None:
 
     _render_topbar(matches)
 
-    qc_report = st.session_state.get("qc_report")
-    if qc_report:
-        _render_qc_report(qc_report)
-
 
 # ---------------------------------------------------------------------------
 # B. Topbar: Generate | Download PDF
@@ -113,29 +109,3 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
             )
 
 
-# ---------------------------------------------------------------------------
-# C. QC Report
-# ---------------------------------------------------------------------------
-
-def _render_qc_report(qc_report: dict) -> None:
-    st.subheader("QC Report")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Matches", qc_report.get("total_matches", 0))
-    col2.metric("Written", qc_report.get("written", 0))
-    col3.metric("Skipped", qc_report.get("skipped", 0))
-
-    with st.expander("Counts by Match Type"):
-        st.json(qc_report.get("counts_by_match_type", {}))
-
-    unmatched_ids = qc_report.get("unmatched_annotation_ids", [])
-    if unmatched_ids:
-        with st.expander(f"Unmatched Annotations ({len(unmatched_ids)})"):
-            st.caption("Go to Phase 3 to assign these manually.")
-            for aid in unmatched_ids:
-                st.write(f"• {aid}")
-
-    rejected_ids = qc_report.get("rejected_annotation_ids", [])
-    if rejected_ids:
-        with st.expander(f"Rejected Annotations ({len(rejected_ids)})"):
-            for aid in rejected_ids:
-                st.write(f"• {aid}")
