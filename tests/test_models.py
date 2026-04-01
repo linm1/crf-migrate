@@ -133,7 +133,7 @@ class TestMatchRecord:
         match = self._make_match()
         assert match.match_type == "exact"
         assert match.confidence == 1.0
-        assert match.status == "pending"
+        assert match.status == "re-pairing"
 
     def test_field_id_can_be_none(self):
         """Unmatched annotations have null field_id."""
@@ -146,7 +146,7 @@ class TestMatchRecord:
             assert match.match_type == mt
 
     def test_status_values(self):
-        for s in ["pending", "approved", "rejected", "modified"]:
+        for s in ["pending", "approved", "re-pairing"]:
             match = self._make_match(status=s)
             assert match.status == s
 

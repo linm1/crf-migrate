@@ -227,6 +227,12 @@ def import_matches_csv(
         for key in ("user_notes", "status", "match_type"):
             if key in row_dict and (row_dict[key] != row_dict[key]):  # NaN check
                 row_dict[key] = ""
+        # Migrate legacy status values from old CSVs
+        _status = row_dict.get("status", "")
+        if _status == "rejected":
+            row_dict["status"] = "re-pairing"
+        elif _status == "modified":
+            row_dict["status"] = "approved"
         annot_id = str(row_dict.get("annotation_id", "")).strip()
         if annot_id:
             id_to_row[annot_id] = row_dict

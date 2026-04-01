@@ -7,6 +7,8 @@ Defines the three core record types used as intermediate artifacts:
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -63,6 +65,6 @@ class MatchRecord(BaseModel):
     confidence: float              # 0.0 to 1.0
     target_rect: list[float]       # Computed placement position on the target PDF
     target_page: int = 0           # 1-indexed page in the target PDF (0 = unknown/unmatched)
-    status: str = "pending"        # pending | approved | rejected | modified
+    status: Literal["pending", "approved", "re-pairing"] = "re-pairing"
     user_notes: str = ""
     placement_adjusted: bool = False  # True if target_rect was clamped or fallback-placed

@@ -52,7 +52,7 @@ def render_phase4() -> None:
         return
 
     matches = st.session_state.get("matches", [])
-    approved = [m for m in matches if m.status in ("approved", "modified")]
+    approved = [m for m in matches if m.status == "approved"]
     if not approved:
         st.warning(
             "No approved matches found. Go to Phase 3 to approve matches before generating output."
