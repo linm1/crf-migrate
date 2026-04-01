@@ -45,7 +45,7 @@ def create_sample_acrf() -> Path:
     add_freetext(page1, [150, 90, 350, 110], "BRTHDTC", subject="DM")
     add_freetext(page1, [150, 120, 350, 140], "SEX", subject="DM")
     add_freetext(page1, [150, 150, 350, 170], "RACE", subject="DM")
-    add_freetext(page1, [50, 40, 150, 60], "DM=Demographics", subject="DM")
+    add_freetext(page1, [50, 40, 150, 60], "DM (Demographics)", subject="DM")
 
     # Page 2: Vital Signs form
     page2 = doc.new_page(width=595, height=842)
@@ -55,7 +55,7 @@ def create_sample_acrf() -> Path:
 
     add_freetext(page2, [200, 90, 400, 110], "VSORRES when VSTESTCD = SYSBP", subject="VS")
     add_freetext(page2, [200, 120, 400, 140], "VSORRES when VSTESTCD = DIABP", subject="VS")
-    add_freetext(page2, [50, 40, 150, 60], "VS=Vital Signs", subject="VS")
+    add_freetext(page2, [50, 40, 150, 60], "VS (Vital Signs)", subject="VS")
     # Multi-line annotation (note category)
     add_freetext(page2, [50, 200, 300, 250], "1=Normal\r\n2=Abnormal\r\n3=Not Done", subject="VS")
     # [NOT SUBMITTED] annotation
