@@ -85,14 +85,6 @@ _FIELD_TYPE_BADGE: dict[str, tuple[str, str, str, str]] = {
 }
 
 
-_REPAIR_ELIGIBLE_TYPES = {"fuzzy", "position_only", "unmatched", "manual"}
-
-
-def _is_repair_eligible(match_type: str) -> bool:
-    """Return True if this match type can be inline re-paired."""
-    return match_type in _REPAIR_ELIGIBLE_TYPES
-
-
 def _inject_page_css() -> None:
     st.markdown(
         """
@@ -218,14 +210,8 @@ def _inject_page_css() -> None:
         [class*="st-key-row_"] > div:first-child [data-testid="stHorizontalBlock"] {
             align-items: center !important;
         }
-        /* ── Tight button group: collapse gap between approve/reject columns ── */
-        [class*="st-key-row_"] [data-testid="column"]:last-child [data-testid="stHorizontalBlock"] {
-            gap: 4px !important;
-        }
-        /* ── Approve/reject buttons: same style as Export/Import CSV topbar buttons ── */
-        [class*="st-key-p3_approve_"] button,
-        [class*="st-key-p3_reject_"] button,
-        [class*="st-key-p3_cancel_"] button {
+        /* ── Approve buttons: same style as Export/Import CSV topbar buttons ── */
+        [class*="st-key-p3_approve_"] button {
             width: 32px !important;
             height: 32px !important;
             min-width: 32px !important;
@@ -239,12 +225,77 @@ def _inject_page_css() -> None:
             justify-content: center !important;
             transition: background-color 0.15s, color 0.15s !important;
         }
-        [class*="st-key-p3_approve_"] button:hover,
-        [class*="st-key-p3_reject_"] button:hover,
-        [class*="st-key-p3_cancel_"] button:hover {
+        [class*="st-key-p3_approve_"] button:hover {
             background-color: #383838 !important;
             color: #FFFFFF !important;
             border-color: #383838 !important;
+        }
+        /* ── ↺ re-pair open button on approved rows ── */
+        [class*="st-key-p3_repairopen_"] button {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            max-width: 32px !important;
+            padding: 0 !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            border-radius: 0 !important;
+            border: 1px solid #D0D0D0 !important;
+            background: #FFFFFF !important;
+            color: #8A847F !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: background-color 0.15s, color 0.15s !important;
+        }
+        [class*="st-key-p3_repairopen_"] button:hover {
+            background-color: #383838 !important;
+            color: #FFFFFF !important;
+            border-color: #383838 !important;
+        }
+
+        /* ── Re-pairing row: amber, cursor pointer ── */
+        [class*="st-key-row_repair_"] > div:first-child {
+            cursor: pointer !important;
+        }
+
+        /* ── Drawer close button ── */
+        .st-key-p3_drawer_close button {
+            background: transparent !important;
+            border: none !important;
+            color: #FFFFFF !important;
+            font-size: 16px !important;
+            font-weight: 700 !important;
+            padding: 0 !important;
+        }
+
+        /* ── Status badges ── */
+        .p3-status-approved {
+            display: inline-block;
+            background: #F0FFF4;
+            border: 1px solid #27C93F;
+            color: #166534;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .p3-status-repairing {
+            display: inline-block;
+            background: #FEF3C7;
+            border: 1px solid #F59E0B;
+            color: #92400E;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .p3-status-pending {
+            display: inline-block;
+            background: #F4EFEA;
+            border: 1px solid #D4CEC8;
+            color: #8A847F;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 700;
         }
         </style>
         """,
@@ -505,50 +556,6 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
 # E. Match rows
 # ---------------------------------------------------------------------------
 
-def _render_row_actions(
-    m: MatchRecord,
-    is_open: bool,
-    updated_matches: list[MatchRecord],
-    match_index: dict[str, int],
-) -> bool:
-    """Render approve/reject/cancel buttons for one match row. Returns True if action taken."""
-    approve_key = f"p3_approve_{m.annotation_id}"
-    reject_key = f"p3_reject_{m.annotation_id}"
-    cancel_key = f"p3_cancel_{m.annotation_id}"
-    spacer, bcol0, bcol1 = st.columns([2, 1, 1])
-
-    if is_open:
-        if bcol0.button("✓", key=approve_key, help="Approve"):
-            idx = match_index.get(m.annotation_id)
-            if idx is not None:
-                updated_matches[idx] = m.model_copy(update={"status": "approved"})
-                st.session_state.pop("_p3_repairing", None)
-                st.session_state.pop("_p3_repair_search", None)
-                return True
-        if bcol1.button("✕", key=cancel_key, help="Cancel re-pair"):
-            idx = match_index.get(m.annotation_id)
-            if idx is not None:
-                updated_matches[idx] = m.model_copy(update={"status": "pending"})
-                st.session_state.pop("_p3_repairing", None)
-                st.session_state.pop("_p3_repair_search", None)
-                return True
-    else:
-        if bcol0.button("✓", key=approve_key, help="Approve"):
-            idx = match_index.get(m.annotation_id)
-            if idx is not None:
-                updated_matches[idx] = m.model_copy(update={"status": "approved"})
-                return True
-        if bcol1.button("✕", key=reject_key, help="Reject"):
-            idx = match_index.get(m.annotation_id)
-            if idx is not None:
-                updated_matches[idx] = m.model_copy(update={"status": "rejected"})
-                if _is_repair_eligible(m.match_type):
-                    st.session_state["_p3_repairing"] = m.annotation_id
-                    st.session_state.pop("_p3_repair_search", None)
-                return True
-    return False
-
-
 def _render_match_rows(
     filtered: list[MatchRecord],
     all_matches: list[MatchRecord],
@@ -567,64 +574,95 @@ def _render_match_rows(
 
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
-    repairing_id: str | None = st.session_state.get("_p3_repairing")
+    drawer_id: str | None = st.session_state.get("_p3_drawer_id")
+
+    # Decide layout: columns([2,1]) when drawer open, container() when closed
+    if drawer_id and any(m.annotation_id == drawer_id for m in filtered):
+        col_list, col_drawer = st.columns([2, 1], gap="medium")
+    else:
+        col_list = st.container()
+        col_drawer = None
 
     action_taken = False
-    for m in filtered:
-        annot = annot_by_id.get(m.annotation_id)
-        field = field_by_id.get(m.field_id) if m.field_id else None
-        annot_label = annot.content[:40] if annot else m.annotation_id[:12]
-        is_open = repairing_id == m.annotation_id
-        domain = annot.domain[:4] if annot and annot.domain else "—"
 
-        # card wrapper — use CSS key on st.container for border/shadow
-        if is_open:
-            row_css = "p3-match-row-repair"
-        elif m.match_type == "manual":
-            row_css = "p3-match-row-manual"
-        else:
-            row_css = "p3-match-row"
+    with col_list:
+        for m in filtered:
+            annot = annot_by_id.get(m.annotation_id)
+            field = field_by_id.get(m.field_id) if m.field_id else None
+            annot_label = annot.content[:40] if annot else m.annotation_id[:12]
 
-        state_prefix = "repair" if is_open else ("manual" if m.match_type == "manual" else "std")
-        with st.container(key=f"row_{state_prefix}_{m.annotation_id}"):
-            col_type, col1, col2, col3, col5 = st.columns([0.8, 3, 3, 1, 1.5])
-            with col_type:
-                if is_open:
+            # Container key drives CSS styling
+            if m.status == "re-pairing":
+                row_key = f"row_repair_{m.annotation_id}"
+            elif m.match_type == "manual":
+                row_key = f"row_manual_{m.annotation_id}"
+            else:
+                row_key = f"row_std_{m.annotation_id}"
+
+            with st.container(key=row_key):
+                col_type, col1, col2, col3, col_status, col_action = st.columns(
+                    [0.8, 2.5, 2.5, 1, 1.2, 0.8]
+                )
+
+                with col_type:
+                    render_match_type_badge(m.match_type)
+
+                with col1:
                     st.markdown(
-                        '<span style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;'
-                        'padding:2px 8px;font-size:11px;font-weight:700;border-radius:3px">'
-                        'Re-pair</span>',
+                        f'<span style="font-size:13px;font-weight:600;color:#1E293B">{annot_label}</span>',
                         unsafe_allow_html=True,
                     )
-                else:
-                    render_match_type_badge(m.match_type)
-            with col1:
-                st.markdown(
-                    f'<span style="font-size:13px;font-weight:600;color:#1E293B">{annot_label}</span>',
-                    unsafe_allow_html=True,
-                )
-            with col2:
-                suffix = "  · re-pairing" if is_open else ""
-                field_lbl = _field_display_label(field) + suffix
-                form_sub = "manually paired · rect recomputed" if (m.match_type == "manual" and not is_open) else ""
-                st.markdown(
-                    f'<span style="font-size:13px;font-weight:600;color:#1E293B">{field_lbl}</span>'
-                    + (f'<br><span style="font-size:11px;color:#94A3B8">{form_sub}</span>' if form_sub else ""),
-                    unsafe_allow_html=True,
-                )
-            with col3:
-                render_confidence_badge(m.confidence)
-            with col5:
-                action_taken = _render_row_actions(m, is_open, updated_matches, match_index) or action_taken
 
-        if is_open and annot:
-            new_matches = _render_repair_panel(
-                m, annot, fields, field_by_id, updated_matches,
-                match_index, visit_boost, cross_form_threshold,
-            )
-            if new_matches is not None:
-                updated_matches = new_matches
-                action_taken = True
+                with col2:
+                    field_lbl = _field_display_label(field)
+                    form_sub = "manually paired · rect recomputed" if m.match_type == "manual" else ""
+                    st.markdown(
+                        f'<span style="font-size:13px;font-weight:600;color:#1E293B">{field_lbl}</span>'
+                        + (f'<br><span style="font-size:11px;color:#94A3B8">{form_sub}</span>' if form_sub else ""),
+                        unsafe_allow_html=True,
+                    )
+
+                with col3:
+                    render_confidence_badge(m.confidence)
+
+                with col_status:
+                    # Status badge
+                    if m.status == "approved":
+                        st.markdown('<span class="p3-status-approved">approved</span>', unsafe_allow_html=True)
+                    elif m.status == "re-pairing":
+                        st.markdown('<span class="p3-status-repairing">↺ re-pairing</span>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span class="p3-status-pending">pending</span>', unsafe_allow_html=True)
+
+                with col_action:
+                    if m.status == "approved":
+                        # ↺ button to re-open as re-pairing
+                        if st.button("↺", key=f"p3_repairopen_{m.annotation_id}", help="Re-pair this match"):
+                            idx = match_index.get(m.annotation_id)
+                            if idx is not None:
+                                updated_matches[idx] = m.model_copy(update={"status": "re-pairing"})
+                                st.session_state["_p3_drawer_id"] = m.annotation_id
+                                action_taken = True
+                    elif m.status == "re-pairing":
+                        # ↺ badge is the click target — also provide a button for accessibility
+                        if st.button("↺", key=f"p3_repairopen_{m.annotation_id}", help="Open re-pair panel"):
+                            st.session_state["_p3_drawer_id"] = m.annotation_id
+                            action_taken = True
+
+    # Render drawer in right column
+    if col_drawer is not None and drawer_id:
+        drawer_annot_id = drawer_id
+        drawer_m = next((m for m in all_matches if m.annotation_id == drawer_annot_id), None)
+        drawer_annot = annot_by_id.get(drawer_annot_id)
+        if drawer_m and drawer_annot:
+            with col_drawer:
+                new_matches = _render_drawer_panel(
+                    drawer_m, drawer_annot, fields, field_by_id,
+                    updated_matches, match_index, visit_boost, cross_form_threshold,
+                )
+                if new_matches is not None:
+                    updated_matches = new_matches
+                    action_taken = True
 
     if action_taken:
         session.save_matches(updated_matches)
@@ -686,59 +724,83 @@ def _render_field_row(
         "✓ Selected" if is_selected else "Select",
         key=f"p3_pick_{annotation_id}_{f.id}",
     ):
-        sel = dict(st.session_state.get("_p3_repair_selected", {}))
+        sel = dict(st.session_state.get("_p3_drawer_selected", {}))
         sel[annotation_id] = f.id
-        st.session_state["_p3_repair_selected"] = sel
+        st.session_state["_p3_drawer_selected"] = sel
         st.rerun()
 
 
-def _render_field_picker(
+def _render_drawer_field_picker(
     m: MatchRecord,
     annot: AnnotationRecord,
     fields: list[FieldRecord],
     visit_boost: float,
     cross_form_threshold: float,
 ) -> str | None:
-    """Right panel: search box + grouped field list. Returns chosen field_id or None."""
-    st.markdown("**SELECT TARGET FIELD**")
-    search_raw = st.text_input(
-        "Search by field label",
-        value=st.session_state.get("_p3_repair_search", ""),
-        key=f"p3_repair_search_{m.annotation_id}",
-        placeholder="Search by field label…",
-        label_visibility="collapsed",
-    )
-    st.session_state["_p3_repair_search"] = search_raw
-    search_lower = search_raw.lower()
+    """Drawer field picker: top suggestions + browse by form. Returns chosen field_id or None."""
+    chosen_field_id: str | None = st.session_state.get("_p3_drawer_selected", {}).get(m.annotation_id)
 
+    # Score all fields
     scored: list[tuple[float, FieldRecord]] = sorted(
         ((_compute_predicted_confidence(annot, f, visit_boost), f) for f in fields),
         key=lambda x: -x[0],
     )
-    if search_lower:
-        scored = [(s, f) for s, f in scored if search_lower in f.label.lower()]
 
-    same_form_lower = annot.form_name.lower()
-    same_form = [(s, f) for s, f in scored if f.form_name.lower() == same_form_lower]
-    cross_form = [(s, f) for s, f in scored if f.form_name.lower() != same_form_lower]
+    # Top suggestions
+    st.markdown(
+        '<div style="font-family:Inter,sans-serif;font-size:11px;font-weight:600;'
+        'color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">'
+        'TOP SUGGESTIONS</div>',
+        unsafe_allow_html=True,
+    )
+    for score, f in scored[:3]:
+        _render_field_row(m.annotation_id, score, f, chosen_field_id)
 
-    chosen_field_id: str | None = st.session_state.get("_p3_repair_selected", {}).get(m.annotation_id)
+    st.markdown("---")
 
-    if same_form:
-        st.caption(f"**{annot.form_name.upper()}**")
-        for score, f in same_form[:5]:
-            _render_field_row(m.annotation_id, score, f, chosen_field_id)
+    # Browse by Form
+    st.markdown(
+        '<div style="font-family:Inter,sans-serif;font-size:11px;font-weight:600;'
+        'color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">'
+        'BROWSE BY FORM</div>',
+        unsafe_allow_html=True,
+    )
 
-    eligible_cross = [(s, f) for s, f in cross_form if s >= cross_form_threshold]
-    if eligible_cross:
-        st.caption("**OTHER FORMS (FUZZY)**")
-        for score, f in eligible_cross[:3]:
-            _render_field_row(m.annotation_id, score, f, chosen_field_id)
+    all_forms = sorted({f.form_name for f in fields})
+    default_form_idx = 0
+    if annot.form_name in all_forms:
+        default_form_idx = all_forms.index(annot.form_name)
+
+    selected_form = st.selectbox(
+        "Form",
+        all_forms,
+        index=default_form_idx,
+        key=f"p3_drawer_form_{m.annotation_id}",
+        label_visibility="collapsed",
+    )
+
+    form_fields = [f for f in fields if f.form_name == selected_form]
+    pages = sorted({f.page for f in form_fields})
+
+    # Find page of current suggestion (first top-scored field in this form)
+    current_page = pages[0] if pages else None
+    if chosen_field_id:
+        cf = next((f for f in form_fields if f.id == chosen_field_id), None)
+        if cf:
+            current_page = cf.page
+
+    for page_num in pages:
+        page_fields = [f for f in form_fields if f.page == page_num]
+        is_current_page = page_num == current_page
+        with st.expander(f"Page {page_num}  ·  {len(page_fields)} fields", expanded=is_current_page):
+            for f in page_fields:
+                score = _compute_predicted_confidence(annot, f, visit_boost)
+                _render_field_row(m.annotation_id, score, f, chosen_field_id)
 
     return chosen_field_id
 
 
-def _render_repair_panel(
+def _render_drawer_panel(
     m: MatchRecord,
     annot: AnnotationRecord,
     fields: list[FieldRecord],
@@ -748,26 +810,52 @@ def _render_repair_panel(
     visit_boost: float,
     cross_form_threshold: float = _DEFAULT_CROSS_FORM_THRESHOLD,
 ) -> list[MatchRecord] | None:
-    """Render the two-column inline re-pair picker.
+    """Render the right-column repair panel. Returns updated match list on Confirm, else None."""
 
-    Returns a new matches list when the user confirms a pairing, else None.
-    """
-    st.markdown(
-        '<div style="border-top:2px solid #F59E0B;margin:4px 0 8px 0"></div>',
-        unsafe_allow_html=True,
-    )
-    left_col, right_col = st.columns([1, 2])
-
-    with left_col:
-        _render_annotation_detail(m, annot, field_by_id)
-
-    with right_col:
-        chosen_field_id = _render_field_picker(
-            m, annot, fields, visit_boost, cross_form_threshold
+    # Header bar with ✕ inside
+    header_col, close_col = st.columns([5, 1])
+    with header_col:
+        st.markdown(
+            f'<div style="background:#383838;padding:10px 14px;">'
+            f'<div style="color:#FFFFFF;font-family:Inter,sans-serif;font-size:14px;font-weight:700;">Re-pair Field</div>'
+            f'<div style="color:#94A3B8;font-family:Inter,sans-serif;font-size:11px;">'
+            f'{annot.anchor_text or annot.content[:20]} · {m.match_type} · conf {m.confidence:.2f}'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
+    with close_col:
+        if st.button("✕", key="p3_drawer_close"):
+            st.session_state["_p3_drawer_id"] = None
+            st.session_state.pop("_p3_drawer_search", None)
+            sel = dict(st.session_state.get("_p3_drawer_selected", {}))
+            sel.pop(m.annotation_id, None)
+            st.session_state["_p3_drawer_selected"] = sel
+            st.rerun()
 
+    # Annotation context
+    _render_annotation_detail(m, annot, field_by_id)
+
+    st.markdown("---")
+
+    # Scored field list (top suggestions + browse by form)
+    chosen_field_id = _render_drawer_field_picker(m, annot, fields, visit_boost, cross_form_threshold)
+
+    st.markdown("---")
+
+    # Footer buttons
+    skip_col, confirm_col = st.columns([1, 1])
+    with skip_col:
+        if st.button("Skip (keep re-pairing)", key=f"p3_drawer_skip_{m.annotation_id}", use_container_width=True):
+            st.session_state["_p3_drawer_id"] = None
+            st.session_state.pop("_p3_drawer_search", None)
+            sel = dict(st.session_state.get("_p3_drawer_selected", {}))
+            sel.pop(m.annotation_id, None)
+            st.session_state["_p3_drawer_selected"] = sel
+            st.rerun()
+    with confirm_col:
         if st.button(
-            "Confirm Pairing → rect will be recomputed",
+            "Confirm Pairing ✓",
             key=f"p3_confirm_repair_{m.annotation_id}",
             disabled=chosen_field_id is None,
             use_container_width=True,
@@ -777,21 +865,18 @@ def _render_repair_panel(
             if chosen_field:
                 new_rect = compute_target_rect(annot, chosen_field, list(field_by_id.values()))
                 predicted = _compute_predicted_confidence(annot, chosen_field, visit_boost)
-                # apply_manual_match sets field_id, match_type="manual", target_rect, status="approved"
                 new_list = apply_manual_match(
                     list(updated_matches), m.annotation_id, chosen_field.id, new_rect
                 )
                 idx = match_index.get(m.annotation_id)
                 if idx is not None:
                     new_list[idx] = new_list[idx].model_copy(update={"confidence": predicted})
-                st.session_state.pop("_p3_repairing", None)
-                st.session_state.pop("_p3_repair_search", None)
-                sel = dict(st.session_state.get("_p3_repair_selected", {}))
+                st.session_state["_p3_drawer_id"] = None
+                st.session_state.pop("_p3_drawer_search", None)
+                sel = dict(st.session_state.get("_p3_drawer_selected", {}))
                 sel.pop(m.annotation_id, None)
-                st.session_state["_p3_repair_selected"] = sel
+                st.session_state["_p3_drawer_selected"] = sel
                 return new_list
-
-        st.caption("Score = fuzzy(anchor_text, label) + visit boost")
 
     return None
 
@@ -848,5 +933,3 @@ def _render_unmatched_assignment(
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
-
-

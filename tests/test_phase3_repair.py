@@ -137,34 +137,6 @@ def test_field_type_badge_colors():
     assert _FIELD_TYPE_BADGE["section_header"] == ("SH", "#F4EFEA", "#D4CEC8", "#383838")
 
 
-from ui.phase3_review import _is_repair_eligible
-
-
-def test_repair_eligible_fuzzy():
-    assert _is_repair_eligible("fuzzy") is True
-
-
-def test_repair_eligible_position_only():
-    assert _is_repair_eligible("position_only") is True
-
-
-def test_repair_eligible_unmatched():
-    assert _is_repair_eligible("unmatched") is True
-
-
-def test_repair_eligible_manual():
-    assert _is_repair_eligible("manual") is True
-
-
-def test_repair_not_eligible_exact():
-    assert _is_repair_eligible("exact") is False
-
-
-def test_repair_not_eligible_unknown():
-    assert _is_repair_eligible("new") is False
-    assert _is_repair_eligible("invalid_type") is False
-
-
 # ---------------------------------------------------------------------------
 # Integration: confirm sequence — apply_manual_match + confidence layering
 # ---------------------------------------------------------------------------
