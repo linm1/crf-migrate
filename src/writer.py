@@ -57,8 +57,8 @@ def write_annotations(
             if annot is None:
                 skipped_ids.append(match.annotation_id)
                 continue
-            page_index = annot.page - 1
-            if page_index < 0 or page_index >= doc.page_count:
+            page_index = match.target_page - 1
+            if match.target_page <= 0 or page_index >= doc.page_count:
                 skipped_ids.append(match.annotation_id)
                 continue
             page = doc[page_index]

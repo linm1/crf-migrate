@@ -242,6 +242,7 @@ def _exact_pass(
                     match_type="exact",
                     confidence=exact_threshold,
                     target_rect=final_rect,
+                    target_page=field.page,
                     placement_adjusted=placement_adjusted,
                 ))
                 unmatched_annot_ids.discard(annot.id)
@@ -289,6 +290,7 @@ def _fuzzy_same_form_pass(
                 match_type="fuzzy",
                 confidence=min(score / 100.0, 1.0),
                 target_rect=final_rect,
+                target_page=field.page,
                 placement_adjusted=placement_adjusted,
             ))
             unmatched_annot_ids.discard(annot.id)
@@ -329,6 +331,7 @@ def _fuzzy_cross_form_pass(
             match_type="fuzzy",
             confidence=min(score / 100.0, 1.0),
             target_rect=final_rect,
+            target_page=field.page,
             placement_adjusted=placement_adjusted,
         ))
         unmatched_annot_ids.discard(annot.id)
@@ -361,6 +364,7 @@ def _position_pass(
                 match_type="position_only",
                 confidence=position_fallback_confidence,
                 target_rect=clamped,
+                target_page=annot.page,
                 placement_adjusted=placement_adjusted,
             ))
             unmatched_annot_ids.discard(annot.id)
@@ -378,6 +382,7 @@ def _position_pass(
                 match_type="position_only",
                 confidence=position_fallback_confidence,
                 target_rect=clamped,
+                target_page=annot.page,
                 placement_adjusted=placement_adjusted,
             ))
         else:
@@ -387,6 +392,7 @@ def _position_pass(
                 match_type="unmatched",
                 confidence=0.0,
                 target_rect=list(annot.rect),
+                target_page=0,
             ))
         unmatched_annot_ids.discard(annot.id)
 

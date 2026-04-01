@@ -70,6 +70,7 @@ def make_match(
     status: str = "approved",
     target_rect: list[float] | None = None,
     match_type: str = "exact",
+    target_page: int = 1,
 ) -> MatchRecord:
     return MatchRecord(
         annotation_id=annot_id,
@@ -77,6 +78,7 @@ def make_match(
         match_type=match_type,
         confidence=1.0,
         target_rect=target_rect or [50.0, 80.0, 250.0, 100.0],
+        target_page=target_page,
         status=status,
     )
 

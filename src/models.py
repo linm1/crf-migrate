@@ -62,6 +62,7 @@ class MatchRecord(BaseModel):
     match_type: str                # exact | fuzzy | position_only | manual | unmatched | new
     confidence: float              # 0.0 to 1.0
     target_rect: list[float]       # Computed placement position on the target PDF
+    target_page: int = 0           # 1-indexed page in the target PDF (0 = unknown/unmatched)
     status: str = "pending"        # pending | approved | rejected | modified
     user_notes: str = ""
     placement_adjusted: bool = False  # True if target_rect was clamped or fallback-placed
