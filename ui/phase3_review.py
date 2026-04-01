@@ -698,6 +698,7 @@ def _render_field_row(
     score: float,
     f: FieldRecord,
     chosen_field_id: str | None,
+    section: str = "",
 ) -> None:
     """Render one selectable field row in the picker."""
     is_selected = f.id == chosen_field_id
@@ -722,7 +723,7 @@ def _render_field_row(
     )
     if st.button(
         "✓ Selected" if is_selected else "Select",
-        key=f"p3_pick_{annotation_id}_{f.id}",
+        key=f"p3_pick_{section}_{annotation_id}_{f.id}" if section else f"p3_pick_{annotation_id}_{f.id}",
     ):
         sel = dict(st.session_state.get("_p3_drawer_selected", {}))
         sel[annotation_id] = f.id
@@ -754,7 +755,7 @@ def _render_drawer_field_picker(
         unsafe_allow_html=True,
     )
     for score, f in scored[:3]:
-        _render_field_row(m.annotation_id, score, f, chosen_field_id)
+        _render_field_row(m.annotation_id, score, f, chosen_field_id, section="top")
 
     st.markdown("---")
 
@@ -795,7 +796,7 @@ def _render_drawer_field_picker(
         with st.expander(f"Page {page_num}  ·  {len(page_fields)} fields", expanded=is_current_page):
             for f in page_fields:
                 score = _compute_predicted_confidence(annot, f, visit_boost)
-                _render_field_row(m.annotation_id, score, f, chosen_field_id)
+                _render_field_row(m.annotation_id, score, f, chosen_field_id, section=f"browse_p{page_num}")
 
     return chosen_field_id
 
