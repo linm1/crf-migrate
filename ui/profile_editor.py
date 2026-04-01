@@ -448,7 +448,7 @@ def _render_list_row(
     """
     if col_ratio is None:
         col_ratio = [20, 1]
-    with st.container(key=f"list_row_{prefix}_{index}"):
+    with st.container(key=f"list_row_{index}"):
         cols = st.columns(col_ratio, gap="small", vertical_alignment="center")
         with cols[0]:
             content_fn()

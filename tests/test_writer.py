@@ -70,6 +70,7 @@ def make_match(
     status: str = "approved",
     target_rect: list[float] | None = None,
     match_type: str = "exact",
+    target_page: int = 1,
 ) -> MatchRecord:
     return MatchRecord(
         annotation_id=annot_id,
@@ -77,6 +78,7 @@ def make_match(
         match_type=match_type,
         confidence=1.0,
         target_rect=target_rect or [50.0, 80.0, 250.0, 100.0],
+        target_page=target_page,
         status=status,
     )
 
@@ -114,11 +116,11 @@ def test_T4_08_output_page_count(tmp_path):
 # T4.06 — rejected match → no annotation written
 # ---------------------------------------------------------------------------
 
-def test_T4_06_rejected_not_written(tmp_path):
+def test_T4_06_re_pairing_not_written(tmp_path):
     target = make_target_pdf(tmp_path)
     output = tmp_path / "output.pdf"
     annot = make_annotation()
-    match = make_match(status="rejected")
+    match = make_match(status="re-pairing")
     profile = _make_profile()
 
     write_annotations(target, output, [match], [annot], profile)
@@ -261,7 +263,7 @@ def test_T4_07_build_qc_report_counts(tmp_path):
     matches = [
         make_match(annot_id="a1", match_type="exact", status="approved"),
         make_match(annot_id="a2", match_type="exact", status="approved"),
-        make_match(annot_id="a3", match_type="fuzzy", status="rejected"),
+        make_match(annot_id="a3", match_type="fuzzy", status="re-pairing"),
         make_match(annot_id="a4", match_type="unmatched", status="pending"),
     ]
     written_ids = ["a1", "a2"]
@@ -276,7 +278,7 @@ def test_T4_07_build_qc_report_counts(tmp_path):
     assert report["counts_by_match_type"]["fuzzy"] == 1
     assert report["counts_by_match_type"]["unmatched"] == 1
     assert report["unmatched_annotation_ids"] == ["a4"]
-    assert report["rejected_annotation_ids"] == ["a3"]
+    assert report["re_pairing_annotation_ids"] == ["a3"]
 
 
 # ---------------------------------------------------------------------------
@@ -501,17 +503,17 @@ def test_T4_10_style_defaults_font_size_fields():
     assert sd.font_size == 12.0
 
 
-def test_modified_match_is_written(tmp_path):
-    """Modified status is treated the same as approved."""
+def test_re_pairing_match_is_not_written(tmp_path):
+    """Re-pairing status is not written to the output PDF."""
     target = make_target_pdf(tmp_path)
     output = tmp_path / "output.pdf"
     annot = make_annotation()
-    match = make_match(status="modified")
+    match = make_match(status="re-pairing")
     profile = _make_profile()
 
     report = write_annotations(target, output, [match], [annot], profile)
 
-    assert report["written"] == 1
+    assert report["written"] == 0
     doc = fitz.open(str(output))
-    assert sum(1 for _ in doc[0].annots()) == 1
+    assert sum(1 for _ in doc[0].annots()) == 0
     doc.close()

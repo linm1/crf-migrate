@@ -870,3 +870,114 @@ class TestBipartiteMatching:
             import importlib
             import src.matcher as matcher_module
             importlib.reload(matcher_module)
+
+
+# ---------------------------------------------------------------------------
+# TestAutoStatusAssignment — Auto-assign status based on match_type
+# ---------------------------------------------------------------------------
+
+class TestAutoStatusAssignment:
+    """Verify matcher auto-assigns status based on match_type (spec: 2026-04-01)."""
+
+    def _make_annotation(self, annot_id, form_name="Form A", anchor_text="DOB"):
+        from src.models import AnnotationRecord
+        return AnnotationRecord(
+            id=annot_id,
+            page=1,
+            content="DM.BRTHDTC",
+            domain="DM",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[10.0, 10.0, 80.0, 25.0],
+            anchor_text=anchor_text,
+            form_name=form_name,
+        )
+
+    def _make_field(self, field_id, form_name="Form A", label="DOB"):
+        from src.models import FieldRecord
+        return FieldRecord(
+            id=field_id,
+            page=1,
+            label=label,
+            form_name=form_name,
+            rect=[10.0, 10.0, 80.0, 25.0],
+            field_type="text_field",
+            page_width=595.0,
+            page_height=842.0,
+        )
+
+    def _make_profile(self):
+        from src.profile_models import (
+            MatchingConfig, Profile, ProfileMeta, ClassificationRule, RuleCondition,
+        )
+        return Profile(
+            meta=ProfileMeta(name="test", version="1"),
+            domain_codes=["DM"],
+            classification_rules=[
+                ClassificationRule(
+                    conditions=RuleCondition(fallback=True),
+                    category="sdtm_mapping",
+                )
+            ],
+            matching_config=MatchingConfig(),
+        )
+
+    def test_exact_match_status_is_approved(self):
+        from src.matcher import match_annotations
+        annots = [self._make_annotation("a1")]
+        fields = [self._make_field("f1")]
+        profile = self._make_profile()
+        matches = match_annotations(
+            annots, fields, profile,
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        exact = [m for m in matches if m.match_type == "exact"]
+        assert len(exact) == 1
+        assert exact[0].status == "approved"
+
+    def test_fuzzy_match_status_is_re_pairing(self):
+        from src.matcher import match_annotations
+        # Use "Date Birth" vs "Date of Birth" which scores ~87 with token_sort_ratio
+        annots = [self._make_annotation("a1", anchor_text="Date Birth")]
+        fields = [self._make_field("f1", label="Date of Birth")]
+        profile = self._make_profile()
+        matches = match_annotations(
+            annots, fields, profile,
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        fuzzy = [m for m in matches if m.match_type == "fuzzy"]
+        assert len(fuzzy) >= 1
+        for m in fuzzy:
+            assert m.status == "re-pairing"
+
+    def test_unmatched_status_is_re_pairing(self):
+        from src.matcher import match_annotations
+        annots = [self._make_annotation("a1", form_name="Form A", anchor_text="Nonexistent Field")]
+        fields = [self._make_field("f1", form_name="Form B", label="SomeOtherField")]
+        profile = self._make_profile()
+        matches = match_annotations(
+            annots, fields, profile,
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        assert len(matches) == 1
+        assert matches[0].status == "re-pairing"
+
+    def test_position_match_status_is_re_pairing(self):
+        """Annotations that fall through to position pass should have status re-pairing."""
+        from src.matcher import match_annotations
+        # Annotation with empty anchor_text bypasses exact/fuzzy passes
+        # and lands in position pass because form_name matches
+        annot = self._make_annotation("a1", form_name="Form A", anchor_text="")
+        field = self._make_field("f1", form_name="Form A", label="DOB")
+        profile = self._make_profile()
+        matches = match_annotations(
+            [annot], [field], profile,
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        assert len(matches) == 1
+        assert matches[0].match_type == "position_only"
+        assert matches[0].status == "re-pairing"

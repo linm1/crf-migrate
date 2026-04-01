@@ -52,13 +52,13 @@ def write_annotations(
     skipped_ids: list[str] = []
 
     for match in matches:
-        if match.status in ("approved", "modified"):
+        if match.status == "approved":
             annot = annot_by_id.get(match.annotation_id)
             if annot is None:
                 skipped_ids.append(match.annotation_id)
                 continue
-            page_index = annot.page - 1
-            if page_index < 0 or page_index >= doc.page_count:
+            page_index = match.target_page - 1
+            if match.target_page <= 0 or page_index >= doc.page_count:
                 skipped_ids.append(match.annotation_id)
                 continue
             page = doc[page_index]
@@ -91,8 +91,8 @@ def build_qc_report(
         "unmatched_annotation_ids": [
             m.annotation_id for m in matches if m.match_type == "unmatched"
         ],
-        "rejected_annotation_ids": [
-            m.annotation_id for m in matches if m.status == "rejected"
+        "re_pairing_annotation_ids": [
+            m.annotation_id for m in matches if m.status == "re-pairing"
         ],
         "placement_adjusted_ids": [
             m.annotation_id for m in matches if m.placement_adjusted

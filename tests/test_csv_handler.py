@@ -154,3 +154,42 @@ class TestImportAnnotations:
         updated, flagged = result
         assert isinstance(updated, list)
         assert isinstance(flagged, list)
+
+
+def test_import_matches_csv_migrates_legacy_status(tmp_path):
+    """Migration shim converts 'rejected' -> 're-pairing' and 'modified' -> 'approved'."""
+    import csv
+    from src.models import MatchRecord
+    from src.csv_handler import import_matches_csv
+
+    csv_path = tmp_path / "matches.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "annotation_id", "field_id", "match_type", "confidence",
+            "target_rect", "target_page", "status", "user_notes", "placement_adjusted"
+        ])
+        writer.writeheader()
+        writer.writerow({
+            "annotation_id": "a1", "field_id": "f1", "match_type": "fuzzy",
+            "confidence": "0.8", "target_rect": "[0, 0, 1, 1]", "target_page": "1",
+            "status": "rejected", "user_notes": "", "placement_adjusted": "False",
+        })
+        writer.writerow({
+            "annotation_id": "a2", "field_id": "f2", "match_type": "exact",
+            "confidence": "1.0", "target_rect": "[0, 0, 1, 1]", "target_page": "1",
+            "status": "modified", "user_notes": "", "placement_adjusted": "False",
+        })
+
+    existing = [
+        MatchRecord(annotation_id="a1", field_id="f1", match_type="fuzzy",
+                    confidence=0.8, target_rect=[0, 0, 1, 1]),
+        MatchRecord(annotation_id="a2", field_id="f2", match_type="exact",
+                    confidence=1.0, target_rect=[0, 0, 1, 1]),
+    ]
+    updated, flagged = import_matches_csv(csv_path, existing)
+
+    assert flagged == []
+    a1 = next(m for m in updated if m.annotation_id == "a1")
+    a2 = next(m for m in updated if m.annotation_id == "a2")
+    assert a1.status == "re-pairing", f"Expected 're-pairing', got {a1.status!r}"
+    assert a2.status == "approved", f"Expected 'approved', got {a2.status!r}"
