@@ -99,6 +99,12 @@ def render_phase2(profiles_dir: Path) -> None:
             background: #1a1a1a !important;
             color: #FFFFFF !important;
         }
+        /* Phase 2 toolbar buttons: 12px bold monospace (matches Profile Editor pattern) */
+        .st-key-p2_export_btn button p,
+        .st-key-p2_import_btn button p {
+            font-size: 12px !important;
+            font-weight: 700 !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -213,6 +219,7 @@ def _render_upload_card(session, profile, rule_engine) -> None:
             pdf_path = session.workspace / "target_crf.pdf"
             pdf_path.write_bytes(uploaded.read())
             st.session_state["target_pdf_path"] = pdf_path
+            st.session_state["target_pdf_name"] = uploaded.name
 
         target_pdf_path = st.session_state.get("target_pdf_path")
         has_pdf = bool(target_pdf_path and target_pdf_path.exists())
