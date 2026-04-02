@@ -306,12 +306,13 @@ def _inject_page_css() -> None:
             white-space: pre-wrap !important;
             margin: 0 !important;
         }
-        /* italic meta line (3rd line) rendered as <em> — make it gray */
+        /* italic meta line (3rd line) rendered as <em> — make it gray, 2pt smaller */
         [class*="st-key-p3_pick_"] button em,
         [class*="st-key-p3_picksel_"] button em {
             color: #8A847F !important;
             font-style: italic !important;
             font-weight: 400 !important;
+            font-size: 10px !important;
         }
         /* remove expander's built-in left padding for browse-by-form pick rows */
         [data-testid="stExpander"] [class*="st-key-p3_pick_"],
