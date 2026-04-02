@@ -284,31 +284,32 @@ def _inject_page_css() -> None:
             line-height: 1 !important;
         }
 
-        /* ── Inline pick button (unselected) ── */
-        [class*="st-key-p3_pick_"] button {
-            width: 28px !important;
-            height: 28px !important;
-            min-width: 28px !important;
-            padding: 0 !important;
-            border-radius: 50% !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-            border: 2px solid #D0D0D0 !important;
-            background: #FFFFFF !important;
-            color: #8A847F !important;
+        /* ── Field card pick: wrap is relative so checkbox floats inside card ── */
+        [class*="st-key-p3_pickwrap_"],
+        [class*="st-key-p3_pickselwrap_"] {
+            position: relative !important;
         }
-        /* ── Inline pick button (selected: amber fill) ── */
-        [class*="st-key-p3_picksel_"] button {
-            width: 28px !important;
-            height: 28px !important;
-            min-width: 28px !important;
-            padding: 0 !important;
-            border-radius: 50% !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-            border: 2px solid #F59E0B !important;
-            background: #F59E0B !important;
-            color: #FFFFFF !important;
+        [class*="st-key-p3_pickwrap_"] > div:first-child,
+        [class*="st-key-p3_pickselwrap_"] > div:first-child {
+            position: relative !important;
+        }
+
+        /* ── Embedded checkbox: absolute top-right inside the card ── */
+        [class*="st-key-p3_pickchk_"],
+        [class*="st-key-p3_pickselchk_"] {
+            position: absolute !important;
+            top: 4px !important;
+            right: 6px !important;
+            z-index: 10 !important;
+        }
+
+        /* Unselected checkbox: hide label, plain appearance */
+        [class*="st-key-p3_pickchk_"] label { display: none !important; }
+        [class*="st-key-p3_pickselchk_"] label { display: none !important; }
+
+        /* Selected: amber accent on the checkbox */
+        [class*="st-key-p3_pickselchk_"] input[type="checkbox"] {
+            accent-color: #F59E0B !important;
         }
 
         /* ── Skip drawer button: same 12px/700 weight as CSV toolbar ── */
@@ -744,7 +745,7 @@ def _render_field_row(
     chosen_field_id: str | None,
     section: str = "",
 ) -> None:
-    """Render one selectable field row: HTML card + inline circular ✓ button."""
+    """Render one selectable field row: HTML card with embedded checkbox."""
     is_selected = f.id == chosen_field_id
     bg = "#FFF9E6" if is_selected else "#FAFAFA"
     border = "2px solid #F59E0B" if is_selected else "1px solid #E8E2DC"
@@ -754,11 +755,15 @@ def _render_field_row(
     label_txt, fill, brd, txt = _FIELD_TYPE_BADGE.get(
         f.field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
     )
-    # Inline layout: card takes most width, circular pick button on right
-    card_col, btn_col = st.columns([10, 1], vertical_alignment="center")
-    with card_col:
+    sec = f"_{section}" if section else ""
+    wrap_prefix = "p3_pickselwrap" if is_selected else "p3_pickwrap"
+    chk_prefix = "p3_pickselchk" if is_selected else "p3_pickchk"
+    wrap_key = f"{wrap_prefix}{sec}_{annotation_id}_{f.id}"
+    chk_key = f"{chk_prefix}{sec}_{annotation_id}_{f.id}"
+
+    with st.container(key=wrap_key):
         st.markdown(
-            f'<div style="background:{bg};border:{border};padding:6px 10px;'
+            f'<div style="background:{bg};border:{border};padding:6px 10px;padding-right:32px;'
             f'margin:2px 0;display:flex;align-items:center;gap:8px">'
             f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
             f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
@@ -768,14 +773,13 @@ def _render_field_row(
             f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
             unsafe_allow_html=True,
         )
-    with btn_col:
-        # Key prefix differs for selected vs unselected so CSS can target amber state
-        key_prefix = "p3_picksel" if is_selected else "p3_pick"
-        sec = f"_{section}" if section else ""
-        btn_key = f"{key_prefix}{sec}_{annotation_id}_{f.id}"
-        if st.button("✓" if is_selected else "○", key=btn_key):
+        checked = st.checkbox("", value=is_selected, key=chk_key)
+        if checked != is_selected:
             sel = dict(st.session_state.get("_p3_drawer_selected", {}))
-            sel[annotation_id] = f.id
+            if checked:
+                sel[annotation_id] = f.id
+            else:
+                sel.pop(annotation_id, None)
             st.session_state["_p3_drawer_selected"] = sel
             st.rerun()
 
