@@ -1,5 +1,6 @@
 export type SweepStateInput = {
   frame: number;
+  // Reserved for composition wiring; the helper currently normalizes by frame count only.
   fps: number;
   durationInFrames: number;
 };
