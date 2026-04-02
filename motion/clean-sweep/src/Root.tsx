@@ -1,9 +1,13 @@
 import { Composition } from "remotion";
 import { CleanSweep, type CleanSweepProps } from "./CleanSweep";
 
+export const cleanSweepCompositionDefaults = {
+  loopSeconds: 1.2,
+  fps: 30,
+} as const;
+
 export const RemotionRoot = () => {
-  const loopSeconds = 1.2;
-  const fps = 30;
+  const { loopSeconds, fps } = cleanSweepCompositionDefaults;
 
   return (
     <Composition
