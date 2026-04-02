@@ -304,6 +304,12 @@ def _inject_page_css() -> None:
         [class*="st-key-p3_pick_"] button:hover {
             border-color: #F59E0B !important;
             background: #FFFDF5 !important;
+            color: #383838 !important;
+        }
+        [class*="st-key-p3_picksel_"] button:hover {
+            border-color: #F59E0B !important;
+            background: #FFF9E6 !important;
+            color: #383838 !important;
         }
 
         /* ── Field pick card button — selected (amber) ── */
@@ -766,7 +772,7 @@ def _render_field_row(
     btn_key = f"{key_prefix}{sec}_{annotation_id}_{f.id}"
 
     check = "✓ " if is_selected else ""
-    label = f"{check}[{label_txt}]  {f.label}    {f.form_name} · p.{f.page}    → {score:.2f}"
+    label = f"{check}[{label_txt}]\n{f.label}\n{f.form_name} · p.{f.page}  → {score:.2f}"
 
     if st.button(label, key=btn_key, use_container_width=True):
         sel = dict(st.session_state.get("_p3_drawer_selected", {}))
