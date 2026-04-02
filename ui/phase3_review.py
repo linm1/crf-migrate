@@ -306,6 +306,23 @@ def _inject_page_css() -> None:
             white-space: pre-wrap !important;
             margin: 0 !important;
         }
+        /* italic meta line (3rd line) rendered as <em> — make it gray */
+        [class*="st-key-p3_pick_"] button em,
+        [class*="st-key-p3_picksel_"] button em {
+            color: #8A847F !important;
+            font-style: italic !important;
+            font-weight: 400 !important;
+        }
+        /* remove expander's built-in left padding for browse-by-form pick rows */
+        [data-testid="stExpander"] [class*="st-key-p3_pick_"],
+        [data-testid="stExpander"] [class*="st-key-p3_picksel_"] {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+        }
+        [data-testid="stExpanderDetails"] {
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+        }
         [class*="st-key-p3_pick_"] button:hover {
             border-color: #F59E0B !important;
             background: #FFFDF5 !important;
@@ -776,7 +793,7 @@ def _render_field_row(
     btn_key = f"{key_prefix}{sec}_{annotation_id}_{f.id}"
 
     check = "✓ " if is_selected else ""
-    label = f"{check}[{label_txt}]\n{f.label}\n{f.form_name} · p.{f.page}  → {score:.2f}"
+    label = f"{check}[{label_txt}]\n**{f.label}**\n*{f.form_name} · p.{f.page}  → {score:.2f}*"
 
     if st.button(label, key=btn_key, use_container_width=True):
         sel = dict(st.session_state.get("_p3_drawer_selected", {}))
