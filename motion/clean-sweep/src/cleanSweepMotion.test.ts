@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { getSweepState } = require("./cleanSweepMotion");
 
 describe("getSweepState", () => {
   it("returns a clamped progress value at the start of the loop", () => {
+    const { getSweepState } = require("./cleanSweepMotion");
     const state = getSweepState({
       frame: 0,
       fps: 30,
