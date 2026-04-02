@@ -768,8 +768,8 @@ def _render_field_row(
             f'margin:2px 0;display:flex;align-items:center;gap:8px">'
             f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
             f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
-            f'<span style="flex:1;font-size:12px;font-weight:600">{f.label}</span>'
-            f'<span style="font-size:10px;color:#8A847F">{f.form_name} · p.{f.page}</span>'
+            f'<span style="flex:1;font-size:12px;font-weight:600">{_html.escape(f.label)}</span>'
+            f'<span style="font-size:10px;color:#8A847F">{_html.escape(f.form_name)} · p.{f.page}</span>'
             f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
             f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
             unsafe_allow_html=True,
@@ -873,7 +873,7 @@ def _render_drawer_panel(
 
     def _close_drawer() -> None:
         st.session_state["_p3_drawer_id"] = None
-        st.session_state.pop("_p3_drawer_search", None)
+        st.session_state.pop(f"p3_drawer_search_{m.annotation_id}", None)
         sel = dict(st.session_state.get("_p3_drawer_selected", {}))
         sel.pop(m.annotation_id, None)
         st.session_state["_p3_drawer_selected"] = sel
@@ -885,7 +885,7 @@ def _render_drawer_panel(
             f'<div style="color:#FFFFFF;font-family:Inter,sans-serif;font-size:14px;font-weight:700;">'
             f'Re-pair Field</div>'
             f'<div style="color:#94A3B8;font-family:Inter,sans-serif;font-size:11px;">'
-            f'{annot.anchor_text or annot.content[:40]} · {m.match_type} · conf {m.confidence:.2f}'
+            f'{_html.escape(annot.anchor_text or annot.content[:40])} · {_html.escape(m.match_type)} · conf {m.confidence:.2f}'
             f'</div>'
             f'</div>',
             unsafe_allow_html=True,
