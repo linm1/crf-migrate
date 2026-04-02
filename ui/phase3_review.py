@@ -259,14 +259,62 @@ def _inject_page_css() -> None:
             cursor: pointer !important;
         }
 
-        /* ── Drawer close button ── */
+        /* ── Drawer header wrap: relative so ✕ button floats inside ── */
+        .st-key-p3_drawer_header_wrap {
+            position: relative !important;
+        }
+        .st-key-p3_drawer_header_wrap > div:first-child {
+            position: relative !important;
+        }
+
+        /* ── Drawer close button: absolute top-right inside header bar ── */
+        .st-key-p3_drawer_close {
+            position: absolute !important;
+            top: 0px !important;
+            right: 0px !important;
+            z-index: 10 !important;
+        }
         .st-key-p3_drawer_close button {
             background: transparent !important;
             border: none !important;
             color: #FFFFFF !important;
             font-size: 16px !important;
             font-weight: 700 !important;
+            padding: 4px 10px !important;
+            line-height: 1 !important;
+        }
+
+        /* ── Inline pick button (unselected) ── */
+        [class*="st-key-p3_pick_"] button {
+            width: 28px !important;
+            height: 28px !important;
+            min-width: 28px !important;
             padding: 0 !important;
+            border-radius: 50% !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            border: 2px solid #D0D0D0 !important;
+            background: #FFFFFF !important;
+            color: #8A847F !important;
+        }
+        /* ── Inline pick button (selected: amber fill) ── */
+        [class*="st-key-p3_picksel_"] button {
+            width: 28px !important;
+            height: 28px !important;
+            min-width: 28px !important;
+            padding: 0 !important;
+            border-radius: 50% !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            border: 2px solid #F59E0B !important;
+            background: #F59E0B !important;
+            color: #FFFFFF !important;
+        }
+
+        /* ── Skip drawer button: same 12px/700 weight as CSV toolbar ── */
+        [class*="st-key-p3_drawer_skip_"] button p {
+            font-size: 12px !important;
+            font-weight: 700 !important;
         }
 
         /* ── Status badges ── */
@@ -676,21 +724,17 @@ def _render_annotation_detail(
     annot: AnnotationRecord,
     field_by_id: dict[str, FieldRecord],
 ) -> None:
-    """Left panel: annotation context card."""
-    st.markdown("**ANNOTATION**")
+    """Left panel: annotation context card — simplified."""
+    st.markdown(
+        '<div style="font-family:Inter,sans-serif;font-size:11px;font-weight:600;'
+        'color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">'
+        'ANNOTATION</div>',
+        unsafe_allow_html=True,
+    )
     with st.container(border=True):
-        st.markdown(f"**{annot.anchor_text or annot.content[:30]}**")
-        st.caption(annot.content[:60])
-        st.markdown(
-            f"**Domain:** {annot.domain}  \n"
-            f"**Form:** {annot.form_name}  \n"
-            f"**Anchor:** {annot.anchor_text}",
-        )
-        current_field = field_by_id.get(m.field_id) if m.field_id else None
-        st.caption(
-            f"Current confidence: {m.confidence:.2f}"
-            + (f" → {_field_display_label(current_field)}" if current_field else "")
-        )
+        st.markdown(f"**{annot.content}**")
+        st.caption(f"{annot.domain} in {annot.form_name}")
+        st.caption(f"{annot.form_name} · p.{annot.page}")
 
 
 def _render_field_row(
@@ -700,7 +744,7 @@ def _render_field_row(
     chosen_field_id: str | None,
     section: str = "",
 ) -> None:
-    """Render one selectable field row in the picker."""
+    """Render one selectable field row: HTML card + inline circular ✓ button."""
     is_selected = f.id == chosen_field_id
     bg = "#FFF9E6" if is_selected else "#FAFAFA"
     border = "2px solid #F59E0B" if is_selected else "1px solid #E8E2DC"
@@ -710,25 +754,30 @@ def _render_field_row(
     label_txt, fill, brd, txt = _FIELD_TYPE_BADGE.get(
         f.field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
     )
-    st.markdown(
-        f'<div style="background:{bg};border:{border};padding:6px 10px;'
-        f'margin:2px 0;display:flex;align-items:center;gap:8px">'
-        f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
-        f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
-        f'<span style="flex:1;font-size:12px;font-weight:600">{f.label}</span>'
-        f'<span style="font-size:10px;color:#8A847F">{f.field_type} · p.{f.page}</span>'
-        f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
-        f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
-        unsafe_allow_html=True,
-    )
-    if st.button(
-        "✓ Selected" if is_selected else "Select",
-        key=f"p3_pick_{section}_{annotation_id}_{f.id}" if section else f"p3_pick_{annotation_id}_{f.id}",
-    ):
-        sel = dict(st.session_state.get("_p3_drawer_selected", {}))
-        sel[annotation_id] = f.id
-        st.session_state["_p3_drawer_selected"] = sel
-        st.rerun()
+    # Inline layout: card takes most width, circular pick button on right
+    card_col, btn_col = st.columns([10, 1], vertical_alignment="center")
+    with card_col:
+        st.markdown(
+            f'<div style="background:{bg};border:{border};padding:6px 10px;'
+            f'margin:2px 0;display:flex;align-items:center;gap:8px">'
+            f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
+            f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
+            f'<span style="flex:1;font-size:12px;font-weight:600">{f.label}</span>'
+            f'<span style="font-size:10px;color:#8A847F">{f.form_name} · p.{f.page}</span>'
+            f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
+            f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
+            unsafe_allow_html=True,
+        )
+    with btn_col:
+        # Key prefix differs for selected vs unselected so CSS can target amber state
+        key_prefix = "p3_picksel" if is_selected else "p3_pick"
+        sec = f"_{section}" if section else ""
+        btn_key = f"{key_prefix}{sec}_{annotation_id}_{f.id}"
+        if st.button("✓" if is_selected else "○", key=btn_key):
+            sel = dict(st.session_state.get("_p3_drawer_selected", {}))
+            sel[annotation_id] = f.id
+            st.session_state["_p3_drawer_selected"] = sel
+            st.rerun()
 
 
 def _render_drawer_field_picker(
@@ -783,17 +832,21 @@ def _render_drawer_field_picker(
     form_fields = [f for f in fields if f.form_name == selected_form]
     pages = sorted({f.page for f in form_fields})
 
-    # Find page of current suggestion (first top-scored field in this form)
-    current_page = pages[0] if pages else None
-    if chosen_field_id:
-        cf = next((f for f in form_fields if f.id == chosen_field_id), None)
-        if cf:
-            current_page = cf.page
+    # Search / filter by field label
+    search_text = st.text_input(
+        "",
+        placeholder="Filter fields...",
+        key=f"p3_drawer_search_{m.annotation_id}",
+        label_visibility="collapsed",
+    )
 
     for page_num in pages:
         page_fields = [f for f in form_fields if f.page == page_num]
-        is_current_page = page_num == current_page
-        with st.expander(f"Page {page_num}  ·  {len(page_fields)} fields", expanded=is_current_page):
+        if search_text:
+            page_fields = [f for f in page_fields if search_text.lower() in f.label.lower()]
+        if not page_fields:
+            continue
+        with st.expander(f"Page {page_num}  ·  {len(page_fields)} fields", expanded=False):
             for f in page_fields:
                 score = _compute_predicted_confidence(annot, f, visit_boost)
                 _render_field_row(m.annotation_id, score, f, chosen_field_id, section=f"browse_p{page_num}")
@@ -813,50 +866,43 @@ def _render_drawer_panel(
 ) -> list[MatchRecord] | None:
     """Render the right-column repair panel. Returns updated match list on Confirm, else None."""
 
-    # Header bar with ✕ inside
-    header_col, close_col = st.columns([5, 1])
-    with header_col:
+    def _close_drawer() -> None:
+        st.session_state["_p3_drawer_id"] = None
+        st.session_state.pop("_p3_drawer_search", None)
+        sel = dict(st.session_state.get("_p3_drawer_selected", {}))
+        sel.pop(m.annotation_id, None)
+        st.session_state["_p3_drawer_selected"] = sel
+
+    # ── Full-width header bar with ✕ absolutely positioned inside ──
+    with st.container(key="p3_drawer_header_wrap"):
         st.markdown(
-            f'<div style="background:#383838;padding:10px 14px;">'
-            f'<div style="color:#FFFFFF;font-family:Inter,sans-serif;font-size:14px;font-weight:700;">Re-pair Field</div>'
+            f'<div style="background:#383838;padding:10px 14px;padding-right:48px;">'
+            f'<div style="color:#FFFFFF;font-family:Inter,sans-serif;font-size:14px;font-weight:700;">'
+            f'Re-pair Field</div>'
             f'<div style="color:#94A3B8;font-family:Inter,sans-serif;font-size:11px;">'
-            f'{annot.anchor_text or annot.content[:20]} · {m.match_type} · conf {m.confidence:.2f}'
+            f'{annot.anchor_text or annot.content[:40]} · {m.match_type} · conf {m.confidence:.2f}'
             f'</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
-    with close_col:
         if st.button("✕", key="p3_drawer_close"):
-            st.session_state["_p3_drawer_id"] = None
-            st.session_state.pop("_p3_drawer_search", None)
-            sel = dict(st.session_state.get("_p3_drawer_selected", {}))
-            sel.pop(m.annotation_id, None)
-            st.session_state["_p3_drawer_selected"] = sel
+            _close_drawer()
             st.rerun()
 
-    # Annotation context
+    # ── Annotation context (simplified) ──
     _render_annotation_detail(m, annot, field_by_id)
 
-    st.markdown("---")
-
-    # Scored field list (top suggestions + browse by form)
-    chosen_field_id = _render_drawer_field_picker(m, annot, fields, visit_boost, cross_form_threshold)
-
-    st.markdown("---")
-
-    # Footer buttons
+    # ── Skip / Confirm — immediately below annotation, before suggestions ──
+    # chosen_field_id read from session state here so Confirm can be enabled/disabled
+    chosen_field_id: str | None = st.session_state.get("_p3_drawer_selected", {}).get(m.annotation_id)
     skip_col, confirm_col = st.columns([1, 1])
     with skip_col:
-        if st.button("Skip (keep re-pairing)", key=f"p3_drawer_skip_{m.annotation_id}", use_container_width=True):
-            st.session_state["_p3_drawer_id"] = None
-            st.session_state.pop("_p3_drawer_search", None)
-            sel = dict(st.session_state.get("_p3_drawer_selected", {}))
-            sel.pop(m.annotation_id, None)
-            st.session_state["_p3_drawer_selected"] = sel
+        if st.button("Skip", key=f"p3_drawer_skip_{m.annotation_id}", use_container_width=True):
+            _close_drawer()
             st.rerun()
     with confirm_col:
         if st.button(
-            "Confirm Pairing ✓",
+            "Confirm ✓",
             key=f"p3_confirm_repair_{m.annotation_id}",
             disabled=chosen_field_id is None,
             use_container_width=True,
@@ -872,12 +918,13 @@ def _render_drawer_panel(
                 idx = match_index.get(m.annotation_id)
                 if idx is not None:
                     new_list[idx] = new_list[idx].model_copy(update={"confidence": predicted})
-                st.session_state["_p3_drawer_id"] = None
-                st.session_state.pop("_p3_drawer_search", None)
-                sel = dict(st.session_state.get("_p3_drawer_selected", {}))
-                sel.pop(m.annotation_id, None)
-                st.session_state["_p3_drawer_selected"] = sel
+                _close_drawer()
                 return new_list
+
+    st.markdown("---")
+
+    # ── Scored field list (top suggestions + browse by form) ──
+    _render_drawer_field_picker(m, annot, fields, visit_boost, cross_form_threshold)
 
     return None
 
