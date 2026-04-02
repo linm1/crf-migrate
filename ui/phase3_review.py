@@ -603,7 +603,6 @@ def render_phase3() -> None:
 
     filtered = _render_filters(matches, session)
     _render_match_rows(filtered, matches, session)
-    _render_unmatched_assignment(matches, fields, session)
 
 
 # ---------------------------------------------------------------------------
@@ -957,57 +956,3 @@ def _render_drawer_panel(
     _render_drawer_field_picker(m, annot, fields, visit_boost, cross_form_threshold)
 
     return None
-
-
-# ---------------------------------------------------------------------------
-# F. Unmatched assignment
-# ---------------------------------------------------------------------------
-
-def _render_unmatched_assignment(
-    matches: list[MatchRecord],
-    fields: list[FieldRecord],
-    session: Session,
-) -> None:
-    unmatched = [m for m in matches if m.match_type == "unmatched"]
-    if not unmatched:
-        return
-
-    st.subheader(f"Unmatched Annotations ({len(unmatched)})")
-    annotations = st.session_state.get("annotations", [])
-    annot_by_id = {a.id: a for a in annotations}
-
-    field_options = [f"{f.label} | {f.form_name} | p.{f.page}" for f in fields]
-
-    for m in unmatched:
-        annot = annot_by_id.get(m.annotation_id)
-        label = annot.content[:40] if annot else m.annotation_id
-        with st.expander(f"Unmatched: {label}"):
-            if not fields:
-                st.info("No fields available for assignment.")
-                continue
-            sel_idx = st.selectbox(
-                "Assign to field",
-                range(len(field_options)),
-                format_func=lambda i: field_options[i],
-                key=f"p3_assign_sel_{m.annotation_id}",
-            )
-            if st.button("Assign", key=f"p3_assign_btn_{m.annotation_id}"):
-                chosen_field = fields[sel_idx]
-                try:
-                    target_rect = (
-                        compute_target_rect(annot, chosen_field, fields)
-                        if annot is not None
-                        else list(chosen_field.rect)
-                    )
-                    updated = apply_manual_match(
-                        matches,
-                        m.annotation_id,
-                        chosen_field.id,
-                        target_rect,
-                    )
-                    session.save_matches(updated)
-                    st.session_state["matches"] = updated
-                    invalidate_phases([4])
-                    st.rerun()
-                except ValueError as e:
-                    st.error(str(e))
