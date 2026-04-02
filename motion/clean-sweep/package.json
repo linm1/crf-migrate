@@ -7,8 +7,7 @@
     "studio": "remotion studio src/index.ts",
     "test": "vitest run",
     "render:webm": "remotion render src/index.ts CleanSweep out/clean-sweep.webm",
-    "render:still": "remotion still src/index.ts CleanSweep out/clean-sweep.png",
-    "render:all": "node scripts/render-clean-sweep.mjs"
+    "render:still": "remotion still src/index.ts CleanSweep out/clean-sweep.png"
   },
   "dependencies": {
     "react": "^18.3.1",
