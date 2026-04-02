@@ -285,32 +285,42 @@ def _inject_page_css() -> None:
             line-height: 1 !important;
         }
 
-        /* ── Field card pick: wrap is relative so checkbox floats inside card ── */
-        [class*="st-key-p3_pickwrap_"],
-        [class*="st-key-p3_pickselwrap_"] {
-            position: relative !important;
+        /* ── Field pick card button — unselected ── */
+        [class*="st-key-p3_pick_"] button {
+            background: #FAFAFA !important;
+            border: 1px solid #E8E2DC !important;
+            text-align: left !important;
+            padding: 6px 10px !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            box-shadow: none !important;
+            white-space: normal !important;
+            height: auto !important;
+            min-height: 36px !important;
+            border-radius: 0 !important;
+            margin: 2px 0 !important;
+            color: #383838 !important;
         }
-        [class*="st-key-p3_pickwrap_"] > div:first-child,
-        [class*="st-key-p3_pickselwrap_"] > div:first-child {
-            position: relative !important;
+        [class*="st-key-p3_pick_"] button:hover {
+            border-color: #F59E0B !important;
+            background: #FFFDF5 !important;
         }
 
-        /* ── Embedded checkbox: absolute top-right inside the card ── */
-        [class*="st-key-p3_pickchk_"],
-        [class*="st-key-p3_pickselchk_"] {
-            position: absolute !important;
-            top: 4px !important;
-            right: 6px !important;
-            z-index: 10 !important;
-        }
-
-        /* Unselected checkbox: hide label, plain appearance */
-        [class*="st-key-p3_pickchk_"] label { display: none !important; }
-        [class*="st-key-p3_pickselchk_"] label { display: none !important; }
-
-        /* Selected: amber accent on the checkbox */
-        [class*="st-key-p3_pickselchk_"] input[type="checkbox"] {
-            accent-color: #F59E0B !important;
+        /* ── Field pick card button — selected (amber) ── */
+        [class*="st-key-p3_picksel_"] button {
+            background: #FFF9E6 !important;
+            border: 2px solid #F59E0B !important;
+            text-align: left !important;
+            padding: 6px 10px !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            box-shadow: none !important;
+            white-space: normal !important;
+            height: auto !important;
+            min-height: 36px !important;
+            border-radius: 0 !important;
+            margin: 2px 0 !important;
+            color: #383838 !important;
         }
 
         /* ── Skip drawer button: same 12px/700 weight as CSV toolbar ── */
