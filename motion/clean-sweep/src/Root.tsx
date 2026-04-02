@@ -1,17 +1,26 @@
 import { Composition } from "remotion";
-
-// Placeholder root component until Task 2 adds the actual motion module.
-const CleanSweepPlaceholder = () => null;
+import { CleanSweep, type CleanSweepProps } from "./CleanSweep";
 
 export const RemotionRoot = () => {
+  const loopSeconds = 1.2;
+  const fps = 30;
+
   return (
     <Composition
       id="CleanSweep"
-      component={CleanSweepPlaceholder}
-      durationInFrames={36}
-      fps={30}
+      component={CleanSweep}
+      durationInFrames={Math.round(loopSeconds * fps)}
+      fps={fps}
       width={320}
       height={320}
+      defaultProps={
+        {
+          backgroundColor: "#24191B",
+          iconSize: 132,
+          loopSeconds,
+          showSpark: true,
+        } satisfies CleanSweepProps
+      }
     />
   );
 };

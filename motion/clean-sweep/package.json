@@ -6,8 +6,9 @@
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "test": "vitest run",
-    "render:webm": "remotion render src/index.ts CleanSweep out/clean-sweep.webm",
-    "render:still": "remotion still src/index.ts CleanSweep out/clean-sweep.png"
+    "render:webm": "remotion render src/index.ts CleanSweep out/clean-sweep.webm --image-format=png --pixel-format=yuva420p --codec=vp9",
+    "render:still": "remotion still src/index.ts CleanSweep out/clean-sweep.png",
+    "render:all": "node scripts/render-clean-sweep.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

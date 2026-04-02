@@ -56,3 +56,16 @@ describe("getSweepState", () => {
     expect(pastEnd.sparkOpacity).toBeLessThanOrEqual(1);
   });
 });
+
+describe("composition defaults", () => {
+  it("uses a loop length matching the approved design", () => {
+    const frames = Math.round(1.2 * 30);
+    const state = getSweepState({
+      frame: Math.floor(frames / 2),
+      fps: 30,
+      durationInFrames: frames,
+    });
+
+    expect(state.bandCenterX).toBeGreaterThan(120);
+  });
+});
