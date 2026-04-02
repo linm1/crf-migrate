@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getSweepState } from "./cleanSweepMotion";
-import { cleanSweepCompositionDefaults, RemotionRoot } from "./Root";
+import { cleanSweepCompositionConfig } from "./Root";
 
 describe("getSweepState", () => {
   it("starts the band off-canvas on the left", () => {
@@ -60,20 +60,16 @@ describe("getSweepState", () => {
 
 describe("composition defaults", () => {
   it("uses a loop length matching the approved design", () => {
-    const composition = RemotionRoot();
-    const frames = composition.props.durationInFrames;
-    const fps = composition.props.fps;
+    const { durationInFrames, fps, defaultProps } = cleanSweepCompositionConfig;
     const state = getSweepState({
-      frame: Math.floor(frames / 2),
+      frame: Math.floor(durationInFrames / 2),
       fps,
-      durationInFrames: frames,
+      durationInFrames,
     });
 
-    expect(cleanSweepCompositionDefaults.loopSeconds).toBe(1.2);
-    expect(cleanSweepCompositionDefaults.fps).toBe(30);
-    expect(composition.props.durationInFrames).toBe(
-      Math.round(cleanSweepCompositionDefaults.loopSeconds * fps),
-    );
+    expect(defaultProps.loopSeconds).toBe(1.2);
+    expect(fps).toBe(30);
+    expect(durationInFrames).toBe(Math.round(defaultProps.loopSeconds * fps));
     expect(state.bandCenterX).toBeGreaterThan(120);
   });
 });
