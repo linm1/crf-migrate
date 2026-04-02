@@ -25,6 +25,7 @@ SESSION_BASE = Path(__file__).parent / "sessions"
 
 st.set_page_config(
     page_title="CRF-Migrate",
+    page_icon="assets/icon.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -269,7 +270,16 @@ def _init_session_state() -> None:
 
 def _render_sidebar() -> None:
     with st.sidebar:
-        st.title("CRF-Migrate")
+        import base64
+        with open("assets/icon.png", "rb") as _f:
+            _icon_b64 = base64.b64encode(_f.read()).decode()
+        st.markdown(
+            f"""<div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+            <img src="data:image/png;base64,{_icon_b64}" width="36" style="display:block"/>
+            <span style="font-size:1.4rem;font-weight:700;letter-spacing:0.04em;font-family:monospace">CRF-Migrate</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
         st.divider()
 
         phases = st.session_state.get("phases_complete", {})
