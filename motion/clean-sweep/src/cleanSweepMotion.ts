@@ -27,7 +27,7 @@ export const getSweepState = ({
   const progress = clamp(frame / durationInFrames, 0, 1);
   const eased = easeInOut(progress);
   const bandCenterX = -40 + eased * 360;
-  const opacity = 0.55 + (1 - Math.abs(progress - 0.5) * 2) * 0.3;
+  const opacity = 0.55 + (1 - Math.abs(eased - 0.5) * 2) * 0.3;
   const sparkOpacity = clamp((eased - 0.58) / 0.18, 0, 1);
 
   return {
