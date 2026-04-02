@@ -305,6 +305,14 @@ def _inject_page_css() -> None:
             text-align: left !important;
             white-space: pre-wrap !important;
             margin: 0 !important;
+            width: 100% !important;
+        }
+        /* override Streamlit's flex centering on the button's inner div */
+        [class*="st-key-p3_pick_"] button > div,
+        [class*="st-key-p3_picksel_"] button > div {
+            justify-content: flex-start !important;
+            align-items: flex-start !important;
+            width: 100% !important;
         }
         /* italic meta line (3rd line) rendered as <em> — make it gray, 2pt smaller */
         [class*="st-key-p3_pick_"] button em,
