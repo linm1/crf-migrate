@@ -294,12 +294,17 @@ def _inject_page_css() -> None:
             font-size: 12px !important;
             font-weight: 600 !important;
             box-shadow: none !important;
-            white-space: normal !important;
             height: auto !important;
             min-height: 36px !important;
             border-radius: 0 !important;
             margin: 2px 0 !important;
             color: #383838 !important;
+        }
+        [class*="st-key-p3_pick_"] button p,
+        [class*="st-key-p3_picksel_"] button p {
+            text-align: left !important;
+            white-space: pre-wrap !important;
+            margin: 0 !important;
         }
         [class*="st-key-p3_pick_"] button:hover {
             border-color: #F59E0B !important;
@@ -321,7 +326,6 @@ def _inject_page_css() -> None:
             font-size: 12px !important;
             font-weight: 600 !important;
             box-shadow: none !important;
-            white-space: normal !important;
             height: auto !important;
             min-height: 36px !important;
             border-radius: 0 !important;
