@@ -50,3 +50,7 @@ docs/superpowers/
 
 # Git worktrees
 .worktrees/
+
+# Remotion workspace
+motion/clean-sweep/node_modules/
+motion/clean-sweep/out/
