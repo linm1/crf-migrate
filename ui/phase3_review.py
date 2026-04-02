@@ -314,13 +314,10 @@ def _inject_page_css() -> None:
             font-weight: 400 !important;
             font-size: 10px !important;
         }
-        /* remove expander's built-in left padding for browse-by-form pick rows */
-        [data-testid="stExpander"] [class*="st-key-p3_pick_"],
-        [data-testid="stExpander"] [class*="st-key-p3_picksel_"] {
-            margin-left: 0 !important;
-            padding-left: 0 !important;
-        }
-        [data-testid="stExpanderDetails"] {
+        /* remove expander built-in indent so pick rows look like TOP SUGGESTIONS */
+        [data-testid="stExpanderDetails"],
+        [data-testid="stExpanderDetails"] > div,
+        [data-testid="stExpanderDetails"] [data-testid="stVerticalBlock"] {
             padding-left: 0 !important;
             padding-right: 0 !important;
         }
