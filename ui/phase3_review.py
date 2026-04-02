@@ -756,43 +756,26 @@ def _render_field_row(
     chosen_field_id: str | None,
     section: str = "",
 ) -> None:
-    """Render one selectable field row: HTML card with embedded checkbox."""
+    """Render one selectable field row as a full-width clickable button card."""
     is_selected = f.id == chosen_field_id
-    bg = "#FFF9E6" if is_selected else "#FAFAFA"
-    border = "2px solid #F59E0B" if is_selected else "1px solid #E8E2DC"
-    is_high = score >= _HIGH_CONFIDENCE_THRESHOLD
-    conf_color = "#065F46" if is_high else "#6B7280"
-    conf_bg = "#D1FAE5" if is_high else "#F3F4F6"
-    label_txt, fill, brd, txt = _FIELD_TYPE_BADGE.get(
+    label_txt, _fill, _brd, _txt = _FIELD_TYPE_BADGE.get(
         f.field_type, ("??", "#F4EFEA", "#D4CEC8", "#383838")
     )
     sec = f"_{section}" if section else ""
-    wrap_prefix = "p3_pickselwrap" if is_selected else "p3_pickwrap"
-    chk_prefix = "p3_pickselchk" if is_selected else "p3_pickchk"
-    wrap_key = f"{wrap_prefix}{sec}_{annotation_id}_{f.id}"
-    chk_key = f"{chk_prefix}{sec}_{annotation_id}_{f.id}"
+    key_prefix = "p3_picksel" if is_selected else "p3_pick"
+    btn_key = f"{key_prefix}{sec}_{annotation_id}_{f.id}"
 
-    with st.container(key=wrap_key):
-        st.markdown(
-            f'<div style="background:{bg};border:{border};padding:6px 10px;padding-right:32px;'
-            f'margin:2px 0;display:flex;align-items:center;gap:8px">'
-            f'<span style="background:{fill};border:1px solid {brd};color:{txt};'
-            f'padding:1px 5px;font-size:10px;font-weight:700;border-radius:3px">{label_txt}</span>'
-            f'<span style="flex:1;font-size:12px;font-weight:600">{_html.escape(f.label)}</span>'
-            f'<span style="font-size:10px;color:#8A847F">{_html.escape(f.form_name)} · p.{f.page}</span>'
-            f'<span style="background:{conf_bg};color:{conf_color};padding:1px 6px;'
-            f'font-size:10px;font-weight:700;border-radius:3px">→ {score:.2f}</span></div>',
-            unsafe_allow_html=True,
-        )
-        checked = st.checkbox("", value=is_selected, key=chk_key)
-        if checked != is_selected:
-            sel = dict(st.session_state.get("_p3_drawer_selected", {}))
-            if checked:
-                sel[annotation_id] = f.id
-            else:
-                sel.pop(annotation_id, None)
-            st.session_state["_p3_drawer_selected"] = sel
-            st.rerun()
+    check = "✓ " if is_selected else ""
+    label = f"{check}[{label_txt}]  {f.label}    {f.form_name} · p.{f.page}    → {score:.2f}"
+
+    if st.button(label, key=btn_key, use_container_width=True):
+        sel = dict(st.session_state.get("_p3_drawer_selected", {}))
+        if is_selected:
+            sel.pop(annotation_id, None)
+        else:
+            sel[annotation_id] = f.id
+        st.session_state["_p3_drawer_selected"] = sel
+        st.rerun()
 
 
 def _render_drawer_field_picker(
