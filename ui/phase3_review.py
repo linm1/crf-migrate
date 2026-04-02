@@ -201,6 +201,9 @@ def _inject_page_css() -> None:
         [data-baseweb="tag"]:has(span[title="position_only"]) { background: #fff3cd !important; color: #7d4e00 !important; }
         [data-baseweb="tag"]:has(span[title="manual"])        { background: #d1ecf1 !important; color: #0c5460 !important; }
         [data-baseweb="tag"]:has(span[title="unmatched"])     { background: #f8d7da !important; color: #721c24 !important; }
+        /* ── Status filter tag colors ── */
+        [data-baseweb="tag"]:has(span[title="approved"])      { background: #F0FFF4 !important; color: #166534 !important; border-color: #27C93F !important; }
+        [data-baseweb="tag"]:has(span[title="re-pairing"])    { background: #FEF3C7 !important; color: #92400E !important; border-color: #F59E0B !important; }
         /* ── Phase 3 card white backgrounds (matches Phase 2) ── */
         .st-key-p3_action_card,
         .st-key-p3_rate_card,
@@ -231,13 +234,11 @@ def _inject_page_css() -> None:
             color: #FFFFFF !important;
             border-color: #383838 !important;
         }
-        /* ── ↺ re-pair open button on approved rows ── */
+        /* ── ↺ re-pair open button on approved/re-pairing rows ── */
         [class*="st-key-p3_repairopen_"] button {
-            width: 32px !important;
-            height: 32px !important;
-            min-width: 32px !important;
-            max-width: 32px !important;
+            height: 28px !important;
             padding: 0 !important;
+            line-height: 1 !important;
             font-size: 13px !important;
             font-weight: 700 !important;
             border-radius: 0 !important;
@@ -248,6 +249,11 @@ def _inject_page_css() -> None:
             align-items: center !important;
             justify-content: center !important;
             transition: background-color 0.15s, color 0.15s !important;
+        }
+        [class*="st-key-p3_repairopen_"] button p {
+            line-height: 1 !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
         [class*="st-key-p3_repairopen_"] button:hover {
             background-color: #383838 !important;
@@ -364,7 +370,8 @@ def _inject_page_css() -> None:
 
         /* ── Status badges ── */
         .p3-status-approved {
-            display: inline-block;
+            display: block;
+            text-align: center;
             background: #F0FFF4;
             border: 1px solid #27C93F;
             color: #166534;
@@ -373,19 +380,11 @@ def _inject_page_css() -> None:
             font-weight: 700;
         }
         .p3-status-repairing {
-            display: inline-block;
+            display: block;
+            text-align: center;
             background: #FEF3C7;
             border: 1px solid #F59E0B;
             color: #92400E;
-            padding: 1px 8px;
-            font-size: 11px;
-            font-weight: 700;
-        }
-        .p3-status-pending {
-            display: inline-block;
-            background: #F4EFEA;
-            border: 1px solid #D4CEC8;
-            color: #8A847F;
             padding: 1px 8px;
             font-size: 11px;
             font-weight: 700;
@@ -539,7 +538,7 @@ def _render_bytype_card_p3(matches: list[MatchRecord]) -> None:
 
     with st.container(border=True, key="p3_bytype_card"):
         st.markdown(
-            f'<div style="{_LABEL_STYLE}">By Match Type</div>'
+            f'<div style="{_LABEL_STYLE}">By Type</div>'
             f'{type_rows}',
             unsafe_allow_html=True,
         )
@@ -563,7 +562,7 @@ def _render_cards(
         f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:6px;">'
         f'<p style="{_hdr}">Match Files</p>'
         f'<p style="{_hdr}">Exact Match Rate</p>'
-        f'<p style="{_hdr}">By Match Type</p>'
+        f'<p style="{_hdr}">By Type</p>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -613,16 +612,13 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
 
-    t_col, s_col, c_col, spacer, ba_col = st.columns([2, 2, 2, 1, 2])
+    t_col, s_col, ba_col = st.columns([3, 3, 2])
     with t_col:
         sel_types = st.multiselect("Match Type \u25be", all_types, default=all_types,
                                    key="p3_filter_type", label_visibility="visible")
     with s_col:
         sel_statuses = st.multiselect("Status \u25be", all_statuses, default=all_statuses,
                                       key="p3_filter_status", label_visibility="visible")
-    with c_col:
-        min_conf = st.slider("Confidence", 0.0, 1.0, 0.0, 0.01,
-                             key="p3_filter_conf", label_visibility="visible")
     with ba_col:
         pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
         if pending_exact:
@@ -638,7 +634,6 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
         m for m in matches
         if m.match_type in sel_types
         and m.status in sel_statuses
-        and m.confidence >= min_conf
     ]
     st.caption(f"Showing {len(filtered)} of {len(matches)} matches")
     return filtered
@@ -693,7 +688,7 @@ def _render_match_rows(
 
             with st.container(key=row_key):
                 col_type, col1, col2, col3, col_status, col_action = st.columns(
-                    [0.8, 2.5, 2.5, 1, 1.2, 0.8]
+                    [0.8, 2.5, 2.5, 1, 1.2, 0.35]
                 )
 
                 with col_type:
@@ -722,22 +717,21 @@ def _render_match_rows(
                     if m.status == "approved":
                         st.markdown('<span class="p3-status-approved">approved</span>', unsafe_allow_html=True)
                     elif m.status == "re-pairing":
-                        st.markdown('<span class="p3-status-repairing">↺ re-pairing</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="p3-status-pending">pending</span>', unsafe_allow_html=True)
+                        st.markdown('<span class="p3-status-repairing">re-pairing</span>', unsafe_allow_html=True)
 
                 with col_action:
                     if m.status == "approved":
                         # ↺ button to re-open as re-pairing
-                        if st.button("↺", key=f"p3_repairopen_{m.annotation_id}", help="Re-pair this match"):
+                        if st.button("↺", key=f"p3_repairopen_{m.annotation_id}", help="Re-pair this match",
+                                     use_container_width=True):
                             idx = match_index.get(m.annotation_id)
                             if idx is not None:
                                 updated_matches[idx] = m.model_copy(update={"status": "re-pairing"})
                                 st.session_state["_p3_drawer_id"] = m.annotation_id
                                 action_taken = True
                     elif m.status == "re-pairing":
-                        # ↺ badge is the click target — also provide a button for accessibility
-                        if st.button("↺", key=f"p3_repairopen_{m.annotation_id}", help="Open re-pair panel"):
+                        if st.button("↺", key=f"p3_repairopen_{m.annotation_id}", help="Open re-pair panel",
+                                     use_container_width=True):
                             st.session_state["_p3_drawer_id"] = m.annotation_id
                             action_taken = True
 
@@ -918,6 +912,8 @@ def _render_drawer_panel(
         if st.button("✕", key="p3_drawer_close"):
             _close_drawer()
             st.rerun()
+
+    st.markdown("")
 
     # ── Annotation context (simplified) ──
     _render_annotation_detail(m, annot, field_by_id)
