@@ -181,13 +181,14 @@ def _inject_page_css() -> None:
             font-weight: 700;
             color: #262730;
         }
-        /* ── Re-pair confirm button: dark neo-brutalist style ── */
+        /* ── Re-pair confirm button: matches Run Matching dark style ── */
         [class*="st-key-p3_confirm_repair_"] button {
             background-color: #383838 !important;
             border: 1px solid #383838 !important;
             color: #FFFFFF !important;
             font-weight: 700 !important;
-            box-shadow: 4px 4px 0 #000000 !important;
+            font-size: 14px !important;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.22) !important;
         }
         [class*="st-key-p3_confirm_repair_"] button:disabled {
             background-color: #8A847F !important;
@@ -906,11 +907,10 @@ def _render_drawer_panel(
             st.rerun()
     with confirm_col:
         if st.button(
-            "Confirm ✓",
+            "Confirm",
             key=f"p3_confirm_repair_{m.annotation_id}",
             disabled=chosen_field_id is None,
             use_container_width=True,
-            type="primary",
         ):
             chosen_field = field_by_id.get(chosen_field_id) if chosen_field_id else None
             if chosen_field:
