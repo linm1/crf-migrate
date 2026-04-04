@@ -204,6 +204,8 @@ def render_page_navigator_windowed(total_pages: int, key: str) -> int:
             min-height: 32px !important;
             padding: 0 4px !important;
             font-size: 13px !important;
+            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
+            font-weight: 400 !important;
             margin: 0 !important;
             line-height: 32px !important;
         }}
@@ -222,8 +224,8 @@ def render_page_navigator_windowed(total_pages: int, key: str) -> int:
         .st-key-{key}_pgwrap [data-testid="stButton"]:nth-child({current - win_start + 2}) button {{
             background: #383838 !important;
             color: #FFFFFF !important;
-            border: 1px solid #383838 !important;
-            font-weight: 700 !important;
+            border: 2px solid #383838 !important;
+            font-weight: 400 !important;
         }}
         </style>""",
         unsafe_allow_html=True,
