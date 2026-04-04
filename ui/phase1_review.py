@@ -275,7 +275,7 @@ def _render_category_card(annotations: list[AnnotationRecord]) -> None:
         text_color, bg_color = _CATEGORY_COLORS.get(cat, ("#383838", "#F8F8F8"))
         cat_rows += (
             f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'padding:4px 0;font-family:Inter,sans-serif;font-size:12px;">'
+            f'padding:4px 0;font-family:Aeonik,ui-sans-serif,sans-serif;font-size:12px;">'
             f'<span style="background:{bg_color};color:{text_color};padding:1px 7px;'
             f'font-weight:600;">{cat}</span>'
             f'<strong style="color:#383838;">{cnt}</strong>'
