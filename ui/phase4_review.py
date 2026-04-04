@@ -6,6 +6,7 @@ import streamlit as st
 
 from src.writer import write_annotations
 from src.models import MatchRecord
+from ui.components import render_page_navigator_windowed
 
 
 def _inject_page_css() -> None:
@@ -121,7 +122,7 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
 # ---------------------------------------------------------------------------
 
 def _render_pdf_preview(output_pdf_path: Path) -> None:
-    """Render inline PDF viewer with height slider and page navigator."""
+    """Render inline PDF viewer with height slider and windowed page navigator."""
     st.markdown("---")
     st.subheader("Preview")
 
@@ -129,32 +130,23 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
     with fitz.open(str(output_pdf_path)) as doc:
         page_count = doc.page_count
 
-    # Initialize defaults once
+    # Initialize height default once
     if "p4_preview_height" not in st.session_state:
         st.session_state["p4_preview_height"] = 800
-    if "p4_preview_page" not in st.session_state:
-        st.session_state["p4_preview_page"] = 1
 
-    # Controls row: height slider | page navigator
-    ctrl_left, ctrl_right = st.columns([3, 1])
-    with ctrl_left:
-        height = st.slider(
-            "Viewer height (px)",
-            min_value=400,
-            max_value=1200,
-            step=50,
-            key="p4_preview_height",
-        )
-    with ctrl_right:
-        page_num = st.number_input(
-            f"Page (1–{page_count})",
-            min_value=1,
-            max_value=page_count,
-            step=1,
-            key="p4_preview_page",
-        )
+    # Height slider (full width above paginator)
+    height = st.slider(
+        "Viewer height (px)",
+        min_value=400,
+        max_value=1200,
+        step=50,
+        key="p4_preview_height",
+    )
 
-    page_idx = int(page_num) - 1  # convert 1-indexed to 0-indexed
+    # Windowed page navigator — same component as Phase 1 / Phase 2
+    page_num = render_page_navigator_windowed(page_count, key="p4_preview_nav")
+
+    page_idx = page_num - 1  # convert 1-indexed to 0-indexed
     with fitz.open(str(output_pdf_path)) as source_doc:
         single_page_doc = fitz.Document()
         single_page_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
