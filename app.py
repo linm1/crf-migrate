@@ -49,8 +49,8 @@ st.markdown(
 
     /* Hard offset shadow + hover animation on buttons */
     .stButton > button {
-        border: 1px solid #383838 !important;
-        box-shadow: 4px 4px 0 rgba(0,0,0,0.10);
+        border: 2px solid #383838 !important;
+        box-shadow: 3px 3px 0 #38383820;
         transition: transform 0.15s ease, box-shadow 0.15s ease;
         font-family: ui-monospace, Consolas, monospace !important;
         text-transform: uppercase;
@@ -63,7 +63,7 @@ st.markdown(
         transform: translate(-1px, -1px);
         font-family: ui-monospace, Consolas, monospace !important;
         text-transform: uppercase;
-        box-shadow: 3px 3px 0 rgba(0,0,0,0.12);
+        box-shadow: 3px 3px 0 #38383840;
     }
 
     /* Hard shadow on bordered containers */
@@ -121,11 +121,11 @@ st.markdown(
     /* Sidebar nav: hover on any sidebar button = yellow + #383838 shadow */
     section[data-testid="stSidebar"] .stButton > button:hover,
     section[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
-        background-color: #FFD700 !important;
-        border-color: #FFD700 !important;
-        color: #383838 !important;
+        background-color: #383838 !important;
+        border-color: #383838 !important;
+        color: #FFFFFF !important;
         transform: none !important;
-        box-shadow: 3px 3px 0 #383838 !important;
+        box-shadow: 3px 3px 0 #38383840 !important;
     }
     </style>
     """,
@@ -155,18 +155,18 @@ st.markdown(
         letter-spacing: 0.5px !important;
         text-transform: uppercase !important;
         margin: 0 0 4px 0 !important;
-        font-family: Inter, ui-sans-serif, sans-serif !important;
+        font-family: Aeonik, ui-monospace, sans-serif !important;
     }
     div[data-testid="stTabs"] button[role="tab"] {
         background: #FFFFFF !important;
-        border: 1px solid #D4CEC8 !important;
+        border: 2px solid #383838 !important;
         border-radius: 0px !important;
         height: 32px !important;
         padding: 0 10px !important;
         font-size: 12px !important;
-        font-weight: normal !important;
+        font-weight: 400 !important;
         color: #383838 !important;
-        font-family: Inter, ui-sans-serif, sans-serif !important;
+        font-family: 'Aeonik Mono', ui-monospace, monospace !important;
         text-transform: none !important;
         letter-spacing: 0 !important;
         box-shadow: none !important;
@@ -174,9 +174,9 @@ st.markdown(
     }
     div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
         background: #FFD700 !important;
-        border: 1px solid #FFD700 !important;
+        border: 2px solid #383838 !important;
         color: #383838 !important;
-        font-weight: bold !important;
+        font-weight: 400 !important;
         box-shadow: 4px 4px 0 #383838 !important;
     }
     div[data-testid="stTabs"] button[role="tab"]::after,
@@ -186,7 +186,7 @@ st.markdown(
     div[data-testid="stTabs"] > div[role="tabpanel"] > div[data-testid="stVerticalBlock"] {
         background: #FFFFFF;
         border-radius: 8px !important;
-        box-shadow: 0 4px 4px rgba(0,0,0,0.25);
+        box-shadow: 4px 4px 0 #38383818;
         padding: 16px 20px;
         margin-top: 4px;
     }
@@ -276,7 +276,7 @@ def _render_sidebar() -> None:
         st.markdown(
             f"""<div style="display:flex;align-items:center;gap:10px;padding:8px 0">
             <img src="data:image/png;base64,{_icon_b64}" width="36" style="display:block"/>
-            <span style="font-size:1.4rem;font-weight:700;letter-spacing:0.04em;font-family:monospace">CRF-Migrate</span>
+            <span style="font-size:1.4rem;font-weight:400;letter-spacing:0.04em;font-family:monospace">CRF-Migrate</span>
             </div>""",
             unsafe_allow_html=True,
         )
