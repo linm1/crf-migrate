@@ -47,7 +47,7 @@ def _inject_page_css() -> None:
             padding: 2px 10px !important;
             font-size: 12px !important;
             font-family: Inter, ui-monospace, monospace !important;
-            font-weight: 600 !important;
+            font-weight: 400 !important;
             height: auto !important;
             min-height: 0 !important;
             line-height: 1.4 !important;
