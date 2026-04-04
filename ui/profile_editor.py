@@ -87,11 +87,11 @@ def _inject_page_css() -> None:
         [class*="st-key-rule_"][class*="_del"] button p,
         [class*="st-key-rule_"][class*="_up"] button p {
             font-size: 12px !important;
-            font-weight: 700 !important; }
+            font-weight: 400 !important; }
         /* Rule tester TEST button */
         .st-key-rt_test_btn button p {
             font-size: 12px !important;
-            font-weight: 700 !important; }
+            font-weight: 400 !important; }
         /* Full-width list rows with delete icon */
         [class*="st-key-list_row_"] {
             background: #f8f8f7 !important;
