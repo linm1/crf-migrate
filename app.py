@@ -155,7 +155,7 @@ st.markdown(
         letter-spacing: 0.5px !important;
         text-transform: uppercase !important;
         margin: 0 0 4px 0 !important;
-        font-family: Aeonik, ui-monospace, sans-serif !important;
+        font-family: Aeonik, ui-sans-serif, sans-serif !important;
     }
     div[data-testid="stTabs"] button[role="tab"] {
         background: #FFFFFF !important;
@@ -176,7 +176,7 @@ st.markdown(
         background: #FFD700 !important;
         border: 2px solid #383838 !important;
         color: #383838 !important;
-        font-weight: 400 !important;
+        font-weight: 600 !important;
         box-shadow: 4px 4px 0 #383838 !important;
     }
     div[data-testid="stTabs"] button[role="tab"]::after,
