@@ -14,12 +14,13 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
-        .pe-section-title { font-family: Inter, sans-serif; font-size: 18px;
-            font-weight: 700; color: #1E293B; margin: 0 0 4px 0; }
-        .pe-help-text { font-size: 12px; color: #8A847F;
-            font-family: Inter, sans-serif; margin: -4px 0 8px 0; }
+        .pe-section-title { font-family: 'Aeonik Mono', ui-monospace, monospace; font-size: 18px;
+            font-weight: 400; color: #383838; text-transform: uppercase;
+            letter-spacing: 0.5px; margin: 0 0 4px 0; }
+        .pe-help-text { font-size: 12px; color: #818181;
+            font-family: 'Aeonik Fono', Inter, sans-serif; margin: -4px 0 8px 0; }
         .pe-field-label { font-size: 13px; font-weight: 600; color: #383838;
-            font-family: Inter, sans-serif; margin: 0 0 2px 0; }
+            font-family: Aeonik, ui-sans-serif, sans-serif; margin: 0 0 2px 0; }
         .pe-yaml-header { background: #2D3B4E; display: flex; align-items: center;
             justify-content: space-between; padding: 8px 12px; }
         .pe-yaml-dots { display: flex; gap: 6px; align-items: center; }
@@ -60,8 +61,8 @@ def _inject_page_css() -> None:
         .pe-cat-badge { display: inline-block; background: rgba(255,215,0,0.2);
             padding: 2px 8px; font-size: 11px; font-weight: 600;
             color: #383838; font-family: Inter, monospace; }
-        .pe-table-header { font-family: Inter, sans-serif; font-size: 11px;
-            font-weight: 700; color: #8A847F; text-transform: uppercase;
+        .pe-table-header { font-family: Aeonik, ui-sans-serif, sans-serif; font-size: 11px;
+            font-weight: 600; color: #818181; text-transform: uppercase;
             letter-spacing: 0.5px; padding: 4px 0 8px 0; }
         .pe-slider-badge { display: inline-block; background: #383838;
             color: #FFFFFF; font-size: 11px;
