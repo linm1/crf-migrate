@@ -70,14 +70,14 @@ def render_phase1(profiles_dir: Path) -> None:
             background: #383838 !important;
             color: #FFFFFF !important;
             border: 2px solid #383838 !important;
-            font-weight: 400;
+            font-weight: 400 !important;
         }
         .st-key-p1_upload_card .stButton > button:hover {
-            background: #383838 !important;
+            background: #505050 !important;
             color: #FFFFFF !important;
-            border-color: #383838 !important;
+            border-color: #505050 !important;
         }
-        /* Phase 1 toolbar buttons: 12px bold monospace (matches Profile Editor pattern) */
+        /* Phase 1 toolbar buttons: 12px regular monospace (matches Profile Editor pattern) */
         .st-key-p1_export_btn button p,
         .st-key-p1_import_btn button p {
             font-size: 12px !important;
