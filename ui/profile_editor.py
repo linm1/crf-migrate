@@ -419,8 +419,8 @@ _RULE_LABEL_COLORS = {
 }
 
 _RULE_BG_COLORS = {
-    "sdtm_mapping":  "rgba(0,122,255,0.06)",    # link-blue tint
-    "domain_label":  "rgba(255,215,0,0.10)",    # duck-yellow tint
+    "sdtm_mapping":  "rgba(111,194,255,0.12)",    # sky-blue tint
+    "domain_label":  "rgba(255,222,0,0.10)",      # vivid-yellow tint
     "not_submitted": "rgba(39,201,63,0.07)",     # terminal-green tint
     "note":          "rgba(238,238,238,0.35)",   # terminal-gray tint
     "_exclude":      "rgba(255,95,86,0.07)",     # terminal-red tint

@@ -255,8 +255,8 @@ _ANNOT_LABEL_COLORS = {
 }
 
 _ANNOT_BG_COLORS = {
-    "sdtm_mapping":  "rgba(0,122,255,0.06)",
-    "domain_label":  "rgba(255,215,0,0.10)",
+    "sdtm_mapping":  "rgba(111,194,255,0.12)",
+    "domain_label":  "rgba(255,222,0,0.10)",
     "not_submitted": "rgba(39,201,63,0.07)",
     "note":          "rgba(238,238,238,0.35)",
     "_exclude":      "rgba(255,95,86,0.07)",
@@ -352,9 +352,9 @@ _FIELD_TYPE_COLORS = {
 }
 
 _FIELD_TYPE_BG_COLORS = {
-    "text_field":     "rgba(0,122,255,0.06)",
+    "text_field":     "rgba(111,194,255,0.12)",
     "checkbox":       "rgba(39,201,63,0.07)",
-    "date_field":     "rgba(255,215,0,0.10)",
+    "date_field":     "rgba(255,222,0,0.10)",
     "table_row":      "rgba(150,80,255,0.06)",
     "section_header": "rgba(238,238,238,0.35)",
 }
