@@ -220,8 +220,8 @@ def render_page_navigator_windowed(total_pages: int, key: str) -> int:
             align-items: center !important;
             letter-spacing: 0 !important;
         }}
-        /* Active page button: dark fill */
-        .st-key-{key}_pgwrap [data-testid="stButton"]:nth-child({current - win_start + 2}) button {{
+        /* Active page button: dark fill — target by Streamlit key class directly */
+        .st-key-{key}_pg{current} button {{
             background: #383838 !important;
             color: #FFFFFF !important;
             border: 2px solid #383838 !important;
