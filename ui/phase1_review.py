@@ -89,7 +89,7 @@ def render_phase1(profiles_dir: Path) -> None:
 
     # ── Single HTML row for all three section headers (guarantees same baseline) ──
     _hdr = (
-        "font-family:Inter,sans-serif;font-size:12px;font-weight:700;"
+        "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:12px;font-weight:400;"
         "color:#383838;text-transform:uppercase;letter-spacing:0.5px;"
         "margin:0;padding:0;"
     )
@@ -238,11 +238,11 @@ _CATEGORY_COLORS = {
 }
 
 _LABEL_STYLE = (
-    "font-family:Inter,sans-serif;font-size:11px;font-weight:600;"
-    "color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
+    "font-family:Aeonik,ui-sans-serif,sans-serif;font-size:11px;font-weight:600;"
+    "color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
 )
 _NUMBER_STYLE = (
-    "font-family:Inter,sans-serif;font-size:32px;font-weight:700;"
+    "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:32px;font-weight:400;"
     "color:#383838;line-height:1.1;margin:0 0 16px 0;"
 )
 
