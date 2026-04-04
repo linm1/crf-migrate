@@ -55,7 +55,7 @@ def _inject_page_css() -> None:
             width: auto !important;
             outline: none !important; }
         [class*="st-key-del_code_"] button:hover {
-            background: #f0eded !important;
+            background: #f4efea !important;
             border-color: #383838 !important; }
         [class*="st-key-del_code_"] { padding: 2px !important; }
 
@@ -94,7 +94,7 @@ def _inject_page_css() -> None:
             font-weight: 700 !important; }
         /* Full-width list rows with delete icon */
         [class*="st-key-list_row_"] {
-            background: #F8F7F6 !important;
+            background: #f8f8f7 !important;
             border: 2px solid #383838 !important;
             padding: 4px 8px !important;
             margin-bottom: 4px !important; }
@@ -143,7 +143,7 @@ def _inject_page_css() -> None:
         /* Muted labels inside classification rule drawers */
         [class*="st-key-rule_"] label p,
         [class*="st-key-rule_"] .stCheckbox label p {
-            color: #8A847F !important;
+            color: #383838 !important;
             font-size: 12px !important; }
         </style>
         """,
