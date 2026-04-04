@@ -21,7 +21,7 @@ def _inject_page_css() -> None:
             font-family: 'Aeonik Fono', Inter, sans-serif; margin: -4px 0 8px 0; }
         .pe-field-label { font-size: 13px; font-weight: 600; color: #383838;
             font-family: Aeonik, ui-sans-serif, sans-serif; margin: 0 0 2px 0; }
-        .pe-yaml-header { background: #2D3B4E; display: flex; align-items: center;
+        .pe-yaml-header { background: #383838; display: flex; align-items: center;
             justify-content: space-between; padding: 8px 12px; }
         .pe-yaml-dots { display: flex; gap: 6px; align-items: center; }
         .pe-yaml-dot { display: inline-block; width: 12px; height: 12px;
@@ -35,12 +35,13 @@ def _inject_page_css() -> None:
             margin-top: 0 !important;
             border-radius: 0 !important; }
         .pe-chip { display: inline-flex; align-items: center;
-            background: rgba(0,122,255,0.2); height: 28px; padding: 0 12px;
-            font-size: 13px; color: #004085; font-family: Inter, sans-serif; margin: 2px; }
+            background: #f8f8f7; border: 2px solid #383838; height: 28px; padding: 0 12px;
+            font-size: 13px; color: #383838;
+            font-family: Aeonik, ui-sans-serif, sans-serif; margin: 2px; }
         /* Domain code badge-buttons: pill shape with inline × */
         [class*="st-key-del_code_"] button {
-            background: rgba(0,122,255,0.15) !important;
-            color: #004085 !important;
+            background: #f8f8f7 !important;
+            color: #383838 !important;
             border: 2px solid #383838 !important;
             border-radius: 0 !important;
             padding: 2px 10px !important;
@@ -54,13 +55,13 @@ def _inject_page_css() -> None:
             width: auto !important;
             outline: none !important; }
         [class*="st-key-del_code_"] button:hover {
-            background: rgba(0,122,255,0.28) !important;
-            border-color: rgba(0,122,255,0.5) !important; }
+            background: #f0eded !important;
+            border-color: #383838 !important; }
         [class*="st-key-del_code_"] { padding: 2px !important; }
 
-        .pe-cat-badge { display: inline-block; background: rgba(255,215,0,0.2);
+        .pe-cat-badge { display: inline-block; background: rgba(255,222,0,0.2);
             padding: 2px 8px; font-size: 11px; font-weight: 600;
-            color: #383838; font-family: Inter, monospace; }
+            color: #383838; font-family: Aeonik, ui-monospace, monospace; }
         .pe-table-header { font-family: Aeonik, ui-sans-serif, sans-serif; font-size: 11px;
             font-weight: 600; color: #818181; text-transform: uppercase;
             letter-spacing: 0.5px; padding: 4px 0 8px 0; }
@@ -70,12 +71,12 @@ def _inject_page_css() -> None:
             padding: 2px 8px; min-width: 40px; text-align: center; }
         .pe-swatch { display: inline-block; width: 20px; height: 20px;
             border: 2px solid #383838; vertical-align: middle; margin-left: 8px; }
-        .pe-yaml-terminal { background: #1E293B; color: #94A3B8;
+        .pe-yaml-terminal { background: #383838; color: #d7d7d7;
             font-family: ui-monospace, Consolas, 'Courier New', monospace;
             font-size: 12px; padding: 16px; min-height: 300px;
             overflow-x: auto; white-space: pre; margin: 0;
             list-style: none !important; }
-        .pe-yaml-filename { font-size: 11px; color: #94A3B8;
+        .pe-yaml-filename { font-size: 11px; color: #d7d7d7;
             font-family: ui-monospace, monospace; }
         /* Profile editor buttons: toolbar (pe_*), row actions (rule_*), add buttons */
         .st-key-pe_dup button p, .st-key-pe_imp_toggle button p, .st-key-pe_save_top button p,
@@ -98,7 +99,7 @@ def _inject_page_css() -> None:
             padding: 4px 8px !important;
             margin-bottom: 4px !important; }
         [class*="st-key-list_row_"]:hover {
-            background: #F0EEE8 !important; }
+            background: #f4efea !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button {
             background: #FFFFFF !important;
             border: 2px solid #383838 !important;
