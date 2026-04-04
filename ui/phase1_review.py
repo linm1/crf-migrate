@@ -278,7 +278,7 @@ def _render_category_card(annotations: list[AnnotationRecord]) -> None:
             f'padding:4px 0;font-family:Aeonik,ui-sans-serif,sans-serif;font-size:12px;">'
             f'<span style="background:{bg_color};color:{text_color};padding:1px 7px;'
             f'font-weight:600;">{cat}</span>'
-            f'<strong style="color:#383838;">{cnt}</strong>'
+            f'<strong style="color:#383838;font-family:Aeonik,ui-sans-serif,sans-serif;">{cnt}</strong>'
             f'</div>'
         )
 
