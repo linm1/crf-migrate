@@ -98,8 +98,7 @@ def _inject_page_css() -> None:
             padding: 4px 8px !important;
             margin-bottom: 4px !important; }
         [class*="st-key-list_row_"]:hover {
-            background: #F0EEE8 !important;
-            border-color: #383838 !important; }
+            background: #F0EEE8 !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button {
             background: #FFFFFF !important;
             border: 2px solid #383838 !important;
@@ -116,8 +115,8 @@ def _inject_page_css() -> None:
             justify-content: center !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button:hover {
             color: #FFFFFF !important;
-            background: #383838 !important;
-            border-color: #383838 !important; }
+            background: #FF5F56 !important;
+            border-color: #FF5F56 !important; }
         /* Right-align the delete button within its column */
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] {
             min-width: 0 !important;
