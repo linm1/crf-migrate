@@ -41,7 +41,7 @@ def _inject_page_css() -> None:
         [class*="st-key-del_code_"] button {
             background: rgba(0,122,255,0.15) !important;
             color: #004085 !important;
-            border: 1px solid rgba(0,122,255,0.3) !important;
+            border: 2px solid #383838 !important;
             border-radius: 0 !important;
             padding: 2px 10px !important;
             font-size: 12px !important;
@@ -69,7 +69,7 @@ def _inject_page_css() -> None:
             font-family: ui-monospace, Consolas, monospace;
             padding: 2px 8px; min-width: 40px; text-align: center; }
         .pe-swatch { display: inline-block; width: 20px; height: 20px;
-            border: 1px solid #383838; vertical-align: middle; margin-left: 8px; }
+            border: 2px solid #383838; vertical-align: middle; margin-left: 8px; }
         .pe-yaml-terminal { background: #1E293B; color: #94A3B8;
             font-family: ui-monospace, Consolas, 'Courier New', monospace;
             font-size: 12px; padding: 16px; min-height: 300px;
@@ -94,16 +94,16 @@ def _inject_page_css() -> None:
         /* Full-width list rows with delete icon */
         [class*="st-key-list_row_"] {
             background: #F8F7F6 !important;
-            border: 1px solid #D0CEC9 !important;
+            border: 2px solid #383838 !important;
             padding: 4px 8px !important;
             margin-bottom: 4px !important; }
         [class*="st-key-list_row_"]:hover {
             background: #F0EEE8 !important;
-            border-color: #B0ADA8 !important; }
+            border-color: #383838 !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button {
             background: #FFFFFF !important;
-            border: none !important;
-            color: #C0392B !important;
+            border: 2px solid #383838 !important;
+            color: #383838 !important;
             font-size: 14px !important;
             padding: 0 !important;
             width: 24px !important;
@@ -115,8 +115,9 @@ def _inject_page_css() -> None:
             align-items: center !important;
             justify-content: center !important; }
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] button:hover {
-            color: #E74C3C !important;
-            background: #FFFFFF !important; }
+            color: #FFFFFF !important;
+            background: #383838 !important;
+            border-color: #383838 !important; }
         /* Right-align the delete button within its column */
         [class*="st-key-list_row_"] [class*="st-key-del_row_"] {
             min-width: 0 !important;
