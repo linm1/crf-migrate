@@ -54,3 +54,6 @@ docs/superpowers/
 # Remotion workspace
 motion/clean-sweep/node_modules/
 motion/clean-sweep/out/
+
+# Design
+DESIGN.md
