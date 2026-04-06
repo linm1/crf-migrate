@@ -7,6 +7,7 @@ import streamlit as st
 from src.writer import write_annotations
 from src.models import MatchRecord
 from ui.components import render_page_navigator_windowed
+from ui.loader import clear_loader, show_loader
 
 
 def _inject_page_css() -> None:
@@ -83,23 +84,26 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
         disabled = not session or target_pdf_path is None or not target_pdf_path.exists()
         if st.button("Generate", key="p4_generate_btn", use_container_width=True, disabled=disabled):
             out_path = session.workspace / "output_acrf.pdf"
-            with st.spinner("Writing annotations to target PDF…"):
-                try:
-                    qc_report = write_annotations(
-                        target_pdf_path,
-                        out_path,
-                        matches,
-                        annotations,
-                        profile,
-                    )
-                    session.save_qc_report(qc_report)
-                    st.session_state["output_pdf_path"] = out_path
-                    st.session_state["qc_report"] = qc_report
-                    st.session_state["phases_complete"][4] = True
-                    session.log_action("phase4_write", qc_report)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Output generation failed: {e}")
+            _loader_ph = st.empty()
+            show_loader(_loader_ph, "Writing annotations to target PDF…")
+            try:
+                qc_report = write_annotations(
+                    target_pdf_path,
+                    out_path,
+                    matches,
+                    annotations,
+                    profile,
+                )
+                session.save_qc_report(qc_report)
+                st.session_state["output_pdf_path"] = out_path
+                st.session_state["qc_report"] = qc_report
+                st.session_state["phases_complete"][4] = True
+                session.log_action("phase4_write", qc_report)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Output generation failed: {e}")
+            finally:
+                clear_loader(_loader_ph)
 
     with tb_download:
         if output_pdf_path and output_pdf_path.exists():

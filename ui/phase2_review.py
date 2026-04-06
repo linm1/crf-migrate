@@ -12,6 +12,7 @@ from ui.components import (
     invalidate_phases,
     render_page_navigator_windowed,
 )
+from ui.loader import clear_loader, show_loader
 
 # ---------------------------------------------------------------------------
 # Color dicts (mirroring components.py, inlined to avoid coupling)
@@ -227,17 +228,20 @@ def _render_upload_card(session, profile, rule_engine) -> None:
             key="p2_extract_btn",
             disabled=not has_pdf,
         ):
-            with st.spinner("Extracting…"):
-                try:
-                    records = extract_fields(target_pdf_path, profile, rule_engine)
-                    session.save_fields(records)
-                    st.session_state["fields"] = records
-                    st.session_state["phases_complete"][2] = True
-                    invalidate_phases([3, 4])
-                    session.log_action("phase2_extract", {"count": len(records)})
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Extraction failed: {e}")
+            _loader_ph = st.empty()
+            show_loader(_loader_ph, "Extracting…")
+            try:
+                records = extract_fields(target_pdf_path, profile, rule_engine)
+                session.save_fields(records)
+                st.session_state["fields"] = records
+                st.session_state["phases_complete"][2] = True
+                invalidate_phases([3, 4])
+                session.log_action("phase2_extract", {"count": len(records)})
+                st.rerun()
+            except Exception as e:
+                st.error(f"Extraction failed: {e}")
+            finally:
+                clear_loader(_loader_ph)
 
 
 # ---------------------------------------------------------------------------
