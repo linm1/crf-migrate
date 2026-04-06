@@ -24,11 +24,11 @@ _HIGH_CONFIDENCE_THRESHOLD: float = 0.9
 
 # Phase 2-style card typography (mirrors ui/phase2_review.py)
 _LABEL_STYLE = (
-    "font-family:Inter,sans-serif;font-size:11px;font-weight:600;"
-    "color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
+    "font-family:'Aeonik Mono', ui-monospace, monospace;font-size:11px;font-weight:600;"
+    "color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
 )
 _NUMBER_STYLE = (
-    "font-family:Inter,sans-serif;font-size:32px;font-weight:700;"
+    "font-family:'Aeonik Mono', ui-monospace, monospace;font-size:32px;font-weight:700;"
     "color:#383838;line-height:1.1;margin:0 0 16px 0;"
 )
 
@@ -109,46 +109,49 @@ def _inject_page_css() -> None:
         }
         /* ── Phase 3 topbar ── */
         .st-key-p3_run_btn button {
-            background-color: #383838 !important;
-            border: 1px solid #383838 !important;
-            color: #FFFFFF !important;
-            font-weight: 700 !important;
-            font-size: 14px !important;
-            box-shadow: 4px 4px 0 rgba(0,0,0,0.22) !important;
+            background-color: #6fc2ff !important;
+            border: 2px solid #383838 !important;
+            border-radius: 2px !important;
+            color: #383838 !important;
+            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
+            font-weight: 400 !important;
+            font-size: 16px !important;
+            text-transform: uppercase !important;
         }
         /* ── Phase 3 topbar CSV buttons (matches Phase 2 style) ── */
         .st-key-p3_export_btn button p,
         .st-key-p3_import_btn button p {
             font-size: 12px !important;
             font-weight: 700 !important;
+            text-transform: uppercase !important;
         }
         /* ── Stat cards ── */
         .p3-stat-card {
             background: #FFFFFF;
-            border: 1px solid #E8E2DC;
-            box-shadow: 4px 4px 0 rgba(0,0,0,0.07);
-            padding: 14px 20px;
+            border: 2px solid #000000;
+            padding: 16px 20px;
             display: flex;
             flex-direction: column;
             gap: 2px;
         }
         .p3-stat-num  { font-size: 24px; font-weight: 700; color: #383838; }
-        .p3-stat-lbl  { font-size: 11px; color: #8A847F; }
+        .p3-stat-lbl  { font-size: 11px; color: #818181; }
         /* ── Batch approve button ── */
         .st-key-p3_batch_approve button {
-            background-color: #383838 !important;
-            border: 1px solid #383838 !important;
-            color: #FFFFFF !important;
+            background-color: #f4efea !important;
+            border: 2px solid #383838 !important;
+            border-radius: 2px !important;
+            color: #383838 !important;
+            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
             font-size: 12px !important;
-            font-weight: 700 !important;
-            box-shadow: 4px 4px 0 rgba(0,0,0,0.22) !important;
+            font-weight: 400 !important;
+            text-transform: uppercase !important;
             padding: 2px 12px !important;
             height: 30px !important;
         }
         /* ── Match row cards — applied via container key ── */
         [class*="st-key-row_"] > div:first-child {
-            border: 1px solid #383838;
-            box-shadow: 3px 3px 0 rgba(0,0,0,0.07);
+            border: 2px solid #000000;
             padding: 4px 16px 4px 8px;
             margin-bottom: 4px;
             background: #FFFFFF;
@@ -161,11 +164,10 @@ def _inject_page_css() -> None:
         [class*="st-key-row_repair_"] > div:first-child {
             border: 2px solid #F59E0B !important;
             background: #FFFBEF !important;
-            box-shadow: 3px 3px 0 rgba(0,0,0,0.09) !important;
         }
         /* Manual state: teal border */
         [class*="st-key-row_manual_"] > div:first-child {
-            border: 1px solid #0c5460 !important;
+            border: 2px solid #000000 !important;
             background: #F0FAFA !important;
         }
         /* Domain badge */
@@ -173,7 +175,7 @@ def _inject_page_css() -> None:
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid #D0D0D0;
+            border: 2px solid #000000;
             background: #FFFFFF;
             width: 36px;
             height: 22px;
@@ -181,19 +183,20 @@ def _inject_page_css() -> None:
             font-weight: 700;
             color: #262730;
         }
-        /* ── Re-pair confirm button: matches Run Matching dark style ── */
+        /* ── Re-pair confirm button: primary CTA style ── */
         [class*="st-key-p3_confirm_repair_"] button {
-            background-color: #383838 !important;
-            border: 1px solid #383838 !important;
-            color: #FFFFFF !important;
-            font-weight: 700 !important;
+            background-color: #6fc2ff !important;
+            border: 2px solid #383838 !important;
+            border-radius: 2px !important;
+            color: #383838 !important;
+            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
+            font-weight: 400 !important;
             font-size: 14px !important;
-            box-shadow: 4px 4px 0 rgba(0,0,0,0.22) !important;
+            text-transform: uppercase !important;
         }
         [class*="st-key-p3_confirm_repair_"] button:disabled {
-            background-color: #8A847F !important;
-            border-color: #8A847F !important;
-            box-shadow: none !important;
+            background-color: #f4efea !important;
+            border-color: #383838 !important;
         }
         /* ── Match type multiselect tag colors ── */
         [data-baseweb="tag"]:has(span[title="exact"])         { background: #cce5ff !important; color: #004085 !important; }
@@ -241,10 +244,10 @@ def _inject_page_css() -> None:
             line-height: 1 !important;
             font-size: 13px !important;
             font-weight: 700 !important;
-            border-radius: 0 !important;
-            border: 1px solid #D0D0D0 !important;
-            background: #FFFFFF !important;
-            color: #8A847F !important;
+            border-radius: 2px !important;
+            border: 2px solid #383838 !important;
+            background: #f4efea !important;
+            color: #818181 !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
@@ -294,12 +297,11 @@ def _inject_page_css() -> None:
         /* ── Field pick card button — unselected ── */
         [class*="st-key-p3_pick_"] button {
             background: #FAFAFA !important;
-            border: 1px solid #E8E2DC !important;
+            border: 2px solid #000000 !important;
             text-align: left !important;
             padding: 6px 10px !important;
             font-size: 12px !important;
             font-weight: 600 !important;
-            box-shadow: none !important;
             height: auto !important;
             min-height: 36px !important;
             border-radius: 0 !important;
@@ -323,7 +325,7 @@ def _inject_page_css() -> None:
         /* italic meta line (3rd line) rendered as <em> — make it gray, 2pt smaller */
         [class*="st-key-p3_pick_"] button em,
         [class*="st-key-p3_picksel_"] button em {
-            color: #8A847F !important;
+            color: #818181 !important;
             font-style: italic !important;
             font-weight: 400 !important;
             font-size: 10px !important;
@@ -373,7 +375,7 @@ def _inject_page_css() -> None:
             display: block;
             text-align: center;
             background: #F0FFF4;
-            border: 1px solid #27C93F;
+            border: 2px solid #27C93F;
             color: #166534;
             padding: 1px 8px;
             font-size: 11px;
@@ -383,7 +385,7 @@ def _inject_page_css() -> None:
             display: block;
             text-align: center;
             background: #FEF3C7;
-            border: 1px solid #F59E0B;
+            border: 2px solid #F59E0B;
             color: #92400E;
             padding: 1px 8px;
             font-size: 11px;
@@ -467,10 +469,10 @@ def _render_action_card(
     with st.container(border=True, key="p3_action_card"):
         st.markdown(
             f'<div style="{_LABEL_STYLE}">Source aCRF</div>'
-            f'<div style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;'
+            f'<div style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:13px;font-weight:600;'
             f'color:#383838;margin:0 0 12px 0;word-break:break-all;">{source_name}</div>'
             f'<div style="{_LABEL_STYLE}">Target CRF</div>'
-            f'<div style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;'
+            f'<div style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:13px;font-weight:600;'
             f'color:#383838;margin:0 0 0 0;word-break:break-all;">{target_name}</div>',
             unsafe_allow_html=True,
         )
@@ -510,7 +512,7 @@ def _render_rate_card(matches: list[MatchRecord]) -> None:
             f'<div style="{_LABEL_STYLE}">Exact Match Rate</div>'
             f'<div style="{_NUMBER_STYLE}">{pct}%</div>'
             f'<div style="{_LABEL_STYLE}">Exact Matches</div>'
-            f'<div style="font-family:Inter,sans-serif;font-size:24px;font-weight:700;'
+            f'<div style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:24px;font-weight:700;'
             f'color:#383838;line-height:1.1;margin:0;">{exact_count}</div>',
             unsafe_allow_html=True,
         )
@@ -529,9 +531,9 @@ def _render_bytype_card_p3(matches: list[MatchRecord]) -> None:
         bg, border, text = _MATCH_TYPE_BADGE_COLORS[mt]
         type_rows += (
             f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'padding:3px 0;font-family:Inter,sans-serif;font-size:12px;">'
+            f'padding:3px 0;font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:12px;">'
             f'<span style="background:{bg};color:{text};padding:1px 7px;font-weight:600;'
-            f'border:1px solid {border};">{mt}</span>'
+            f'border:2px solid {border};">{mt}</span>'
             f'<strong style="color:#383838;">{count}</strong>'
             f'</div>'
         )
@@ -554,7 +556,7 @@ def _render_cards(
     """Always-visible 3-column card row (Phase 2 pattern)."""
     _render_topbar_p3(matches, session)
     _hdr = (
-        "font-family:Inter,sans-serif;font-size:12px;font-weight:700;"
+        "font-family:'Aeonik Mono', ui-monospace, monospace;font-size:12px;font-weight:700;"
         "color:#383838;text-transform:uppercase;letter-spacing:0.5px;"
         "margin:0;padding:0;"
     )
@@ -696,7 +698,7 @@ def _render_match_rows(
 
                 with col1:
                     st.markdown(
-                        f'<span style="font-size:13px;font-weight:600;color:#1E293B">{annot_label}</span>',
+                        f'<span style="font-size:13px;font-weight:600;color:#383838">{annot_label}</span>',
                         unsafe_allow_html=True,
                     )
 
@@ -704,8 +706,8 @@ def _render_match_rows(
                     field_lbl = _field_display_label(field)
                     form_sub = "manually paired · rect recomputed" if m.match_type == "manual" else ""
                     st.markdown(
-                        f'<span style="font-size:13px;font-weight:600;color:#1E293B">{field_lbl}</span>'
-                        + (f'<br><span style="font-size:11px;color:#94A3B8">{form_sub}</span>' if form_sub else ""),
+                        f'<span style="font-size:13px;font-weight:600;color:#383838">{field_lbl}</span>'
+                        + (f'<br><span style="font-size:11px;color:#818181">{form_sub}</span>' if form_sub else ""),
                         unsafe_allow_html=True,
                     )
 
@@ -764,8 +766,8 @@ def _render_annotation_detail(
 ) -> None:
     """Left panel: annotation context card — simplified."""
     st.markdown(
-        '<div style="font-family:Inter,sans-serif;font-size:11px;font-weight:600;'
-        'color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">'
+        '<div style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:11px;font-weight:600;'
+        'color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">'
         'ANNOTATION</div>',
         unsafe_allow_html=True,
     )
@@ -822,8 +824,8 @@ def _render_drawer_field_picker(
 
     # Top suggestions
     st.markdown(
-        '<div style="font-family:Inter,sans-serif;font-size:11px;font-weight:600;'
-        'color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">'
+        '<div style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:11px;font-weight:600;'
+        'color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">'
         'TOP SUGGESTIONS</div>',
         unsafe_allow_html=True,
     )
@@ -834,8 +836,8 @@ def _render_drawer_field_picker(
 
     # Browse by Form
     st.markdown(
-        '<div style="font-family:Inter,sans-serif;font-size:11px;font-weight:600;'
-        'color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">'
+        '<div style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:11px;font-weight:600;'
+        'color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">'
         'BROWSE BY FORM</div>',
         unsafe_allow_html=True,
     )
@@ -901,9 +903,9 @@ def _render_drawer_panel(
     with st.container(key="p3_drawer_header_wrap"):
         st.markdown(
             f'<div style="background:#383838;padding:10px 14px;padding-right:48px;">'
-            f'<div style="color:#FFFFFF;font-family:Inter,sans-serif;font-size:14px;font-weight:700;">'
+            f'<div style="color:#FFFFFF;font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:14px;font-weight:700;">'
             f'Re-pair Field</div>'
-            f'<div style="color:#94A3B8;font-family:Inter,sans-serif;font-size:11px;">'
+            f'<div style="color:#818181;font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:11px;">'
             f'{_html.escape(annot.anchor_text or annot.content[:40])} · {_html.escape(m.match_type)} · conf {m.confidence:.2f}'
             f'</div>'
             f'</div>',

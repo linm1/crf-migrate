@@ -60,10 +60,8 @@ def render_phase1(profiles_dir: Path) -> None:
         .st-key-p1_category_card {
             background: #FFFFFF !important;
         }
-        /* Remove border and shadow from upload card, white background */
+        /* White background for upload card */
         .st-key-p1_upload_card {
-            border: none !important;
-            box-shadow: none !important;
             background: #FFFFFF !important;
         }
         .st-key-p1_upload_card .stButton > button {
@@ -73,9 +71,9 @@ def render_phase1(profiles_dir: Path) -> None:
             font-weight: 400 !important;
         }
         .st-key-p1_upload_card .stButton > button:hover {
-            background: #505050 !important;
+            background: #383838 !important;
             color: #FFFFFF !important;
-            border-color: #505050 !important;
+            border-color: #383838 !important;
         }
         /* Phase 1 toolbar buttons: 12px regular monospace (matches Profile Editor pattern) */
         .st-key-p1_export_btn button p,
@@ -231,15 +229,15 @@ def _render_upload_card(session, profile, rule_engine) -> None:
 # ---------------------------------------------------------------------------
 
 _CATEGORY_COLORS = {
-    "sdtm_mapping":  ("#4F46E5", "#EEF2FF"),
-    "domain_label":  ("#92400E", "#FEF9C3"),
-    "not_submitted": ("#166534", "#F0FDF4"),
-    "note":          ("#475569", "#F1F5F9"),
-    "_exclude":      ("#DC2626", "#FEF2F2"),
+    "sdtm_mapping":  ("#383838", "#EAF0FF"),
+    "domain_label":  ("#383838", "#F9FBE7"),
+    "not_submitted": ("#383838", "#E8F5E9"),
+    "note":          ("#383838", "#ECEFF1"),
+    "_exclude":      ("#383838", "#FFEBE9"),
 }
 
 _LABEL_STYLE = (
-    "font-family:Aeonik,ui-sans-serif,sans-serif;font-size:11px;font-weight:600;"
+    "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:11px;font-weight:600;"
     "color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
 )
 _NUMBER_STYLE = (
@@ -276,10 +274,10 @@ def _render_category_card(annotations: list[AnnotationRecord]) -> None:
         text_color, bg_color = _CATEGORY_COLORS.get(cat, ("#383838", "#F8F8F8"))
         cat_rows += (
             f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'padding:4px 0;font-family:Aeonik,ui-sans-serif,sans-serif;font-size:12px;">'
+            f'padding:4px 0;font-family:\'Aeonik Mono\',ui-monospace,monospace;font-size:12px;">'
             f'<span style="background:{bg_color};color:{text_color};padding:1px 7px;'
             f'font-weight:600;">{cat}</span>'
-            f'<strong style="color:#383838;font-family:Aeonik,ui-sans-serif,sans-serif;">{cnt}</strong>'
+            f'<strong style="color:#383838;font-family:\'Aeonik Mono\',ui-monospace,monospace;">{cnt}</strong>'
             f'</div>'
         )
 
@@ -303,11 +301,11 @@ _ANNOT_LABEL_COLORS = {
     "_exclude":      "red",
 }
 _ANNOT_BG_COLORS = {
-    "sdtm_mapping":  "rgba(111,194,255,0.12)",
-    "domain_label":  "rgba(255,222,0,0.10)",
-    "not_submitted": "rgba(39,201,63,0.07)",
-    "note":          "rgba(238,238,238,0.35)",
-    "_exclude":      "rgba(255,95,86,0.07)",
+    "sdtm_mapping":  "#EAF0FF",
+    "domain_label":  "#F9FBE7",
+    "not_submitted": "#E8F5E9",
+    "note":          "#f8f8f7",
+    "_exclude":      "#FFEBE9",
 }
 _FIELD_TYPE_COLORS = {
     "text_field":     "blue",
@@ -317,11 +315,11 @@ _FIELD_TYPE_COLORS = {
     "section_header": "gray",
 }
 _FIELD_TYPE_BG_COLORS = {
-    "text_field":     "rgba(111,194,255,0.12)",
-    "checkbox":       "rgba(39,201,63,0.07)",
-    "date_field":     "rgba(255,222,0,0.10)",
-    "table_row":      "rgba(150,80,255,0.06)",
-    "section_header": "rgba(238,238,238,0.35)",
+    "text_field":     "#EAF0FF",
+    "checkbox":       "#E8F5E9",
+    "date_field":     "#F9FBE7",
+    "table_row":      "#f8f8f7",
+    "section_header": "#f8f8f7",
 }
 _ANNOT_CATEGORIES = ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]
 _FIELD_TYPES = ["text_field", "checkbox", "date_field", "table_row", "section_header"]
@@ -357,7 +355,7 @@ def _render_review_panel(
         else:
             for local_idx, (global_idx, annot) in enumerate(page_annots):
                 color = _ANNOT_LABEL_COLORS.get(annot.category, "gray")
-                bg = _ANNOT_BG_COLORS.get(annot.category, "rgba(238,238,238,0.18)")
+                bg = _ANNOT_BG_COLORS.get(annot.category, "#f8f8f7")
                 badge = annot.category or "—"
                 suffix = (annot.content[:60] if annot.content else annot.anchor_text[:60]) or "—"
                 label = f":{color}[**{badge}**] :gray[*{suffix}*]"
@@ -437,7 +435,7 @@ def _render_review_panel(
         else:
             for local_idx, (global_idx, field) in enumerate(page_fields):
                 color = _FIELD_TYPE_COLORS.get(field.field_type, "gray")
-                bg = _FIELD_TYPE_BG_COLORS.get(field.field_type, "rgba(238,238,238,0.18)")
+                bg = _FIELD_TYPE_BG_COLORS.get(field.field_type, "#f8f8f7")
                 badge = field.field_type or "—"
                 suffix = field.label[:60] if field.label else "—"
                 label = f":{color}[**{badge}**] :gray[*{suffix}*]"

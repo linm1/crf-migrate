@@ -94,7 +94,7 @@ st.markdown(
 
     /* Thin 1px borders on expanders and forms */
     details[data-testid="stExpander"] {
-        border: 1px solid #383838 !important;
+        border: 2px solid #383838 !important;
         box-shadow: 4px 4px 0 rgba(0,0,0,0.08);
     }
 
@@ -127,6 +127,17 @@ st.markdown(
         transform: none !important;
         box-shadow: 3px 3px 0 #38383840 !important;
     }
+
+    /* Page background: Warm Parchment */
+    .stApp, .main, [data-testid="stAppViewContainer"] {
+        background-color: #f4efea !important;
+    }
+
+    /* Shadow-free: remove shadows on containers (not buttons) */
+    div[data-testid="stContainer"][data-border="true"],
+    div[data-testid="stVerticalBlock"] {
+        box-shadow: none !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -151,7 +162,7 @@ st.markdown(
     .pe-sidebar-label {
         font-size: 10px !important;
         font-weight: 600 !important;
-        color: #8A847F !important;
+        color: #818181 !important;
         letter-spacing: 0.5px !important;
         text-transform: uppercase !important;
         margin: 0 0 4px 0 !important;

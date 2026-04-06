@@ -13,29 +13,25 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
-        /* Phase 4 toolbar buttons: 12px bold monospace */
-        .st-key-p4_generate_btn button p,
-        .st-key-p4_download_btn button p,
-        .st-key-p4_download_btn a p {
-            font-size: 12px !important;
-            font-weight: 700 !important;
-        }
-        /* Make download button visually identical to generate button */
+        /* Phase 4 Generate / Download buttons — design system spec */
+        .st-key-p4_generate_btn > button,
+        .st-key-p4_download_btn > button,
         .st-key-p4_download_btn a {
+            background-color: #6fc2ff !important;
+            color: #383838 !important;
+            border: 2px solid #383838 !important;
+            border-radius: 2px !important;
+            padding: 16.5px 22px !important;
+            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
+            font-size: 16px !important;
+            font-weight: 400 !important;
+            text-transform: uppercase !important;
+            box-shadow: none !important;
             display: inline-flex !important;
             align-items: center !important;
             justify-content: center !important;
             width: 100% !important;
-            background-color: transparent !important;
-            border: 1px solid rgba(49, 51, 63, 0.2) !important;
-            color: inherit !important;
             text-decoration: none !important;
-            padding: 0.25rem 0.75rem !important;
-            border-radius: 0.5rem !important;
-        }
-        .st-key-p4_download_btn a:hover {
-            border-color: rgba(49, 51, 63, 0.5) !important;
-            background-color: rgba(49, 51, 63, 0.05) !important;
         }
         </style>
         """,

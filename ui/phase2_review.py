@@ -34,11 +34,11 @@ _FIELD_TYPE_BG_COLORS = {
 _FIELD_TYPES = ["text_field", "checkbox", "date_field", "table_row", "section_header"]
 
 _LABEL_STYLE = (
-    "font-family:Inter,sans-serif;font-size:11px;font-weight:600;"
-    "color:#8A847F;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
+    "font-family:'Aeonik Mono', ui-monospace, monospace;font-size:11px;font-weight:600;"
+    "color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
 )
 _NUMBER_STYLE = (
-    "font-family:Inter,sans-serif;font-size:32px;font-weight:700;"
+    "font-family:'Aeonik Mono', ui-monospace, monospace;font-size:32px;font-weight:700;"
     "color:#383838;line-height:1.1;margin:0 0 16px 0;"
 )
 
@@ -85,14 +85,12 @@ def render_phase2(profiles_dir: Path) -> None:
             background: #FFFFFF !important;
         }
         .st-key-p2_upload_card {
-            border: none !important;
-            box-shadow: none !important;
             background: #FFFFFF !important;
         }
         .st-key-p2_upload_card .stButton > button {
             background: #383838 !important;
             color: #FFFFFF !important;
-            border: 1px solid #383838 !important;
+            border: 2px solid #383838 !important;
             font-weight: 700;
         }
         .st-key-p2_upload_card .stButton > button:hover {
@@ -112,7 +110,7 @@ def render_phase2(profiles_dir: Path) -> None:
 
     # ── Single HTML row for section headers ───────────────────────────────────
     _hdr = (
-        "font-family:Inter,sans-serif;font-size:12px;font-weight:700;"
+        "font-family:'Aeonik Mono', ui-monospace, monospace;font-size:12px;font-weight:700;"
         "color:#383838;text-transform:uppercase;letter-spacing:0.5px;"
         "margin:0;padding:0;"
     )
@@ -267,11 +265,11 @@ def _render_bytype_card(fields: list[FieldRecord]) -> None:
         by_type[f.field_type] = by_type.get(f.field_type, 0) + 1
 
     _color_hex = {
-        "blue":   ("#EEF2FF", "#C7D2FE", "#4F46E5"),
-        "green":  ("#F0FDF4", "#BBF7D0", "#16A34A"),
-        "orange": ("#FEF9C3", "#FDE68A", "#92400E"),
-        "violet": ("#F5F3FF", "#DDD6FE", "#7C3AED"),
-        "gray":   ("#F1F5F9", "#CBD5E1", "#475569"),
+        "blue":   ("#EEF2FF", "#C7D2FE", "#383838"),   # Periwinkle (text_field)
+        "green":  ("#E8F5E9", "#38c1b0", "#383838"),   # Mint (checkbox)
+        "orange": ("#F9FBE7", "#B3C419", "#383838"),   # Lime (date_field)
+        "violet": ("#F7F1FF", "#B291DE", "#383838"),   # Lavender (table_row)
+        "gray":   ("#ECEFF1", "#84A6BC", "#383838"),   # Slate (section_header)
     }
     type_rows = ""
     for ft in _FIELD_TYPES:
@@ -280,8 +278,8 @@ def _render_bytype_card(fields: list[FieldRecord]) -> None:
         bg_col, border_col, text_col = _color_hex.get(color, ("#F1F5F9", "#CBD5E1", "#475569"))
         type_rows += (
             f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'padding:3px 0;font-family:Inter,sans-serif;font-size:12px;">'
-            f'<span style="background:{bg_col};color:{text_col};border:1px solid {border_col};'
+            f'padding:3px 0;font-family:&quot;Aeonik Mono&quot;,ui-monospace,monospace;font-size:12px;">'
+            f'<span style="background:{bg_col};color:{text_col};border:2px solid {border_col};'
             f'padding:1px 7px;font-weight:600;">{ft}</span>'
             f'<strong style="color:#383838;">{cnt}</strong>'
             f'</div>'
@@ -314,8 +312,8 @@ def _render_review_panel(
 
     # Header row
     st.markdown(
-        '<p style="font-family:Inter,sans-serif;font-size:15px;font-weight:700;'
-        'color:#1E293B;margin:0 0 4px 0;">Review Fields</p>',
+        '<p style="font-family:&quot;Aeonik Mono&quot;,ui-monospace,monospace;font-size:15px;font-weight:700;'
+        'color:#383838;margin:0 0 4px 0;">Review Fields</p>',
         unsafe_allow_html=True,
     )
     # Paginator as its own full-width row

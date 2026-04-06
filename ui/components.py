@@ -25,10 +25,10 @@ def render_phase_status_bar(phases_complete: dict[int, bool]) -> None:
     for i, col in enumerate(cols):
         phase_num = i + 1
         if phases_complete.get(phase_num, False):
-            color = "#28a745"  # green
+            color = "#53dbc9"  # teal
             symbol = "●"
         elif phase_num == current:
-            color = "#ffc107"  # yellow
+            color = "#c0c0c0"  # light gray
             symbol = "●"
         else:
             color = "#6c757d"  # gray
@@ -123,8 +123,8 @@ def render_page_navigator_inline(total_pages: int, key: str) -> int:
 
     with label_col:
         st.markdown(
-            f'<span style="font-family:Inter,sans-serif;font-size:13px;'
-            f'color:#8A847F;white-space:nowrap;">/ {total_pages}</span>',
+            f'<span style="font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:13px;'
+            f'color:#818181;white-space:nowrap;">/ {total_pages}</span>',
             unsafe_allow_html=True,
         )
 
@@ -257,11 +257,11 @@ _ANNOT_LABEL_COLORS = {
 }
 
 _ANNOT_BG_COLORS = {
-    "sdtm_mapping":  "rgba(111,194,255,0.12)",
-    "domain_label":  "rgba(255,222,0,0.10)",
-    "not_submitted": "rgba(39,201,63,0.07)",
-    "note":          "rgba(238,238,238,0.35)",
-    "_exclude":      "rgba(255,95,86,0.07)",
+    "sdtm_mapping":  "#EAF0FF",
+    "domain_label":  "#F9FBE7",
+    "not_submitted": "#E8F5E9",
+    "note":          "#f8f8f7",
+    "_exclude":      "#FFEBE9",
 }
 
 _ANNOT_CATEGORIES = ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]
@@ -280,7 +280,7 @@ def render_annotation_card(
     Background tint driven by category. Per-item Save + Delete in footer.
     """
     color = _ANNOT_LABEL_COLORS.get(annot.category, "gray")
-    bg = _ANNOT_BG_COLORS.get(annot.category, "rgba(238,238,238,0.18)")
+    bg = _ANNOT_BG_COLORS.get(annot.category, "#f8f8f7")
     form_badge = f"**{annot.form_name}**" if annot.form_name else f"**{annot.domain}**"
     pattern_suffix = annot.content[:50] if annot.content else annot.anchor_text[:50]
     label = f":{color}[{form_badge}] :gray[*{pattern_suffix}*]"
@@ -354,11 +354,11 @@ _FIELD_TYPE_COLORS = {
 }
 
 _FIELD_TYPE_BG_COLORS = {
-    "text_field":     "rgba(111,194,255,0.12)",
-    "checkbox":       "rgba(39,201,63,0.07)",
-    "date_field":     "rgba(255,222,0,0.10)",
-    "table_row":      "rgba(150,80,255,0.06)",
-    "section_header": "rgba(238,238,238,0.35)",
+    "text_field":     "#EAF0FF",
+    "checkbox":       "#E8F5E9",
+    "date_field":     "#F9FBE7",
+    "table_row":      "#f8f8f7",
+    "section_header": "#f8f8f7",
 }
 
 
@@ -375,7 +375,7 @@ def render_field_card(
     Background tint driven by field_type. Per-item Save + Delete in footer.
     """
     color = _FIELD_TYPE_COLORS.get(field.field_type, "gray")
-    bg = _FIELD_TYPE_BG_COLORS.get(field.field_type, "rgba(238,238,238,0.18)")
+    bg = _FIELD_TYPE_BG_COLORS.get(field.field_type, "#f8f8f7")
     form_badge = f"**{field.form_name}**" if field.form_name else f"**{field.label[:30]}**"
     label_suffix = field.label[:50] if field.form_name else field.field_type
     expander_label = f":{color}[{form_badge}] :gray[*{label_suffix}*]"
@@ -432,11 +432,11 @@ def render_field_card(
 _DOMAIN_BADGE_COLORS: dict[str, tuple[str, str, str]] = {}
 
 _CATEGORY_CHIP: dict[str, tuple[str, str, str]] = {
-    "sdtm_mapping":  ("#EEF2FF", "#C7D2FE", "#4F46E5"),
-    "domain_label":  ("#FEF9C3", "#FDE68A", "#92400E"),
-    "not_submitted": ("#F0FDF4", "#BBF7D0", "#16A34A"),
-    "note":          ("#F1F5F9", "#CBD5E1", "#475569"),
-    "_exclude":      ("#FEF2F2", "#FECACA", "#DC2626"),
+    "sdtm_mapping":  ("#EAF0FF", "#7597EE", "#383838"),
+    "domain_label":  ("#F9FBE7", "#B3C419", "#383838"),
+    "not_submitted": ("#E8F5E9", "#38C1B0", "#383838"),
+    "note":          ("#ECEFF1", "#84A6BC", "#383838"),
+    "_exclude":      ("#FFEBE9", "#F38E84", "#383838"),
 }
 
 
@@ -451,7 +451,7 @@ def render_annotation_row(
     Layout: [domain badge chip] | [title + subtitle] | [✕ button]
     """
     chip_bg, chip_border, chip_text = _CATEGORY_CHIP.get(
-        annot.category, ("#F1F5F9", "#CBD5E1", "#475569")
+        annot.category, ("#ECEFF1", "#84A6BC", "#383838")
     )
     domain_label = (annot.domain or annot.category or "—")[:6].upper()
     title = annot.form_name or annot.content[:40] if annot.content else "—"
@@ -467,8 +467,7 @@ def render_annotation_row(
     <div style="
         display:flex; align-items:center; gap:12px;
         background:#FFFFFF;
-        border:1px solid #E8E2DC;
-        box-shadow:3px 3px 0 #00000011;
+        border:2px solid #000000;
         padding:0 16px;
         height:64px;
         margin-bottom:8px;
@@ -476,16 +475,16 @@ def render_annotation_row(
     ">
         <div style="
             min-width:36px; height:22px;
-            background:{chip_bg}; border:1px solid {chip_border};
+            background:{chip_bg}; border:2px solid {chip_border};
             display:flex; align-items:center; justify-content:center;
-            font-family:Inter,sans-serif; font-size:11px; font-weight:700;
+            font-family:'Aeonik Mono', ui-monospace, monospace; font-size:11px; font-weight:700;
             color:{chip_text};
         ">{domain_label}</div>
         <div style="flex:1; overflow:hidden;">
-            <div style="font-family:Inter,sans-serif;font-size:13px;font-weight:600;
-                        color:#1E293B;white-space:nowrap;overflow:hidden;
+            <div style="font-family:'Aeonik Mono', ui-monospace, monospace;font-size:13px;font-weight:600;
+                        color:#383838;white-space:nowrap;overflow:hidden;
                         text-overflow:ellipsis;">{title}</div>
-            <div style="font-family:Inter,sans-serif;font-size:11px;color:#94A3B8;
+            <div style="font-family:'Aeonik Mono', ui-monospace, monospace;font-size:11px;color:#818181;
                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
                         margin-top:2px;">{subtitle}</div>
         </div>
@@ -509,9 +508,9 @@ def render_confidence_badge(confidence: float) -> None:
     fill_width = int(confidence * 64)
     st.markdown(
         f'<span style="display:inline-flex;flex-direction:column;align-items:center;gap:3px;vertical-align:middle">'
-        f'<span style="font-size:11px;font-weight:700;color:#262730">{confidence:.0%}</span>'
-        f'<span style="display:inline-block;width:64px;height:6px;background:#E8E2DC">'
-        f'<span style="display:block;width:{fill_width}px;height:6px;background:#262730"></span>'
+        f'<span style="font-size:11px;font-weight:700;color:#383838">{confidence:.0%}</span>'
+        f'<span style="display:inline-block;width:64px;height:6px;background:#f4efea">'
+        f'<span style="display:block;width:{fill_width}px;height:6px;background:#383838"></span>'
         f'</span>'
         f'</span>',
         unsafe_allow_html=True,
@@ -521,16 +520,16 @@ def render_confidence_badge(confidence: float) -> None:
 def render_match_type_badge(match_type: str) -> None:
     """Render a colored match type badge."""
     colors = {
-        "exact": ("#004085", "#cce5ff"),
-        "fuzzy": ("#3d1a78", "#e2d9f3"),
-        "position_only": ("#7d4e00", "#fff3cd"),
-        "manual": ("#0c5460", "#d1ecf1"),
-        "unmatched": ("#721c24", "#f8d7da"),
+        "exact": ("#383838", "#EAF0FF"),
+        "fuzzy": ("#383838", "#F7F1FF"),
+        "position_only": ("#383838", "#F9FBE7"),
+        "manual": ("#383838", "#EAF0FF"),
+        "unmatched": ("#383838", "#FFEBE9"),
     }
-    color, bg = colors.get(match_type, ("#343a40", "#e2e3e5"))
+    color, bg = colors.get(match_type, ("#383838", "#ECEFF1"))
     st.markdown(
         f'<span style="background:{bg};color:{color};padding:2px 8px;'
-        f'border-radius:4px;font-size:12px;display:block;text-align:center">{match_type}</span>',
+        f'border-radius:2px;font-size:12px;display:block;text-align:center">{match_type}</span>',
         unsafe_allow_html=True,
     )
 

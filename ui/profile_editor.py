@@ -18,7 +18,7 @@ def _inject_page_css() -> None:
             font-weight: 400; color: #383838; text-transform: uppercase;
             letter-spacing: 0.5px; margin: 0 0 4px 0; }
         .pe-help-text { font-size: 12px; color: #818181;
-            font-family: 'Aeonik Fono', Inter, sans-serif; margin: -4px 0 8px 0; }
+            font-family: 'Aeonik Mono', ui-monospace, monospace; margin: -4px 0 8px 0; }
         .pe-field-label { font-size: 13px; font-weight: 600; color: #383838;
             font-family: Aeonik, ui-sans-serif, sans-serif; margin: 0 0 2px 0; }
         .pe-yaml-header { background: #383838; display: flex; align-items: center;
@@ -46,7 +46,7 @@ def _inject_page_css() -> None:
             border-radius: 0 !important;
             padding: 2px 10px !important;
             font-size: 12px !important;
-            font-family: Inter, ui-monospace, monospace !important;
+            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
             font-weight: 400 !important;
             height: auto !important;
             min-height: 0 !important;
@@ -59,7 +59,7 @@ def _inject_page_css() -> None:
             border-color: #383838 !important; }
         [class*="st-key-del_code_"] { padding: 2px !important; }
 
-        .pe-cat-badge { display: inline-block; background: rgba(255,222,0,0.2);
+        .pe-cat-badge { display: inline-block; background: #EAF0FF;
             padding: 2px 8px; font-size: 11px; font-weight: 600;
             color: #383838; font-family: Aeonik, ui-monospace, monospace; }
         .pe-table-header { font-family: Aeonik, ui-sans-serif, sans-serif; font-size: 11px;
@@ -110,7 +110,6 @@ def _inject_page_css() -> None:
             height: 24px !important;
             min-height: 0 !important;
             line-height: 24px !important;
-            box-shadow: none !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important; }
@@ -336,7 +335,7 @@ def _render_classification_rules_tab(draft: dict, profiles_dir: Path, selected: 
         cond = rule.get("conditions", {})
         cat = rule.get("category", "sdtm_mapping")
         color = _RULE_LABEL_COLORS.get(cat, "gray")
-        bg = _RULE_BG_COLORS.get(cat, "rgba(238,238,238,0.18)")
+        bg = _RULE_BG_COLORS.get(cat, "#ECEFF1")
         expander_label = f":{color}[**{cat}**] - :gray[*{_cond_summary(cond) or '(empty rule)'}*]"
         st.markdown(
             f'<style>.st-key-rule_exp_{i} details{{background:{bg} !important}}</style>',
@@ -419,11 +418,11 @@ _RULE_LABEL_COLORS = {
 }
 
 _RULE_BG_COLORS = {
-    "sdtm_mapping":  "rgba(111,194,255,0.12)",    # sky-blue tint
-    "domain_label":  "rgba(255,222,0,0.10)",      # vivid-yellow tint
-    "not_submitted": "rgba(39,201,63,0.07)",     # terminal-green tint
-    "note":          "rgba(238,238,238,0.35)",   # terminal-gray tint
-    "_exclude":      "rgba(255,95,86,0.07)",     # terminal-red tint
+    "sdtm_mapping":  "#EAF0FF",
+    "domain_label":  "#F9FBE7",
+    "not_submitted": "#E8F5E9",
+    "note":          "#ECEFF1",
+    "_exclude":      "#FFEBE9",
 }
 
 
@@ -646,7 +645,7 @@ def _render_yaml_tab(draft: dict, profiles_dir: Path, name: str) -> None:
     yaml_text = yaml.dump(draft, allow_unicode=True, sort_keys=False)
     # macOS-style terminal header bar
     st.markdown(
-        f'<div style="background:#F4EFEA;border:1px solid #383838;overflow:hidden;">'
+        f'<div style="background:#F4EFEA;border:2px solid #383838;overflow:hidden;">'
         f'  <div class="pe-yaml-header">'
         f'    <div class="pe-yaml-dots">'
         f'      <span class="pe-yaml-dot" style="background:#FF5F56"></span>'
