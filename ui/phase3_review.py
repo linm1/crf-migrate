@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import html as _html
+import threading
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -17,7 +19,7 @@ from ui.components import (
     render_confidence_badge,
     render_match_type_badge,
 )
-from ui.loader import clear_loader, show_loader
+from ui.loader import clear_loader, loader_html, show_loader
 
 _DEFAULT_VISIT_BOOST: float = 5.0
 _DEFAULT_CROSS_FORM_THRESHOLD: float = 0.5
@@ -485,11 +487,30 @@ def _render_action_card(
                 source_pdf_path = st.session_state.get("source_pdf_path")
                 target_pdf_path = st.session_state.get("target_pdf_path")
                 _loader_ph = st.empty()
-                show_loader(_loader_ph, "Running matching passes…")
-                try:
-                    source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
-                    target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
-                    new_matches = match_annotations(annotations, fields, profile, source_dims, target_dims)
+                _loader_ph.html(loader_html("Running matching passes…"))
+
+                _result: dict = {}
+
+                def _work() -> None:
+                    try:
+                        source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
+                        target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
+                        _result["matches"] = match_annotations(annotations, fields, profile, source_dims, target_dims)
+                    except Exception as exc:
+                        _result["error"] = exc
+
+                _t = threading.Thread(target=_work, daemon=True)
+                _t.start()
+                while _t.is_alive():
+                    time.sleep(0.05)
+                    _loader_ph.html(loader_html("Running matching passes…"))
+                _t.join()
+                clear_loader(_loader_ph)
+
+                if "error" in _result:
+                    st.error(f"Matching failed: {_result['error']}")
+                else:
+                    new_matches = _result["matches"]
                     session.save_matches(new_matches)
                     st.session_state["matches"] = new_matches
                     st.session_state["phases_complete"][3] = True
@@ -497,10 +518,6 @@ def _render_action_card(
                     st.session_state.pop("_p3_csv_ready", None)
                     session.log_action("phase3_match", {"count": len(new_matches)})
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Matching failed: {e}")
-                finally:
-                    clear_loader(_loader_ph)
     if _no_session_error:
         st.error("No active session. Please restart the app.")
 
