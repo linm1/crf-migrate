@@ -1,4 +1,6 @@
 """Phase 1: Annotation extraction and review UI."""
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -13,7 +15,7 @@ from ui.components import (
     invalidate_phases,
     render_page_navigator_windowed,
 )
-from ui.loader import clear_loader, show_loader
+from ui.loader import clear_loader, loader_html, show_loader
 
 
 def render_phase1(profiles_dir: Path) -> None:
@@ -208,10 +210,30 @@ def _render_upload_card(session, profile, rule_engine) -> None:
             disabled=not has_pdf,
         ):
             _loader_ph = st.empty()
-            show_loader(_loader_ph, "Extracting…")
-            try:
-                records = extract_annotations(source_pdf_path, profile, rule_engine)
-                fields = extract_fields(source_pdf_path, profile, rule_engine)
+            _loader_ph.html(loader_html("Extracting…"))
+
+            _result: dict = {}
+
+            def _work() -> None:
+                try:
+                    _result["records"] = extract_annotations(source_pdf_path, profile, rule_engine)
+                    _result["fields"] = extract_fields(source_pdf_path, profile, rule_engine)
+                except Exception as exc:
+                    _result["error"] = exc
+
+            _t = threading.Thread(target=_work, daemon=True)
+            _t.start()
+            while _t.is_alive():
+                time.sleep(0.05)
+                _loader_ph.html(loader_html("Extracting…"))
+            _t.join()
+            clear_loader(_loader_ph)
+
+            if "error" in _result:
+                st.error(f"Extraction failed: {_result['error']}")
+            else:
+                records = _result["records"]
+                fields = _result["fields"]
                 session.save_annotations(records)
                 st.session_state["annotations"] = records
                 st.session_state["source_fields"] = fields
@@ -222,10 +244,6 @@ def _render_upload_card(session, profile, rule_engine) -> None:
                     "fields": len(fields),
                 })
                 st.rerun()
-            except Exception as e:
-                st.error(f"Extraction failed: {e}")
-            finally:
-                clear_loader(_loader_ph)
 
 
 # ---------------------------------------------------------------------------
