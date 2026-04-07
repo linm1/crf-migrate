@@ -91,7 +91,7 @@ def render_phase1(profiles_dir: Path) -> None:
 
     # ── Single HTML row for all three section headers (guarantees same baseline) ──
     _hdr = (
-        "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:12px;font-weight:400;"
+        "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:12px;font-weight:700;"
         "color:#383838;text-transform:uppercase;letter-spacing:0.5px;"
         "margin:0;padding:0;"
     )
@@ -250,11 +250,11 @@ def _render_upload_card(session, profile, rule_engine) -> None:
 # ---------------------------------------------------------------------------
 
 _CATEGORY_COLORS = {
-    "sdtm_mapping":  ("#383838", "#EAF0FF"),
-    "domain_label":  ("#383838", "#F9FBE7"),
-    "not_submitted": ("#383838", "#E8F5E9"),
-    "note":          ("#383838", "#ECEFF1"),
-    "_exclude":      ("#383838", "#FFEBE9"),
+    "sdtm_mapping":  ("#EAF0FF", "#C7D2FE", "#383838"),
+    "domain_label":  ("#F9FBE7", "#B3C419", "#383838"),
+    "not_submitted": ("#E8F5E9", "#38c1b0", "#383838"),
+    "note":          ("#ECEFF1", "#84A6BC", "#383838"),
+    "_exclude":      ("#FFEBE9", "#FFBDBA", "#383838"),
 }
 
 _LABEL_STYLE = (
@@ -262,7 +262,7 @@ _LABEL_STYLE = (
     "color:#818181;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px 0;"
 )
 _NUMBER_STYLE = (
-    "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:32px;font-weight:400;"
+    "font-family:'Aeonik Mono',ui-monospace,monospace;font-size:32px;font-weight:700;"
     "color:#383838;line-height:1.1;margin:0 0 16px 0;"
 )
 
@@ -292,13 +292,13 @@ def _render_category_card(annotations: list[AnnotationRecord]) -> None:
     cat_rows = ""
     for cat in ["sdtm_mapping", "domain_label", "not_submitted", "note", "_exclude"]:
         cnt = by_category.get(cat, 0)
-        text_color, bg_color = _CATEGORY_COLORS.get(cat, ("#383838", "#F8F8F8"))
+        bg_col, border_col, text_col = _CATEGORY_COLORS.get(cat, ("#F8F8F8", "#CCCCCC", "#383838"))
         cat_rows += (
             f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'padding:4px 0;font-family:\'Aeonik Mono\',ui-monospace,monospace;font-size:12px;">'
-            f'<span style="background:{bg_color};color:{text_color};padding:1px 7px;'
-            f'font-weight:600;">{cat}</span>'
-            f'<strong style="color:#383838;font-family:\'Aeonik Mono\',ui-monospace,monospace;">{cnt}</strong>'
+            f'padding:3px 0;font-family:\'Aeonik Mono\',ui-monospace,monospace;font-size:12px;">'
+            f'<span style="background:{bg_col};color:{text_col};border:2px solid {border_col};'
+            f'padding:1px 7px;font-weight:600;">{cat}</span>'
+            f'<strong style="color:#383838;">{cnt}</strong>'
             f'</div>'
         )
 
