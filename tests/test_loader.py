@@ -13,23 +13,40 @@ def test_loader_html_contains_message():
     assert "Extracting…" in html
 
 
-def test_loader_html_contains_keyframes():
+def test_loader_html_contains_smil_animate_transform():
     from ui.loader import loader_html
     html = loader_html("x")
-    assert "@keyframes crf-pageFloat" in html
+    assert "<animateTransform" in html
+    assert 'attributeName="transform"' in html
+    assert 'type="translate"' in html
+    assert 'repeatCount="indefinite"' in html
+
+
+def test_loader_html_contains_smil_animate_opacity():
+    from ui.loader import loader_html
+    html = loader_html("x")
+    assert "<animate" in html
+    assert 'attributeName="fill-opacity"' in html
+
+
+def test_loader_html_contains_three_layers_with_staggered_delays():
+    from ui.loader import loader_html
+    html = loader_html("x")
+    assert 'begin="0s"' in html
+    assert 'begin="0.1s"' in html
+    assert 'begin="0.2s"' in html
 
 
 def test_loader_html_contains_svg():
     from ui.loader import loader_html
     html = loader_html("x")
     assert "<svg" in html
-    assert "crf-layer-top" in html
-    assert "crf-layer-middle" in html
-    assert "crf-layer-bottom" in html
+    assert "#FF9800" in html   # bottom / orange
+    assert "#B5135A" in html   # middle / magenta
+    assert "#E91E8C" in html   # top / pink
 
 
-def test_show_loader_delegates_to_loader_html(monkeypatch):
-    """show_loader must call placeholder.html() with loader_html() output."""
+def test_show_loader_delegates_to_loader_html():
     from ui.loader import loader_html, show_loader
 
     calls = []
@@ -42,7 +59,7 @@ def test_show_loader_delegates_to_loader_html(monkeypatch):
     show_loader(ph, "Testing…")
     assert len(calls) == 1
     assert "Testing…" in calls[0]
-    assert "@keyframes crf-pageFloat" in calls[0]
+    assert "<animateTransform" in calls[0]
 
 
 def test_clear_loader_calls_empty():
