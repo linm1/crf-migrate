@@ -19,7 +19,7 @@ from ui.components import (
     render_confidence_badge,
     render_match_type_badge,
 )
-from ui.loader import clear_loader, loader_html, show_loader
+from ui.loader import clear_loader, loader_html
 
 _DEFAULT_VISIT_BOOST: float = 5.0
 _DEFAULT_CROSS_FORM_THRESHOLD: float = 0.5

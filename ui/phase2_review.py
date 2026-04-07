@@ -14,7 +14,7 @@ from ui.components import (
     invalidate_phases,
     render_page_navigator_windowed,
 )
-from ui.loader import clear_loader, loader_html, show_loader
+from ui.loader import clear_loader, loader_html
 
 # ---------------------------------------------------------------------------
 # Color dicts (mirroring components.py, inlined to avoid coupling)

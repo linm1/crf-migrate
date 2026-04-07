@@ -6,10 +6,10 @@ from pathlib import Path
 import fitz
 import streamlit as st
 
-from src.writer import write_annotations
 from src.models import MatchRecord
+from src.writer import write_annotations
 from ui.components import render_page_navigator_windowed
-from ui.loader import clear_loader, loader_html, show_loader
+from ui.loader import clear_loader, loader_html
 
 
 def _inject_page_css() -> None:
