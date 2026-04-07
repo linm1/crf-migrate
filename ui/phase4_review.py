@@ -1,4 +1,6 @@
 """Phase 4: Output generation UI."""
+import threading
+import time
 from pathlib import Path
 
 import fitz
@@ -7,7 +9,7 @@ import streamlit as st
 from src.writer import write_annotations
 from src.models import MatchRecord
 from ui.components import render_page_navigator_windowed
-from ui.loader import clear_loader, show_loader
+from ui.loader import clear_loader, loader_html, show_loader
 
 
 def _inject_page_css() -> None:
@@ -85,25 +87,40 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
         if st.button("Generate", key="p4_generate_btn", use_container_width=True, disabled=disabled):
             out_path = session.workspace / "output_acrf.pdf"
             _loader_ph = st.empty()
-            show_loader(_loader_ph, "Writing annotations to target PDF…")
-            try:
-                qc_report = write_annotations(
-                    target_pdf_path,
-                    out_path,
-                    matches,
-                    annotations,
-                    profile,
-                )
+            _loader_ph.html(loader_html("Writing annotations to target PDF…"))
+
+            _result: dict = {}
+
+            def _work() -> None:
+                try:
+                    _result["qc_report"] = write_annotations(
+                        target_pdf_path,
+                        out_path,
+                        matches,
+                        annotations,
+                        profile,
+                    )
+                except Exception as exc:
+                    _result["error"] = exc
+
+            _t = threading.Thread(target=_work, daemon=True)
+            _t.start()
+            while _t.is_alive():
+                time.sleep(0.05)
+                _loader_ph.html(loader_html("Writing annotations to target PDF…"))
+            _t.join()
+            clear_loader(_loader_ph)
+
+            if "error" in _result:
+                st.error(f"Output generation failed: {_result['error']}")
+            else:
+                qc_report = _result["qc_report"]
                 session.save_qc_report(qc_report)
                 st.session_state["output_pdf_path"] = out_path
                 st.session_state["qc_report"] = qc_report
                 st.session_state["phases_complete"][4] = True
                 session.log_action("phase4_write", qc_report)
                 st.rerun()
-            except Exception as e:
-                st.error(f"Output generation failed: {e}")
-            finally:
-                clear_loader(_loader_ph)
 
     with tb_download:
         if output_pdf_path and output_pdf_path.exists():
