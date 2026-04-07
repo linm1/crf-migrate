@@ -107,7 +107,6 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
             _t.start()
             while _t.is_alive():
                 time.sleep(0.05)
-                _loader_ph.html(loader_html("Writing annotations to target PDF…"))
             _t.join()
             clear_loader(_loader_ph)
 

@@ -503,7 +503,6 @@ def _render_action_card(
                 _t.start()
                 while _t.is_alive():
                     time.sleep(0.05)
-                    _loader_ph.html(loader_html("Running matching passes…"))
                 _t.join()
                 clear_loader(_loader_ph)
 
