@@ -5,14 +5,16 @@ Renders an SVG "Stacked Pages" animation using the app's brand identity
 """
 
 
-def show_loader(placeholder, message: str = "Processing…") -> None:
-    """Render the animated Stacked Pages loader into a Streamlit empty placeholder.
+def loader_html(message: str = "Processing…") -> str:
+    """Return the full HTML string for the animated Stacked Pages loader.
 
     Args:
-        placeholder: A Streamlit empty placeholder (``st.empty()``).
         message: Label shown below the animation in a muted style.
+
+    Returns:
+        HTML string suitable for passing to ``placeholder.html()``.
     """
-    html = f"""
+    return f"""
 <div class="crf-loader-wrap">
   <style>
     .crf-loader-wrap {{
@@ -90,7 +92,16 @@ def show_loader(placeholder, message: str = "Processing…") -> None:
   <div class="crf-loader-label">{message}</div>
 </div>
 """
-    placeholder.markdown(html, unsafe_allow_html=True)
+
+
+def show_loader(placeholder, message: str = "Processing…") -> None:
+    """Render the animated Stacked Pages loader into a Streamlit empty placeholder.
+
+    Args:
+        placeholder: A Streamlit empty placeholder (``st.empty()``).
+        message: Label shown below the animation in a muted style.
+    """
+    placeholder.html(loader_html(message))
 
 
 def clear_loader(placeholder) -> None:
