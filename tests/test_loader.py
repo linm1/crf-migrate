@@ -1,5 +1,4 @@
 """Tests for ui/loader.py."""
-import pytest
 
 
 def test_loader_html_returns_string():
@@ -44,3 +43,18 @@ def test_show_loader_delegates_to_loader_html(monkeypatch):
     assert len(calls) == 1
     assert "Testing…" in calls[0]
     assert "@keyframes crf-pageFloat" in calls[0]
+
+
+def test_clear_loader_calls_empty():
+    """clear_loader must call placeholder.empty()."""
+    from ui.loader import clear_loader
+
+    calls = []
+
+    class FakePlaceholder:
+        def empty(self) -> None:
+            calls.append(True)
+
+    ph = FakePlaceholder()
+    clear_loader(ph)
+    assert calls == [True]

@@ -3,6 +3,7 @@
 Renders an SVG "Stacked Pages" animation using the app's brand identity
 (parallelogram shapes in pink/magenta/orange, floating upward sequentially).
 """
+from typing import Any
 
 
 def loader_html(message: str = "Processing…") -> str:
@@ -94,7 +95,7 @@ def loader_html(message: str = "Processing…") -> str:
 """
 
 
-def show_loader(placeholder, message: str = "Processing…") -> None:
+def show_loader(placeholder: Any, message: str = "Processing…") -> None:
     """Render the animated Stacked Pages loader into a Streamlit empty placeholder.
 
     Args:
@@ -104,7 +105,7 @@ def show_loader(placeholder, message: str = "Processing…") -> None:
     placeholder.html(loader_html(message))
 
 
-def clear_loader(placeholder) -> None:
+def clear_loader(placeholder: Any) -> None:
     """Clear the animated loader from the given Streamlit placeholder.
 
     Args:
