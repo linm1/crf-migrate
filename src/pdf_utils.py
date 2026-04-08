@@ -25,7 +25,7 @@ def find_nearest_label(
          - min(marker_y1, block_y1)).  Zero when block overlaps annotation.
       4. When max_vert_distance_px is set, discard candidates with
          vert_dist > max_vert_distance_px.
-      5. Tie-break by abs(block_center_y - marker_center_y).
+      5. Tie-break by abs(block_center_y - marker_y0) — prefers labels near the top of the annotation.
       6. Skip blocks matching any of exclude_patterns.
       7. Return (stripped text, rect) of best candidate, or ("", None) when none remain.
 
@@ -47,7 +47,6 @@ def find_nearest_label(
         return "", None
 
     x0, y0, x1, y1 = marker_rect
-    marker_cy = (y0 + y1) / 2.0
 
     min_x0 = min(b["rect"][0] for b in text_blocks)
     left_threshold = min_x0 + left_column_tolerance_px
@@ -67,7 +66,7 @@ def find_nearest_label(
         if max_vert_distance_px is not None and vert_dist > max_vert_distance_px:
             continue
         block_cy = (block_y0 + block_y1) / 2.0
-        center_dist = abs(block_cy - marker_cy)
+        center_dist = abs(block_cy - y0)
         candidates.append((vert_dist, center_dist, block))
 
     if not candidates:
