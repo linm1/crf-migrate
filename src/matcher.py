@@ -1,8 +1,8 @@
 """Phase 3: Match source annotations to target CRF fields.
 
 Four cascading passes:
-  1. Exact   — same form_name + identical anchor_text/label (case-insensitive)
-  2. Fuzzy same-form — rapidfuzz token_sort_ratio within same form
+  1. Exact   — same form_name + identical anchor_text/label (case- and whitespace-sensitive)
+  2. Fuzzy same-form — rapidfuzz token_sort_ratio within same form and page rank
   3. Fuzzy cross-form — rapidfuzz token_sort_ratio across all forms
   4. Position fallback — coordinate scaling; domain_label uses absolute position
 
@@ -12,6 +12,7 @@ when scipy is available, falling back to greedy iteration otherwise.
 from __future__ import annotations
 
 import warnings
+from collections import defaultdict
 
 import numpy as np
 from rapidfuzz import fuzz
@@ -26,6 +27,26 @@ except (ImportError, TypeError):
     _SCIPY_AVAILABLE = False
 
 _norm = lambda s: s.strip().lower()  # noqa: E731
+
+
+def _build_page_rank_map(records: list, key_fn) -> dict:
+    """Return {norm_form_name: {page_number: page_rank}} with 1-based ranks.
+
+    Page rank is the relative order in which a form appears across pages,
+    sorted by ascending page number. Computed independently per record list
+    (annotations or fields). Records must have .form_name and .page attributes.
+    """
+    form_pages: dict[str, list[int]] = {}
+    for r in records:
+        nf = key_fn(r)
+        if nf not in form_pages:
+            form_pages[nf] = []
+        if r.page not in form_pages[nf]:
+            form_pages[nf].append(r.page)
+    return {
+        nf: {pg: rank + 1 for rank, pg in enumerate(sorted(pages))}
+        for nf, pages in form_pages.items()
+    }
 
 
 def _apply_anchor_offset(
@@ -212,42 +233,61 @@ def _exact_pass(
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
     exact_threshold: float,
+    src_rank_map: dict,
+    tgt_rank_map: dict,
 ) -> list[MatchRecord]:
-    """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
+    """Pass 1: literal form_name + anchor_text == field label (case- and whitespace-sensitive).
 
-    Fields are reusable anchors — multiple annotations sharing the same
-    anchor_text + form_name all match the same field and each get their own
-    target_rect via _apply_anchor_offset.
+    Repeating fields (same label on same page) are paired to annotations by
+    vertical position: topmost annotation -> topmost field, second -> second, etc.
+    Page rank isolates annotations from page N of a form to the corresponding
+    (rank-equal) page of that form in the target CRF.
     """
     results: list[MatchRecord] = []
+
+    # Group eligible annotations by (form_name, anchor_text, src_rank) — fully literal keys
+    annot_groups: dict[tuple, list[AnnotationRecord]] = defaultdict(list)
     for annot in annotations:
-        if annot.id not in unmatched_annot_ids:
+        if annot.id not in unmatched_annot_ids or not annot.anchor_text.strip():
             continue
-        for field in fields:
-            if (
-                _norm(annot.form_name) == _norm(field.form_name)
-                and _norm(annot.anchor_text) == _norm(field.label)
-                and annot.anchor_text.strip() != ""
-            ):
-                final_rect, placement_adjusted = _apply_placement_guard(
-                    _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
-                    if annot.anchor_rect
-                    else list(field.rect),
-                    field,
-                    fields,
-                )
-                results.append(MatchRecord(
-                    annotation_id=annot.id,
-                    field_id=field.id,
-                    match_type="exact",
-                    confidence=exact_threshold,
-                    target_rect=final_rect,
-                    target_page=field.page,
-                    placement_adjusted=placement_adjusted,
-                    status="approved",
-                ))
-                unmatched_annot_ids.discard(annot.id)
-                break
+        src_rank = src_rank_map.get(_norm(annot.form_name), {}).get(annot.page, 0)
+        annot_groups[(annot.form_name, annot.anchor_text, src_rank)].append(annot)
+
+    # Sort each annotation group top-to-bottom by Y coordinate
+    for key in annot_groups:
+        annot_groups[key].sort(key=lambda a: a.rect[1])
+
+    # Build matching field groups keyed by (form_name, label, tgt_rank) sorted top-to-bottom
+    field_groups: dict[tuple, list[FieldRecord]] = defaultdict(list)
+    for field in fields:
+        tgt_rank = tgt_rank_map.get(_norm(field.form_name), {}).get(field.page, 0)
+        field_groups[(field.form_name, field.label, tgt_rank)].append(field)
+    for key in field_groups:
+        field_groups[key].sort(key=lambda f: f.rect[1])
+
+    # Pair annotations to fields positionally within each matching group
+    for (form_name, anchor_text, src_rank), grp_annots in annot_groups.items():
+        grp_fields = field_groups.get((form_name, anchor_text, src_rank), [])
+        for annot, field in zip(grp_annots, grp_fields):
+            final_rect, placement_adjusted = _apply_placement_guard(
+                _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                if annot.anchor_rect
+                else list(field.rect),
+                field,
+                fields,
+            )
+            results.append(MatchRecord(
+                annotation_id=annot.id,
+                field_id=field.id,
+                match_type="exact",
+                confidence=exact_threshold,
+                target_rect=final_rect,
+                target_page=field.page,
+                placement_adjusted=placement_adjusted,
+                status="approved",
+            ))
+            unmatched_annot_ids.discard(annot.id)
+
     return results
 
 
@@ -257,20 +297,37 @@ def _fuzzy_same_form_pass(
     unmatched_annot_ids: set[str],
     threshold_pct: float,
     visit_boost: float,
+    src_rank_map: dict,
+    tgt_rank_map: dict,
 ) -> list[MatchRecord]:
-    """Pass 2: bipartite fuzzy match within the same form_name."""
+    """Pass 2: bipartite fuzzy match within the same form_name and page rank.
+
+    Groups by (norm_form_name, page_rank) so annotations from page N of a form
+    only compete against fields from the corresponding page of the target form.
+    Annotations whose src_rank has no matching tgt_rank fall through to Pass 3.
+    """
     eligible_annots = [
         a for a in annotations
         if a.id in unmatched_annot_ids and a.anchor_text.strip() != ""
     ]
     results: list[MatchRecord] = []
-    form_names = {_norm(a.form_name) for a in eligible_annots}
 
-    for form in form_names:
-        grp_annots = [a for a in eligible_annots if _norm(a.form_name) == form]
+    # Group by (norm_form_name, page_rank)
+    form_rank_keys = {
+        (_norm(a.form_name), src_rank_map.get(_norm(a.form_name), {}).get(a.page, 0))
+        for a in eligible_annots
+    }
+
+    for (form, src_rank) in form_rank_keys:
+        grp_annots = [
+            a for a in eligible_annots
+            if _norm(a.form_name) == form
+            and src_rank_map.get(_norm(a.form_name), {}).get(a.page, 0) == src_rank
+        ]
         grp_fields = [
             f for f in fields
             if _norm(f.form_name) == form
+            and tgt_rank_map.get(_norm(f.form_name), {}).get(f.page, 0) == src_rank
         ]
 
         def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
@@ -428,12 +485,17 @@ def match_annotations(
     unmatched_annot_ids: set[str] = {a.id for a in annotations}
     results: list[MatchRecord] = []
 
+    src_rank_map = _build_page_rank_map(annotations, lambda r: _norm(r.form_name))
+    tgt_rank_map = _build_page_rank_map(fields, lambda r: _norm(r.form_name))
+
     results += _exact_pass(
         annotations, fields, unmatched_annot_ids, config.exact_threshold,
+        src_rank_map, tgt_rank_map,
     )
     results += _fuzzy_same_form_pass(
         annotations, fields, unmatched_annot_ids,
         config.fuzzy_same_form_threshold * 100, visit_boost,
+        src_rank_map, tgt_rank_map,
     )
     results += _fuzzy_cross_form_pass(
         annotations, fields, unmatched_annot_ids,

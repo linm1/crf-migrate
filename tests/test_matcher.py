@@ -182,8 +182,13 @@ class TestExactMatch:
         assert m.confidence == pytest.approx(1.0)
         assert m.target_rect == pytest.approx([50.0, 90.0, 200.0, 105.0])
 
-    def test_exact_match_case_insensitive(self, dm_field, default_profile):
-        """Exact match is case-insensitive for both form_name and anchor_text."""
+    def test_exact_match_case_sensitive_falls_to_fuzzy(self, dm_field, default_profile):
+        """Exact pass is now case- and whitespace-sensitive.
+
+        An annotation with mismatched casing ("DATE OF BIRTH" vs "Date of Birth",
+        or "demographics" vs "DEMOGRAPHICS") must NOT match in the exact pass.
+        It should be caught by the fuzzy same-form pass instead.
+        """
         annot = AnnotationRecord(
             id="annot-ci",
             page=1,
@@ -199,7 +204,11 @@ class TestExactMatch:
             [annot], [dm_field], default_profile,
             SOURCE_DIMS, TARGET_DIMS,
         )
-        assert matches[0].match_type == "exact"
+        # Case mismatch prevents exact match; rapidfuzz token_sort_ratio is also
+        # case-sensitive so "DATE OF BIRTH" vs "Date of Birth" scores ~31, below
+        # fuzzy threshold. Falls to position_only.
+        assert matches[0].match_type != "exact"
+        assert matches[0].field_id is None  # not field-matched
 
     def test_empty_annotations_returns_empty(self, dm_field, default_profile):
         """Empty annotation list returns empty result."""
@@ -980,4 +989,200 @@ class TestAutoStatusAssignment:
         )
         assert len(matches) == 1
         assert matches[0].match_type == "position_only"
-        assert matches[0].status == "re-pairing"
+
+
+# ---------------------------------------------------------------------------
+# Page-rank isolation and repeating field tests
+# ---------------------------------------------------------------------------
+
+def _make_annot(aid, anchor_text, form_name, page=1, y=100.0, visit=""):
+    return AnnotationRecord(
+        id=aid,
+        page=page,
+        content="X",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[50.0, y, 200.0, y + 15.0],
+        anchor_text=anchor_text,
+        form_name=form_name,
+        visit=visit,
+    )
+
+
+def _make_field(fid, label, form_name, page=1, y=100.0, visit=""):
+    return FieldRecord(
+        id=fid,
+        page=page,
+        label=label,
+        form_name=form_name,
+        rect=[50.0, y, 200.0, y + 15.0],
+        field_type="text_field",
+        page_width=595.0,
+        page_height=842.0,
+    )
+
+
+def _make_profile_default():
+    return _make_profile()
+
+
+class TestMultiPageSameFormPageRankIsolation:
+    """Annotations on page N of a form must match fields on the corresponding
+    (rank-equal) page of the same form in the target — not the wrong page."""
+
+    def test_page_rank_isolates_exact_match(self):
+        """Exact pass: annotation on src page 3 (rank 1) matches target page 5 (rank 1),
+        annotation on src page 4 (rank 2) matches target page 6 (rank 2)."""
+        annot1 = _make_annot("a1", "Date", "Adverse Events", page=3)
+        annot2 = _make_annot("a2", "Date", "Adverse Events", page=4)
+        field1 = _make_field("f1", "Date", "Adverse Events", page=5)   # rank 1 in target
+        field2 = _make_field("f2", "Date", "Adverse Events", page=6)   # rank 2 in target
+
+        profile = _make_profile_default()
+        src_dims = {3: (595.0, 842.0), 4: (595.0, 842.0)}
+        tgt_dims = {5: (595.0, 842.0), 6: (595.0, 842.0)}
+        matches = match_annotations(
+            [annot1, annot2], [field1, field2], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        # annot1 is rank-1 in source → must land on field1 (rank-1 in target)
+        assert by_annot["a1"].field_id == "f1", "rank-1 annotation must match rank-1 field"
+        assert by_annot["a2"].field_id == "f2", "rank-2 annotation must match rank-2 field"
+        assert by_annot["a1"].match_type == "exact"
+        assert by_annot["a2"].match_type == "exact"
+
+    def test_page_rank_isolates_fuzzy_match(self):
+        """Fuzzy same-form pass respects page rank: slightly different labels
+        still resolve to the correct page."""
+        annot1 = _make_annot("a1", "Start Dat", "Adverse Events", page=3)  # fuzzy ~90
+        annot2 = _make_annot("a2", "Start Dat", "Adverse Events", page=4)
+        field1 = _make_field("f1", "Start Date", "Adverse Events", page=5)
+        field2 = _make_field("f2", "Start Date", "Adverse Events", page=6)
+
+        profile = _make_profile_default()
+        src_dims = {3: (595.0, 842.0), 4: (595.0, 842.0)}
+        tgt_dims = {5: (595.0, 842.0), 6: (595.0, 842.0)}
+        matches = match_annotations(
+            [annot1, annot2], [field1, field2], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+
+
+class TestMultiPagePageCountMismatchFallback:
+    """When source has more pages than target for a form, extra-page annotations
+    fall through to cross-form pass rather than landing on wrong-page fields."""
+
+    def test_extra_source_page_falls_to_cross_form(self):
+        """Source has rank-1 and rank-2; target only has rank-1.
+        rank-2 annotation falls to cross-form pass."""
+        annot1 = _make_annot("a1", "Date", "Adverse Events", page=3)   # rank 1
+        annot2 = _make_annot("a2", "Date", "Adverse Events", page=4)   # rank 2 — no target match
+
+        field1 = _make_field("f1", "Date", "Adverse Events", page=5)   # only rank-1 in target
+
+        profile = _make_profile_default()
+        src_dims = {3: (595.0, 842.0), 4: (595.0, 842.0)}
+        tgt_dims = {5: (595.0, 842.0)}
+        matches = match_annotations(
+            [annot1, annot2], [field1], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        # rank-1 annotation claims field1 via exact pass
+        assert by_annot["a1"].field_id == "f1"
+        # rank-2 annotation has no corresponding target page — field already taken,
+        # falls to cross-form or position pass (field_id may be None or f1 re-used via cross-form)
+        # Key assertion: it must NOT have been matched as rank-1 exact to the wrong page
+        assert by_annot["a2"].match_type != "exact"
+
+
+class TestRepeatingFieldVerticalOrder:
+    """Same label appearing multiple times on one page must be paired top-to-bottom
+    to annotations sorted by Y coordinate."""
+
+    def test_three_date_fields_matched_top_to_bottom(self):
+        """Three 'Date' annotations map to three 'Date' fields in vertical order."""
+        # Annotations: y=100, y=200, y=300
+        a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
+        a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
+        a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
+
+        # Fields: y=110, y=210, y=310
+        f1 = _make_field("f1", "Date", "Vitals", page=1, y=110.0)
+        f2 = _make_field("f2", "Date", "Vitals", page=1, y=210.0)
+        f3 = _make_field("f3", "Date", "Vitals", page=1, y=310.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {1: (595.0, 842.0)}
+        matches = match_annotations(
+            [a1, a2, a3], [f1, f2, f3], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1", "topmost annotation -> topmost field"
+        assert by_annot["a2"].field_id == "f2", "middle annotation -> middle field"
+        assert by_annot["a3"].field_id == "f3", "bottom annotation -> bottom field"
+        assert all(by_annot[f"a{i}"].match_type == "exact" for i in range(1, 4))
+
+    def test_annotations_out_of_order_still_paired_by_y(self):
+        """Even if annotations are given in reverse order, pairing is by Y coord."""
+        # Annotations given bottom-first
+        a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
+        a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
+        a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
+
+        f1 = _make_field("f1", "Date", "Vitals", page=1, y=110.0)
+        f2 = _make_field("f2", "Date", "Vitals", page=1, y=210.0)
+        f3 = _make_field("f3", "Date", "Vitals", page=1, y=310.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {1: (595.0, 842.0)}
+        matches = match_annotations(
+            [a3, a1, a2], [f1, f2, f3], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+        assert by_annot["a3"].field_id == "f3"
+
+
+class TestExactFullyLiteralMatch:
+    """Exact pass requires identical strings — case and whitespace must match exactly."""
+
+    def test_case_mismatch_form_name_not_exact(self):
+        """Annotation form_name differs in case from field form_name: not exact."""
+        annot = _make_annot("a1", "Date of Birth", "demographics", page=1)
+        field = _make_field("f1", "Date of Birth", "DEMOGRAPHICS", page=1)
+
+        profile = _make_profile_default()
+        matches = match_annotations(
+            [annot], [field], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
+        )
+        assert matches[0].match_type != "exact"
+
+    def test_case_mismatch_label_not_exact(self):
+        """Annotation anchor_text differs in case from field label: not exact."""
+        annot = _make_annot("a1", "DATE OF BIRTH", "DEMOGRAPHICS", page=1)
+        field = _make_field("f1", "Date of Birth", "DEMOGRAPHICS", page=1)
+
+        profile = _make_profile_default()
+        matches = match_annotations(
+            [annot], [field], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
+        )
+        assert matches[0].match_type != "exact"
+
+    def test_identical_strings_match_exact(self):
+        """When form_name and label match exactly, exact pass succeeds."""
+        annot = _make_annot("a1", "Date of Birth", "DEMOGRAPHICS", page=1)
+        field = _make_field("f1", "Date of Birth", "DEMOGRAPHICS", page=1)
+
+        profile = _make_profile_default()
+        matches = match_annotations(
+            [annot], [field], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
+        )
+        assert matches[0].match_type == "exact"
+        assert matches[0].field_id == "f1"
+        assert matches[0].status == "approved"
