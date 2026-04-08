@@ -6,6 +6,8 @@ what was written, skipped, and left unmatched.
 """
 from pathlib import Path
 
+import re
+
 import fitz  # PyMuPDF
 
 from src.models import AnnotationRecord, MatchRecord
@@ -106,23 +108,50 @@ def _apply_bold_font(
     annot: fitz.Annot,
     fontsize: float,
 ) -> None:
-    """Patch the annotation's DA and AP stream to use Helvetica-Bold (hebo).
+    """Patch the annotation's DA and AP stream to use Helvetica-Bold.
 
-    PyMuPDF's add_freetext_annot maps all font names to /Helv in the DA and
-    AP stream. For bold rendering we must:
-    1. Ensure the bold font is registered in page resources (insert_font).
-    2. Rewrite the DA string to reference it.
-    3. Patch the AP stream to replace /Helv with /hebo.
+    PyMuPDF's add_freetext_annot always writes /Helv in both the DA string
+    and the AP stream regardless of the fontname argument.  Four steps are
+    all required to produce bold that survives viewer interaction:
 
-    This must be called after a.update() so our DA write is not overwritten.
+    1. Register "Helvetica-Bold" (standard PDF Base-14 name) in page resources.
+    2. Rewrite /DA to reference /Helvetica-Bold — this is what viewers read
+       when they regenerate the AP stream on user interaction (click/edit).
+    3. In the AP stream content, replace /Helv with /Helvetica-Bold so the
+       initial render is also bold (viewers use the AP stream for display).
+    4. Add /Helvetica-Bold to the AP stream's own /Resources/Font dict so
+       the viewer can resolve the name inside the self-contained Form XObject.
+
+    Using the standard PDF name "Helvetica-Bold" (not the PyMuPDF alias
+    "hebo") is the critical invariant.  Viewers resolve /Helvetica-Bold as a
+    known Base-14 font when regenerating the AP stream; /hebo is unknown to
+    all viewers and causes silent fallback to regular Helvetica on touch.
+
+    Must be called after a.update() so the DA rewrite is not overwritten.
     """
-    page.insert_font(fontname="hebo")
-    da_str = f"0 0 0 rg /hebo {fontsize} Tf"
+    # 1. Register Helvetica-Bold by its standard PDF Base-14 name and get its xref.
+    #    Using the standard name (not the PyMuPDF alias "hebo") is critical: when
+    #    a viewer regenerates the AP stream on user interaction it reads /DA and
+    #    must resolve the font name.  Viewers understand "Helvetica-Bold" as a
+    #    Base-14 standard font; "hebo" is a PyMuPDF-internal alias unknown to any
+    #    viewer, causing silent fallback to regular Helvetica on touch.
+    page.insert_font(fontname="Helvetica-Bold")
+    hb_xref = next(
+        f[0] for f in page.get_fonts() if f[4] == "Helvetica-Bold"
+    )
+
+    # 2. Rewrite the DA string with the standard PDF font name.
+    da_str = f"0 0 0 rg /Helvetica-Bold {fontsize} Tf"
     doc.xref_set_key(annot.xref, "DA", f"({da_str})")
+
+    # 3. Patch the AP stream content: /Helv → /Helvetica-Bold.
     n_num = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
     stream = doc.xref_stream(n_num)
-    patched = stream.replace(b"/Helv ", b"/hebo ")
+    patched = re.sub(rb"/Helv\b", b"/Helvetica-Bold", stream)
     doc.update_stream(n_num, patched)
+
+    # 4. Register /Helvetica-Bold in the AP stream's own /Resources/Font dict.
+    doc.xref_set_key(n_num, "Resources/Font/Helvetica-Bold", f"{hb_xref} 0 R")
 
 
 def _write_single_annotation(

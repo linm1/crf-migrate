@@ -420,10 +420,24 @@ def test_T4_12_domain_label_bold_font(tmp_path):
     write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
-    da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+    a = list(doc[0].annots())[0]
+    annot_xref = a.xref
+
+    # DA must use the standard PDF Base-14 name so viewers regenerate bold on touch.
+    da = doc.xref_get_key(annot_xref, "DA")[1]
+    assert "Helvetica-Bold" in da, f"DA must reference Helvetica-Bold, got: {da}"
+
+    # AP stream content must reference /Helvetica-Bold (actual rendering by viewers).
+    n_num = int(doc.xref_get_key(annot_xref, "AP/N")[1].split()[0])
+    ap_stream = doc.xref_stream(n_num)
+    assert b"/Helvetica-Bold" in ap_stream, f"AP stream missing /Helvetica-Bold: {ap_stream}"
+    assert b"/Helv " not in ap_stream, f"AP stream still contains /Helv: {ap_stream}"
+
+    # AP /Resources/Font must declare /Helvetica-Bold so viewers resolve it in the Form XObject.
+    ap_resources = doc.xref_get_key(n_num, "Resources/Font/Helvetica-Bold")[1]
+    assert ap_resources != "null", "AP /Resources/Font/Helvetica-Bold not registered"
+
     doc.close()
-    # "hebo" is PyMuPDF's built-in bold Helvetica
-    assert "hebo" in da
 
 
 # ---------------------------------------------------------------------------

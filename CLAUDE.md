@@ -109,6 +109,37 @@ a.update(fill_color=fill, text_color=text_color)
 - **Never** call `xref_set_key(xref, "IC", ...)` on FreeText — `/IC` is not a valid FreeText key; most viewers ignore it, and some may misinterpret it.
 - The border color (black) lives only in the AP stream; this is correct and survives viewer interaction as long as `/C` is not overwritten.
 
+### FreeText Bold — Must Use Standard PDF Font Name, Not PyMuPDF Alias
+
+Domain labels must render bold **and stay bold after viewer interaction**. AP stream byte-patch alone fails: when user touches annotation, viewer regenerates AP from `/DA`. If `/DA` references unknown font name, viewer silently falls back to regular Helvetica.
+
+**Root cause:** PyMuPDF alias `hebo` is internal only. No PDF viewer recognizes it. Standard Base-14 name `Helvetica-Bold` is universally understood.
+
+**Correct pattern in `src/writer.py` — `_apply_bold_font()`:**
+```python
+# 1. Register by standard PDF Base-14 name (not "hebo")
+page.insert_font(fontname="Helvetica-Bold")
+hb_xref = next(f[0] for f in page.get_fonts() if f[4] == "Helvetica-Bold")
+
+# 2. DA with standard name — viewer reads this on touch to regenerate AP
+doc.xref_set_key(annot.xref, "DA", f"(0 0 0 rg /Helvetica-Bold {fontsize} Tf)")
+
+# 3. Patch AP stream bytes
+n_num = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
+stream = doc.xref_stream(n_num)
+patched = re.sub(rb"/Helv\b", b"/Helvetica-Bold", stream)
+doc.update_stream(n_num, patched)
+
+# 4. Register in AP stream's own /Resources/Font dict (AP is self-contained Form XObject)
+doc.xref_set_key(n_num, "Resources/Font/Helvetica-Bold", f"{hb_xref} 0 R")
+```
+
+**Rules — never violate these:**
+- Always use `Helvetica-Bold` (standard PDF name), never `hebo` in `/DA`.
+- All four steps required: missing step 4 → `/Helvetica-Bold` unresolvable inside AP Form XObject → invisible or wrong font.
+- Call `_apply_bold_font()` **after** `a.update()` — `update()` overwrites `/DA`.
+- `re.sub(rb"/Helv\b", ...)` not `replace(b"/Helv ", ...)` — regex word boundary matches regardless of trailing whitespace.
+
 ## Key Conventions
 
 - **PyMuPDF (`fitz`)** for all annotation read/write; **pdfplumber** for text extraction fallback
