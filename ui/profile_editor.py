@@ -597,12 +597,15 @@ def _render_style_tab(draft: dict) -> None:
     st.markdown('<p class="pe-section-title">Style Defaults</p>', unsafe_allow_html=True)
 
     new_config: dict = dict(config)
-    new_config["font"] = st.text_input(
-        "Font", value=config.get("font", "Arial,BoldItalic"), key="style_font",
-    )
+    new_config["font"] = config.get("font", "Arial,BoldItalic")
     new_config["font_size"] = st.number_input(
         "Font Size", min_value=4.0, max_value=72.0,
         value=float(config.get("font_size", 18.0)), step=0.5, key="style_font_size",
+    )
+    new_config["domain_label_font_size"] = st.number_input(
+        "Domain Label Font Size", min_value=4.0, max_value=72.0,
+        value=float(config.get("domain_label_font_size", 14.0)), step=0.5,
+        key="style_domain_label_font_size",
     )
 
     tc = list(config.get("text_color", [0.0, 0.0, 0.0]))
