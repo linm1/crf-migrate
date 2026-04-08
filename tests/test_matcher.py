@@ -182,12 +182,11 @@ class TestExactMatch:
         assert m.confidence == pytest.approx(1.0)
         assert m.target_rect == pytest.approx([50.0, 90.0, 200.0, 105.0])
 
-    def test_exact_match_case_sensitive_falls_to_fuzzy(self, dm_field, default_profile):
-        """Exact pass is now case- and whitespace-sensitive.
+    def test_exact_match_case_insensitive_still_matches(self, dm_field, default_profile):
+        """Exact pass is case-insensitive.
 
         An annotation with mismatched casing ("DATE OF BIRTH" vs "Date of Birth",
-        or "demographics" vs "DEMOGRAPHICS") must NOT match in the exact pass.
-        It should be caught by the fuzzy same-form pass instead.
+        or "demographics" vs "DEMOGRAPHICS") must still match in the exact pass.
         """
         annot = AnnotationRecord(
             id="annot-ci",
@@ -204,11 +203,8 @@ class TestExactMatch:
             [annot], [dm_field], default_profile,
             SOURCE_DIMS, TARGET_DIMS,
         )
-        # Case mismatch prevents exact match; rapidfuzz token_sort_ratio is also
-        # case-sensitive so "DATE OF BIRTH" vs "Date of Birth" scores ~31, below
-        # fuzzy threshold. Falls to position_only.
-        assert matches[0].match_type != "exact"
-        assert matches[0].field_id is None  # not field-matched
+        assert matches[0].match_type == "exact"
+        assert matches[0].field_id == dm_field.id
 
     def test_empty_annotations_returns_empty(self, dm_field, default_profile):
         """Empty annotation list returns empty result."""
@@ -1099,17 +1095,15 @@ class TestMultiPagePageCountMismatchFallback:
 
 
 class TestRepeatingFieldVerticalOrder:
-    """Same label appearing multiple times on one page must be paired top-to-bottom
-    to annotations sorted by Y coordinate."""
+    """Same label appearing multiple times on one page: each annotation matches
+    the first field with that label (field reuse — field is a reusable anchor)."""
 
-    def test_three_date_fields_matched_top_to_bottom(self):
-        """Three 'Date' annotations map to three 'Date' fields in vertical order."""
-        # Annotations: y=100, y=200, y=300
+    def test_three_date_annotations_all_match_same_field(self):
+        """Three 'Date' annotations each match the first 'Date' field (field reuse)."""
         a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
         a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
         a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
 
-        # Fields: y=110, y=210, y=310
         f1 = _make_field("f1", "Date", "Vitals", page=1, y=110.0)
         f2 = _make_field("f2", "Date", "Vitals", page=1, y=210.0)
         f3 = _make_field("f3", "Date", "Vitals", page=1, y=310.0)
@@ -1121,14 +1115,12 @@ class TestRepeatingFieldVerticalOrder:
             [a1, a2, a3], [f1, f2, f3], profile, src_dims, tgt_dims,
         )
         by_annot = {m.annotation_id: m for m in matches}
-        assert by_annot["a1"].field_id == "f1", "topmost annotation -> topmost field"
-        assert by_annot["a2"].field_id == "f2", "middle annotation -> middle field"
-        assert by_annot["a3"].field_id == "f3", "bottom annotation -> bottom field"
+        # All three annotations exactly match against the first field encountered
         assert all(by_annot[f"a{i}"].match_type == "exact" for i in range(1, 4))
+        assert all(by_annot[f"a{i}"].field_id == "f1" for i in range(1, 4))
 
-    def test_annotations_out_of_order_still_paired_by_y(self):
-        """Even if annotations are given in reverse order, pairing is by Y coord."""
-        # Annotations given bottom-first
+    def test_annotations_out_of_order_all_match_first_field(self):
+        """Annotations given in any order still match the first field (field reuse)."""
         a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
         a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
         a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
@@ -1144,16 +1136,15 @@ class TestRepeatingFieldVerticalOrder:
             [a3, a1, a2], [f1, f2, f3], profile, src_dims, tgt_dims,
         )
         by_annot = {m.annotation_id: m for m in matches}
-        assert by_annot["a1"].field_id == "f1"
-        assert by_annot["a2"].field_id == "f2"
-        assert by_annot["a3"].field_id == "f3"
+        assert all(by_annot[aid].match_type == "exact" for aid in ["a1", "a2", "a3"])
+        assert all(by_annot[aid].field_id == "f1" for aid in ["a1", "a2", "a3"])
 
 
-class TestExactFullyLiteralMatch:
-    """Exact pass requires identical strings — case and whitespace must match exactly."""
+class TestExactCaseInsensitiveMatch:
+    """Exact pass uses case-insensitive comparison for both form_name and label."""
 
-    def test_case_mismatch_form_name_not_exact(self):
-        """Annotation form_name differs in case from field form_name: not exact."""
+    def test_case_mismatch_form_name_still_exact(self):
+        """Annotation form_name differs in case from field form_name: still exact."""
         annot = _make_annot("a1", "Date of Birth", "demographics", page=1)
         field = _make_field("f1", "Date of Birth", "DEMOGRAPHICS", page=1)
 
@@ -1161,10 +1152,11 @@ class TestExactFullyLiteralMatch:
         matches = match_annotations(
             [annot], [field], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
         )
-        assert matches[0].match_type != "exact"
+        assert matches[0].match_type == "exact"
+        assert matches[0].field_id == "f1"
 
-    def test_case_mismatch_label_not_exact(self):
-        """Annotation anchor_text differs in case from field label: not exact."""
+    def test_case_mismatch_label_still_exact(self):
+        """Annotation anchor_text differs in case from field label: still exact."""
         annot = _make_annot("a1", "DATE OF BIRTH", "DEMOGRAPHICS", page=1)
         field = _make_field("f1", "Date of Birth", "DEMOGRAPHICS", page=1)
 
@@ -1172,7 +1164,8 @@ class TestExactFullyLiteralMatch:
         matches = match_annotations(
             [annot], [field], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
         )
-        assert matches[0].match_type != "exact"
+        assert matches[0].match_type == "exact"
+        assert matches[0].field_id == "f1"
 
     def test_identical_strings_match_exact(self):
         """When form_name and label match exactly, exact pass succeeds."""

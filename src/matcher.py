@@ -236,58 +236,46 @@ def _exact_pass(
     src_rank_map: dict,
     tgt_rank_map: dict,
 ) -> list[MatchRecord]:
-    """Pass 1: literal form_name + anchor_text == field label (case- and whitespace-sensitive).
+    """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
 
-    Repeating fields (same label on same page) are paired to annotations by
-    vertical position: topmost annotation -> topmost field, second -> second, etc.
-    Page rank isolates annotations from page N of a form to the corresponding
-    (rank-equal) page of that form in the target CRF.
+    Fields are reusable anchors — multiple annotations sharing the same
+    anchor_text + form_name all match the same field and each get their own
+    target_rect via _apply_anchor_offset.
+    Page rank constrains each annotation to fields on the corresponding page
+    of the target form (same relative page order as the source).
     """
     results: list[MatchRecord] = []
-
-    # Group eligible annotations by (form_name, anchor_text, src_rank) — fully literal keys
-    annot_groups: dict[tuple, list[AnnotationRecord]] = defaultdict(list)
     for annot in annotations:
-        if annot.id not in unmatched_annot_ids or not annot.anchor_text.strip():
+        if annot.id not in unmatched_annot_ids:
             continue
         src_rank = src_rank_map.get(_norm(annot.form_name), {}).get(annot.page, 0)
-        annot_groups[(annot.form_name, annot.anchor_text, src_rank)].append(annot)
-
-    # Sort each annotation group top-to-bottom by Y coordinate
-    for key in annot_groups:
-        annot_groups[key].sort(key=lambda a: a.rect[1])
-
-    # Build matching field groups keyed by (form_name, label, tgt_rank) sorted top-to-bottom
-    field_groups: dict[tuple, list[FieldRecord]] = defaultdict(list)
-    for field in fields:
-        tgt_rank = tgt_rank_map.get(_norm(field.form_name), {}).get(field.page, 0)
-        field_groups[(field.form_name, field.label, tgt_rank)].append(field)
-    for key in field_groups:
-        field_groups[key].sort(key=lambda f: f.rect[1])
-
-    # Pair annotations to fields positionally within each matching group
-    for (form_name, anchor_text, src_rank), grp_annots in annot_groups.items():
-        grp_fields = field_groups.get((form_name, anchor_text, src_rank), [])
-        for annot, field in zip(grp_annots, grp_fields):
-            final_rect, placement_adjusted = _apply_placement_guard(
-                _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
-                if annot.anchor_rect
-                else list(field.rect),
-                field,
-                fields,
-            )
-            results.append(MatchRecord(
-                annotation_id=annot.id,
-                field_id=field.id,
-                match_type="exact",
-                confidence=exact_threshold,
-                target_rect=final_rect,
-                target_page=field.page,
-                placement_adjusted=placement_adjusted,
-                status="approved",
-            ))
-            unmatched_annot_ids.discard(annot.id)
-
+        for field in fields:
+            tgt_rank = tgt_rank_map.get(_norm(field.form_name), {}).get(field.page, 0)
+            if (
+                _norm(annot.form_name) == _norm(field.form_name)
+                and _norm(annot.anchor_text) == _norm(field.label)
+                and annot.anchor_text.strip() != ""
+                and src_rank == tgt_rank
+            ):
+                final_rect, placement_adjusted = _apply_placement_guard(
+                    _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                    if annot.anchor_rect
+                    else list(field.rect),
+                    field,
+                    fields,
+                )
+                results.append(MatchRecord(
+                    annotation_id=annot.id,
+                    field_id=field.id,
+                    match_type="exact",
+                    confidence=exact_threshold,
+                    target_rect=final_rect,
+                    target_page=field.page,
+                    placement_adjusted=placement_adjusted,
+                    status="approved",
+                ))
+                unmatched_annot_ids.discard(annot.id)
+                break
     return results
 
 
