@@ -121,14 +121,7 @@ def _inject_page_css() -> None:
             font-size: 16px !important;
             text-transform: uppercase !important;
         }
-        /* ── Phase 3 topbar CSV buttons (matches Phase 2 style) ── */
-        .st-key-p3_export_btn button p,
-        .st-key-p3_import_btn button p {
-            font-size: 12px !important;
-            font-weight: 700 !important;
-            text-transform: uppercase !important;
-        }
-        /* ── Stat cards ── */
+/* ── Stat cards ── */
         .p3-stat-card {
             background: #FFFFFF;
             border: 2px solid #000000;
@@ -408,46 +401,44 @@ def _render_topbar_p3(
     _, tb_export, tb_import_btn = st.columns([5, 1, 1], gap="small")
 
     with tb_export:
-        if st.button("Export CSV", key="p3_export_btn", use_container_width=True):
-            st.session_state.pop("_p3_csv_ready", None)
-            if not session:
-                st.error("No active session — cannot export.")
-            elif matches:
-                csv_path = session.workspace / "matches_export.csv"
-                export_matches_csv(matches, csv_path)
-                st.session_state["_p3_csv_ready"] = csv_path.read_bytes()
-        if st.session_state.get("_p3_csv_ready"):
-            st.download_button(
-                "Download CSV",
-                data=st.session_state["_p3_csv_ready"],
-                file_name="matches.csv",
-                mime="text/csv",
-                key="p3_csv_dl",
-                use_container_width=True,
-            )
+        _p3_export_data: bytes = b""
+        if matches and session:
+            csv_path = session.workspace / "matches_export.csv"
+            export_matches_csv(matches, csv_path)
+            _p3_export_data = csv_path.read_bytes()
+        st.download_button(
+            "Export CSV",
+            data=_p3_export_data,
+            file_name="matches.csv",
+            mime="text/csv",
+            key="p3_export_btn",
+            use_container_width=True,
+            disabled=not bool(matches and session),
+        )
 
     with tb_import_btn:
-        if st.button("Import CSV", key="p3_import_btn", use_container_width=True):
-            st.session_state["_p3_show_import"] = not st.session_state.get("_p3_show_import", False)
+        csv_upload = st.file_uploader(
+            "Import CSV",
+            type=["csv"],
+            key="p3_csv_upload",
+            label_visibility="collapsed",
+        )
 
-    if st.session_state.get("_p3_show_import", False):
-        if not matches:
+    if csv_upload is not None:
+        if not session:
+            st.error("No active session — cannot import.")
+        elif not matches:
             st.info("Run matching first before importing a CSV.")
         else:
-            csv_upload = st.file_uploader("Import Matches CSV", type=["csv"], key="p3_csv_upload")
-            if csv_upload is not None and not session:
-                st.error("No active session — cannot import.")
-            elif csv_upload is not None and session:
-                csv_path = session.workspace / "matches_import.csv"
-                csv_path.write_bytes(csv_upload.read())
-                updated, flagged = import_matches_csv(csv_path, matches)
-                if flagged:
-                    st.warning(f"{len(flagged)} matches missing from CSV.")
-                session.save_matches(updated)
-                st.session_state["matches"] = updated
-                st.session_state["_p3_show_import"] = False
-                invalidate_phases([4])
-                st.rerun()
+            csv_path = session.workspace / "matches_import.csv"
+            csv_path.write_bytes(csv_upload.read())
+            updated, flagged = import_matches_csv(csv_path, matches)
+            if flagged:
+                st.warning(f"{len(flagged)} matches missing from CSV.")
+            session.save_matches(updated)
+            st.session_state["matches"] = updated
+            invalidate_phases([4])
+            st.rerun()
 
 
 def _render_action_card(
@@ -514,7 +505,6 @@ def _render_action_card(
                     st.session_state["matches"] = new_matches
                     st.session_state["phases_complete"][3] = True
                     invalidate_phases([4])
-                    st.session_state.pop("_p3_csv_ready", None)
                     session.log_action("phase3_match", {"count": len(new_matches)})
                     st.rerun()
     if _no_session_error:
@@ -600,7 +590,6 @@ def _render_cards(
 def render_phase3() -> None:
     """Render Phase 3: Match page."""
     st.header("Phase 3: Match Annotations to Fields")
-    _inject_page_css()
 
     phases = st.session_state.get("phases_complete", {})
     if not phases.get(1):

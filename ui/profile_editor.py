@@ -78,8 +78,7 @@ def _inject_page_css() -> None:
             list-style: none !important; }
         .pe-yaml-filename { font-size: 11px; color: #d7d7d7;
             font-family: ui-monospace, monospace; }
-        /* Profile editor buttons: toolbar (pe_*), row actions (rule_*), add buttons */
-        .st-key-pe_dup button p, .st-key-pe_imp_toggle button p, .st-key-pe_save_top button p,
+        /* Profile editor inner action buttons (non-topbar): row actions, add buttons */
         .st-key-add_rule_btn button p, .st-key-add_visit_rule button p,
         .st-key-add_exclude_pat button p, .st-key-yaml_download button p,
         .st-key-add_domain_code button p,
@@ -152,7 +151,6 @@ def _inject_page_css() -> None:
 
 def render_profile_editor(profiles_dir: Path) -> None:
     """Render the full profile editor page."""
-    _inject_page_css()
     profile_names = list_profiles(profiles_dir)
     if not profile_names:
         st.warning("No profiles found in profiles/ directory.")

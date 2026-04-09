@@ -16,25 +16,54 @@ def _inject_page_css() -> None:
     st.markdown(
         """
         <style>
-        /* Phase 4 Generate / Download buttons — design system spec */
-        .st-key-p4_generate_btn > button,
-        .st-key-p4_download_btn > button,
-        .st-key-p4_download_btn a {
-            background-color: #6fc2ff !important;
-            color: #383838 !important;
-            border: 2px solid #383838 !important;
-            border-radius: 2px !important;
-            padding: 16.5px 22px !important;
-            font-family: 'Aeonik Mono', ui-monospace, monospace !important;
-            font-size: 16px !important;
+        /* Phase 4 Generate button — matches global .stButton style */
+        .st-key-p4_generate_btn button {
+            background: transparent !important;
+            font-size: 14px !important;
+            font-family: ui-monospace, Consolas, monospace !important;
             font-weight: 400 !important;
             text-transform: uppercase !important;
-            box-shadow: none !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
+            letter-spacing: 0.5px !important;
+            height: 38px !important;
+            border-radius: 0px !important;
+        }
+        .st-key-p4_generate_btn button p {
+            font-family: ui-monospace, Consolas, monospace !important;
+            font-weight: 400 !important;
+            font-size: 14px !important;
+            letter-spacing: 0.5px !important;
+            text-transform: uppercase !important;
+        }
+        /* Phase 4 Download PDF button — matches topbar button style (same as p1/p2/p3 export) */
+        .st-key-p4_download_btn button {
+            border: 2px solid #383838 !important;
+            box-shadow: 3px 3px 0 #38383820 !important;
+            transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+            font-family: ui-monospace, Consolas, monospace !important;
+            font-size: 14px !important;
+            font-weight: 400 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+            background: transparent !important;
+            color: #383838 !important;
             width: 100% !important;
-            text-decoration: none !important;
+            border-radius: 0px !important;
+            padding: 0.25rem 0.75rem !important;
+            height: 38px !important;
+        }
+        .st-key-p4_download_btn button:hover {
+            background: #383838 !important;
+            color: #FFFFFF !important;
+            transform: translate(-1px, -1px) !important;
+            box-shadow: 3px 3px 0 #38383840 !important;
+        }
+        /* Normalize <p> inside download button markdown container */
+        .st-key-p4_download_btn button p {
+            font-family: ui-monospace, Consolas, monospace !important;
+            font-weight: 400 !important;
+            font-size: 14px !important;
+            letter-spacing: 0.5px !important;
+            text-transform: uppercase !important;
         }
         </style>
         """,
@@ -44,8 +73,6 @@ def _inject_page_css() -> None:
 
 def render_phase4() -> None:
     """Render Phase 4: Output page."""
-    _inject_page_css()
-
     phases = st.session_state.get("phases_complete", {})
     if not phases.get(3):
         st.warning("Phase 3 must be complete before generating output.")
@@ -80,7 +107,7 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
     target_pdf_path = st.session_state.get("target_pdf_path")
     output_pdf_path = st.session_state.get("output_pdf_path")
 
-    _, tb_generate, tb_download = st.columns([4, 1, 1], gap="small")
+    _, tb_generate, tb_download = st.columns([5, 1, 1], gap="small")
 
     with tb_generate:
         disabled = not session or target_pdf_path is None or not target_pdf_path.exists()

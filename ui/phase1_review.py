@@ -78,12 +78,6 @@ def render_phase1(profiles_dir: Path) -> None:
             color: #FFFFFF !important;
             border-color: #383838 !important;
         }
-        /* Phase 1 toolbar buttons: 12px regular monospace (matches Profile Editor pattern) */
-        .st-key-p1_export_btn button p,
-        .st-key-p1_import_btn button p {
-            font-size: 12px !important;
-            font-weight: 400 !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -133,56 +127,55 @@ def _render_topbar(annotations: list[AnnotationRecord], session) -> None:
     _, tb_export, tb_import_btn = st.columns([5, 1, 1], gap="small")
 
     with tb_export:
-        if st.button("Export CSV", key="p1_export_btn", use_container_width=True):
-            if annotations and session:
-                csv_path = session.workspace / "annotations_export.csv"
-                export_annotations_csv(annotations, csv_path)
-                st.session_state["_p1_csv_ready"] = csv_path.read_bytes()
-        if st.session_state.get("_p1_csv_ready"):
-            st.download_button(
-                "Download CSV",
-                data=st.session_state["_p1_csv_ready"],
-                file_name="annotations.csv",
-                mime="text/csv",
-                key="p1_csv_dl",
-                use_container_width=True,
-            )
+        _p1_export_data: bytes = b""
+        if annotations and session:
+            csv_path = session.workspace / "annotations_export.csv"
+            export_annotations_csv(annotations, csv_path)
+            _p1_export_data = csv_path.read_bytes()
+        st.download_button(
+            "Export CSV",
+            data=_p1_export_data,
+            file_name="annotations.csv",
+            mime="text/csv",
+            key="p1_export_btn",
+            use_container_width=True,
+            disabled=not bool(annotations and session),
+        )
 
     with tb_import_btn:
-        if st.button("Import CSV", key="p1_import_btn", use_container_width=True):
-            st.session_state["_p1_show_import"] = not st.session_state.get("_p1_show_import", False)
+        csv_upload = st.file_uploader(
+            "Import CSV",
+            type=["csv"],
+            key="p1_csv_upload",
+            label_visibility="collapsed",
+        )
 
-    if st.session_state.get("_p1_show_import", False):
-        csv_upload = st.file_uploader("Import CSV file", type=["csv"], key="p1_csv_upload")
-        if csv_upload is not None and annotations and session:
-            csv_path = session.workspace / "annotations_import.csv"
-            csv_path.write_bytes(csv_upload.read())
-            updated, flagged = import_annotations_csv(csv_path, annotations)
-            if flagged:
-                st.warning(
-                    f"{len(flagged)} existing annotations missing from CSV: "
-                    f"{', '.join(flagged[:5])}{'...' if len(flagged) > 5 else ''}"
-                )
-                c1, c2 = st.columns(2)
-                if c1.button("Confirm (remove missing)", key="p1_csv_confirm"):
-                    final = [r for r in updated if r.id not in flagged]
-                    session.save_annotations(final)
-                    st.session_state["annotations"] = final
-                    st.session_state["_p1_show_import"] = False
-                    invalidate_phases([3, 4])
-                    st.rerun()
-                if c2.button("Keep all", key="p1_csv_keep"):
-                    session.save_annotations(updated)
-                    st.session_state["annotations"] = updated
-                    st.session_state["_p1_show_import"] = False
-                    invalidate_phases([3, 4])
-                    st.rerun()
-            else:
-                session.save_annotations(updated)
-                st.session_state["annotations"] = updated
-                st.session_state["_p1_show_import"] = False
+    if csv_upload is not None and annotations and session:
+        csv_path = session.workspace / "annotations_import.csv"
+        csv_path.write_bytes(csv_upload.read())
+        updated, flagged = import_annotations_csv(csv_path, annotations)
+        if flagged:
+            st.warning(
+                f"{len(flagged)} existing annotations missing from CSV: "
+                f"{', '.join(flagged[:5])}{'...' if len(flagged) > 5 else ''}"
+            )
+            c1, c2 = st.columns(2)
+            if c1.button("Confirm (remove missing)", key="p1_csv_confirm"):
+                final = [r for r in updated if r.id not in flagged]
+                session.save_annotations(final)
+                st.session_state["annotations"] = final
                 invalidate_phases([3, 4])
                 st.rerun()
+            if c2.button("Keep all", key="p1_csv_keep"):
+                session.save_annotations(updated)
+                st.session_state["annotations"] = updated
+                invalidate_phases([3, 4])
+                st.rerun()
+        else:
+            session.save_annotations(updated)
+            st.session_state["annotations"] = updated
+            invalidate_phases([3, 4])
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------

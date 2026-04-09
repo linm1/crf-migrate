@@ -8,7 +8,9 @@ from src.rule_engine import RuleEngine
 from src.session import Session
 from ui.phase1_review import render_phase1
 from ui.phase2_review import render_phase2
-from ui.phase3_review import render_phase3
+from ui.phase3_review import render_phase3, _inject_page_css as _inject_phase3_css
+from ui.phase4_review import _inject_page_css as _inject_phase4_css
+from ui.profile_editor import _inject_page_css as _inject_pe_css
 from ui.phase4_review import render_phase4
 from ui.profile_editor import render_profile_editor
 
@@ -103,6 +105,11 @@ st.markdown(
         max-width: 100% !important;
         padding-left: 1.5rem !important;
         padding-right: 1.5rem !important;
+    }
+
+    /* Always show scrollbar so content width stays constant across phases */
+    section[data-testid="stMain"] {
+        overflow-y: scroll !important;
     }
 
     /* Sidebar nav: bold text */
@@ -205,6 +212,164 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+st.markdown(
+    """
+    <style>
+    /* === Topbar CSV buttons — scoped to widget key wrappers only === */
+    /* Does NOT affect the card file uploader in column 1               */
+
+    /* Export CSV: stDownloadButton styled to match .stButton */
+    .st-key-p1_export_btn button,
+    .st-key-p2_export_btn button,
+    .st-key-p3_export_btn button {
+        border: 2px solid #383838 !important;
+        box-shadow: 3px 3px 0 #38383820 !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+        font-family: ui-monospace, Consolas, monospace !important;
+        font-size: 14px !important;
+        font-weight: 400 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        background: transparent !important;
+        color: #383838 !important;
+        width: 100% !important;
+        border-radius: 0px !important;
+        padding: 0.25rem 0.75rem !important;
+        height: 38px !important;
+    }
+    .st-key-p1_export_btn button:hover,
+    .st-key-p2_export_btn button:hover,
+    .st-key-p3_export_btn button:hover {
+        background: #383838 !important;
+        color: #FFFFFF !important;
+        transform: translate(-1px, -1px) !important;
+        box-shadow: 3px 3px 0 #38383840 !important;
+    }
+    /* Profile Editor topbar buttons — match other phases */
+    .st-key-pe_dup button,
+    .st-key-pe_imp_toggle button,
+    .st-key-pe_save_top button {
+        background: transparent !important;
+        font-size: 14px !important;
+        font-family: ui-monospace, Consolas, monospace !important;
+        font-weight: 400 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        height: 38px !important;
+        border-radius: 0px !important;
+    }
+    .st-key-pe_dup button p,
+    .st-key-pe_imp_toggle button p,
+    .st-key-pe_save_top button p {
+        font-family: ui-monospace, Consolas, monospace !important;
+        font-weight: 400 !important;
+        font-size: 14px !important;
+        letter-spacing: 0.5px !important;
+        text-transform: uppercase !important;
+    }
+
+    /* Normalize <p> inside stMarkdownContainer within export button — prevent bold bleed */
+    .st-key-p1_export_btn button p,
+    .st-key-p2_export_btn button p,
+    .st-key-p3_export_btn button p {
+        font-family: ui-monospace, Consolas, monospace !important;
+        font-weight: 400 !important;
+        font-size: 14px !important;
+        letter-spacing: 0.5px !important;
+        text-transform: uppercase !important;
+    }
+
+    /* Import CSV: collapse dropzone, style Browse button identically */
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"],
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"],
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"] {
+        border: none !important;
+        padding: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        min-height: unset !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzoneInstructions"],
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzoneInstructions"],
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzoneInstructions"] {
+        display: none !important;
+    }
+    /* Width: force dropzone, span wrapper, and button to fill column */
+    .st-key-p1_csv_upload [data-testid="stFileUploader"],
+    .st-key-p2_csv_upload [data-testid="stFileUploader"],
+    .st-key-p3_csv_upload [data-testid="stFileUploader"],
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"],
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"],
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"],
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"] > span,
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"] > span,
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"] > span {
+        width: 100% !important;
+    }
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"] button,
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"] button,
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"] button {
+        border: 2px solid #383838 !important;
+        box-shadow: 3px 3px 0 #38383820 !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+        font-weight: 400 !important;
+        background: transparent !important;
+        width: 100% !important;
+        border-radius: 0px !important;
+        padding: 0.25rem 0.75rem !important;
+        height: 38px !important;
+        /* font-size: 0 below hides the bare "Browse files" text node */
+        font-size: 0 !important;
+        color: transparent !important;
+    }
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"] button:hover,
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"] button:hover,
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"] button:hover {
+        background: #383838 !important;
+        transform: translate(-1px, -1px) !important;
+        box-shadow: 3px 3px 0 #38383840 !important;
+    }
+    /* Inject "IMPORT CSV" via ::after — button text is a bare text node,
+       confirmed via DevTools: <button>Browse files</button> (no child elements).
+       span::after doesn't work; button::after does. */
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"] button::after,
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"] button::after,
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"] button::after {
+        content: "IMPORT CSV" !important;
+        font-size: 14px !important;
+        color: #383838 !important;
+        font-family: ui-monospace, Consolas, monospace !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    .st-key-p1_csv_upload [data-testid="stFileUploaderDropzone"] button:hover::after,
+    .st-key-p2_csv_upload [data-testid="stFileUploaderDropzone"] button:hover::after,
+    .st-key-p3_csv_upload [data-testid="stFileUploaderDropzone"] button:hover::after {
+        color: #FFFFFF !important;
+    }
+    /* Hide filename badge after upload — keep topbar clean */
+    .st-key-p1_csv_upload [data-testid="stFileUploaderFile"],
+    .st-key-p2_csv_upload [data-testid="stFileUploaderFile"],
+    .st-key-p3_csv_upload [data-testid="stFileUploaderFile"] {
+        display: none !important;
+    }
+    /* Hide label (label_visibility="collapsed" in Python) */
+    .st-key-p1_csv_upload label,
+    .st-key-p2_csv_upload label,
+    .st-key-p3_csv_upload label {
+        display: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+_inject_phase3_css()
+_inject_phase4_css()
+_inject_pe_css()
 
 # ---------------------------------------------------------------------------
 # Session state initialization

@@ -100,12 +100,6 @@ def render_phase2(profiles_dir: Path) -> None:
             background: #1a1a1a !important;
             color: #FFFFFF !important;
         }
-        /* Phase 2 toolbar buttons: 12px bold monospace (matches Profile Editor pattern) */
-        .st-key-p2_export_btn button p,
-        .st-key-p2_import_btn button p {
-            font-size: 12px !important;
-            font-weight: 700 !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -154,56 +148,55 @@ def _render_topbar(fields: list[FieldRecord], session) -> None:
     _, tb_export, tb_import_btn = st.columns([5, 1, 1], gap="small")
 
     with tb_export:
-        if st.button("Export CSV", key="p2_export_btn", use_container_width=True):
-            if fields and session:
-                csv_path = session.workspace / "fields_export.csv"
-                export_fields_csv(fields, csv_path)
-                st.session_state["_p2_csv_ready"] = csv_path.read_bytes()
-        if st.session_state.get("_p2_csv_ready"):
-            st.download_button(
-                "Download CSV",
-                data=st.session_state["_p2_csv_ready"],
-                file_name="fields.csv",
-                mime="text/csv",
-                key="p2_csv_dl",
-                use_container_width=True,
-            )
+        _p2_export_data: bytes = b""
+        if fields and session:
+            csv_path = session.workspace / "fields_export.csv"
+            export_fields_csv(fields, csv_path)
+            _p2_export_data = csv_path.read_bytes()
+        st.download_button(
+            "Export CSV",
+            data=_p2_export_data,
+            file_name="fields.csv",
+            mime="text/csv",
+            key="p2_export_btn",
+            use_container_width=True,
+            disabled=not bool(fields and session),
+        )
 
     with tb_import_btn:
-        if st.button("Import CSV", key="p2_import_btn", use_container_width=True):
-            st.session_state["_p2_show_import"] = not st.session_state.get("_p2_show_import", False)
+        csv_upload = st.file_uploader(
+            "Import CSV",
+            type=["csv"],
+            key="p2_csv_upload",
+            label_visibility="collapsed",
+        )
 
-    if st.session_state.get("_p2_show_import", False):
-        csv_upload = st.file_uploader("Import CSV file", type=["csv"], key="p2_csv_upload")
-        if csv_upload is not None and fields and session:
-            csv_path = session.workspace / "fields_import.csv"
-            csv_path.write_bytes(csv_upload.read())
-            updated, flagged = import_fields_csv(csv_path, fields)
-            if flagged:
-                st.warning(
-                    f"{len(flagged)} existing fields missing from CSV: "
-                    f"{', '.join(flagged[:5])}{'...' if len(flagged) > 5 else ''}"
-                )
-                c1, c2 = st.columns(2)
-                if c1.button("Confirm (remove missing)", key="p2_csv_confirm"):
-                    final = [r for r in updated if r.id not in flagged]
-                    session.save_fields(final)
-                    st.session_state["fields"] = final
-                    st.session_state["_p2_show_import"] = False
-                    invalidate_phases([3, 4])
-                    st.rerun()
-                if c2.button("Keep all", key="p2_csv_keep"):
-                    session.save_fields(updated)
-                    st.session_state["fields"] = updated
-                    st.session_state["_p2_show_import"] = False
-                    invalidate_phases([3, 4])
-                    st.rerun()
-            else:
-                session.save_fields(updated)
-                st.session_state["fields"] = updated
-                st.session_state["_p2_show_import"] = False
+    if csv_upload is not None and fields and session:
+        csv_path = session.workspace / "fields_import.csv"
+        csv_path.write_bytes(csv_upload.read())
+        updated, flagged = import_fields_csv(csv_path, fields)
+        if flagged:
+            st.warning(
+                f"{len(flagged)} existing fields missing from CSV: "
+                f"{', '.join(flagged[:5])}{'...' if len(flagged) > 5 else ''}"
+            )
+            c1, c2 = st.columns(2)
+            if c1.button("Confirm (remove missing)", key="p2_csv_confirm"):
+                final = [r for r in updated if r.id not in flagged]
+                session.save_fields(final)
+                st.session_state["fields"] = final
                 invalidate_phases([3, 4])
                 st.rerun()
+            if c2.button("Keep all", key="p2_csv_keep"):
+                session.save_fields(updated)
+                st.session_state["fields"] = updated
+                invalidate_phases([3, 4])
+                st.rerun()
+        else:
+            session.save_fields(updated)
+            st.session_state["fields"] = updated
+            invalidate_phases([3, 4])
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------
