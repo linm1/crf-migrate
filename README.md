@@ -4,7 +4,7 @@ A Python desktop tool for migrating SDTM annotations between annotated CRF (aCRF
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.38%2B-red)
-![Tests](https://img.shields.io/badge/tests-181%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-354%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-93%25-green)
 
 ## Overview
@@ -20,14 +20,14 @@ All classification and matching behavior is controlled by YAML profiles. The sam
 
 ## Screenshots
 
-```
-Sidebar navigation → Phase status bar → Per-phase review UI
-Profile Editor     → Domain codes, classification rules, visit rules, matching thresholds
-Phase 1            → Upload source aCRF → extract annotations → review/edit per page
-Phase 2            → Upload target CRF  → extract fields      → review/edit per page
-Phase 3            → Run matching → dashboard → approve/reject/assign → batch ops
-Phase 4            → Generate output aCRF → download → QC report
-```
+**Profile Editor — Domains tab**
+![Profile Editor Domains](docs/screenshots/02_profile_editor_domains.png)
+
+**Profile Editor — Classification Rules**
+![Classification Rules](docs/screenshots/03_profile_editor_classification.png)
+
+**Profile Editor — Matching Configuration**
+![Matching Config](docs/screenshots/07_profile_editor_matching.png)
 
 ## Installation
 
@@ -165,6 +165,161 @@ classification_rules:
         fallback: true
       category: sdtm_mapping
 ```
+
+> **Tip:** Use the built-in [Profile Editor](#profile-editor) to modify profiles visually — no need to hand-edit YAML files directly.
+
+## Profile Editor
+
+The Profile Editor is the control center for adapting CRF-Migrate to any EDC system. Access it from the sidebar — it is always available regardless of phase status.
+
+### Toolbar
+
+Three buttons appear at the top right of the editor:
+
+| Button | What it does |
+|--------|-------------|
+| **DUPLICATE** | Clones the active profile under a new name — use this to create a custom profile based on a built-in one |
+| **IMPORT** | Loads a YAML file from disk as a new profile |
+| **SAVE** | Validates and persists all unsaved changes to the profile YAML file |
+
+> Changes are held in a draft until you click **SAVE**. Navigating away without saving discards the draft.
+
+### Switching profiles
+
+Use the **Profile** dropdown in the sidebar to switch between profiles. The active profile name is shown below the dropdown.
+
+---
+
+### Tab: Domains
+
+![Domains tab](docs/screenshots/02_profile_editor_domains.png)
+
+The **Domains** tab manages the list of SDTM domain codes recognized by the rule engine.
+
+**To add a domain code:**
+1. Type the code (e.g. `SUPPAE`) in the text field
+2. Click **+ ADD**
+3. The new badge appears in the grid
+
+**To remove a domain code:**
+- Click the **×** on any badge
+
+Domain codes are used by `classification_rules` with the `domain_in` condition — rules that match annotations whose text references a known domain.
+
+---
+
+### Tab: Classification
+
+![Classification Rules](docs/screenshots/03_profile_editor_classification.png)
+
+The **Classification** tab defines how each annotation is categorized. Rules are evaluated top-to-bottom; the first matching rule wins.
+
+**Rule categories and their colors:**
+
+| Category | Color | Meaning |
+|----------|-------|---------|
+| `sdtm_mapping` | Blue | Standard SDTM variable annotation |
+| `domain_label` | Yellow | Domain header label (e.g. `AE (Adverse Events)`) |
+| `not_submitted` | Green | "Not submitted" placeholder annotation |
+| `note` | Gray | Informational note annotation |
+| `_exclude` | Red | Annotation is filtered out entirely |
+
+**To expand a rule:** Click the arrow to the left of a rule row to reveal its conditions and controls.
+
+![Rule expanded](docs/screenshots/04_classification_rule_expanded.png)
+
+**Available conditions:**
+
+| Condition | Example | Description |
+|-----------|---------|-------------|
+| `contains` | `[NOT SUBMITTED]` | Text contains this substring |
+| `starts_with` | `Note:` | Text starts with this prefix |
+| `regex` | `^([A-Z]{2,4})` | Full Python regex match |
+| `subject_is` | `Sticky Note` | PDF annotation subject field equals this |
+| `domain_in` | *(uses domain_codes list)* | Annotation text references a known domain |
+| `max_length` | `0` | Text length is at most N characters |
+| `min_length` | `5` | Text length is at least N characters |
+| `multi_line` | `true` | Text contains a newline |
+| `fallback` | `true` | Always matches — place last as a catch-all |
+
+> Within one rule, all conditions use AND logic. For OR logic, create separate rules.
+
+**To add a rule:** Click **＋ ADD RULE** at the bottom of the list.
+
+**Rule Tester:** Below the rule list, paste sample annotation text and an optional domain/subject to see which rule fires and what category is assigned — useful for validating regex patterns before saving.
+
+---
+
+### Tab: Visits
+
+![Visits tab](docs/screenshots/05_profile_editor_visits.png)
+
+The **Visits** tab maps regex patterns to visit names. These are used by the extractor to tag annotations with the visit they appear on.
+
+Each row is a `pattern → visit_name` mapping. Patterns are Python regexes matched against page header text.
+
+---
+
+### Tab: Form Name
+
+![Form Name tab](docs/screenshots/06_profile_editor_formname.png)
+
+The **Form Name** tab configures how the form name is extracted from each CRF page (Phase 2).
+
+| Setting | Description |
+|---------|-------------|
+| **Strategy** | `first_bold_text` |
+| **Top region fraction** | Fraction of page height to scan (e.g. `0.15` = top 15%) |
+| **Label prefixes** | Prefixes to strip (e.g. `Form:`, `CRF:`) |
+| **Exclude patterns** | Regex patterns that should never be treated as a form name |
+
+---
+
+### Tab: Matching
+
+![Matching Config](docs/screenshots/07_profile_editor_matching.png)
+
+The **Matching** tab exposes the four confidence thresholds used by the Phase 3 matching algorithm.
+
+| Threshold | Default | Description |
+|-----------|---------|-------------|
+| **Exact threshold** | 1.00 | Confidence assigned to exact form + field matches |
+| **Fuzzy same-form threshold** | 0.80 | Minimum `token_sort_ratio` for same-form fuzzy matches |
+| **Fuzzy cross-form threshold** | 0.90 | Minimum `token_sort_ratio` for cross-form fuzzy matches |
+| **Position fallback confidence** | 0.50 | Confidence assigned to coordinate-scaled position matches |
+
+Raise fuzzy thresholds to reduce false positives; lower them to increase recall on heavily reformatted CRFs.
+
+---
+
+### Tab: Style
+
+![Style tab](docs/screenshots/08_profile_editor_style.png)
+
+The **Style** tab controls how annotations look in the output PDF.
+
+| Setting | Description |
+|---------|-------------|
+| **Font size** | Point size for `sdtm_mapping` / `note` annotations |
+| **Domain label font size** | Point size specifically for `domain_label` annotations |
+| **Text color (R, G, B)** | RGB floats 0.0–1.0 for annotation text |
+| **Border color (R, G, B)** | RGB floats 0.0–1.0 for annotation border/fill |
+
+The color swatch next to each row shows a live preview of the current color.
+
+> Default: black text `[0, 0, 0]`, black border `[0.0, 0, 0]` — matching the standard aCRF convention. Supposed to stick with default as per MSG.
+
+---
+
+### Tab: YAML
+
+![YAML tab](docs/screenshots/09_profile_editor_yaml.png)
+
+The **YAML** tab shows the full resolved profile as a live preview (terminal aesthetic). Use it to:
+- Verify that edits have the correct structure before saving
+- Download the profile YAML for external editing or version control
+
+Click **Download** to save the current draft as a `.yaml` file.
 
 ## Matching Algorithm
 
