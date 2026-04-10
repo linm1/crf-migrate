@@ -140,6 +140,19 @@ st.markdown(
         background-color: #f4efea !important;
     }
 
+    /* Global density: zoom sidebar and main content independently.
+       Applying zoom to children (not the container) keeps stMain at full
+       viewport height, so the scrollable area fills the screen correctly. */
+    section[data-testid="stSidebar"] {
+        zoom: 0.67;
+        min-width: 260px !important;
+        max-width: 260px !important;
+        width: 260px !important;
+    }
+    section[data-testid="stMain"] > div {
+        zoom: 0.67;
+    }
+
     /* Shadow-free: remove shadows on containers (not buttons) */
     div[data-testid="stContainer"][data-border="true"],
     div[data-testid="stVerticalBlock"] {
