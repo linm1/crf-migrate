@@ -18,6 +18,7 @@ from ui.components import (
     invalidate_phases,
     render_confidence_badge,
     render_match_type_badge,
+    render_page_navigator_windowed,
 )
 from ui.loader import clear_loader, loader_html
 
