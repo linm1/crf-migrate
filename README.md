@@ -3,9 +3,9 @@
 A Python desktop tool for migrating SDTM annotations between annotated CRF (aCRF) PDF versions in clinical trials. Built with a Streamlit UI and a configurable YAML rule engine — no code changes are needed when adapting to new CRF formats or EDC systems.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Streamlit](https://img.shields.io/badge/streamlit-1.38%2B-red)
+![Streamlit](https://img.shields.io/badge/streamlit-1.40%2B-red)
 ![Tests](https://img.shields.io/badge/tests-354%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-93%25-green)
+![Coverage](https://img.shields.io/badge/coverage-94%25-green)
 
 ## Overview
 
@@ -17,17 +17,6 @@ When a study updates its blank CRF between versions, all SDTM annotations from t
 4. **Writing** approved annotations onto the target PDF with full style preservation
 
 All classification and matching behavior is controlled by YAML profiles. The same codebase handles CDISC standard, Medidata Rave, Veeva Vault, and any custom EDC layout — just swap the profile.
-
-## Screenshots
-
-**Profile Editor — Domains tab**
-![Profile Editor Domains](docs/screenshots/02_profile_editor_domains.png)
-
-**Profile Editor — Classification Rules**
-![Classification Rules](docs/screenshots/03_profile_editor_classification.png)
-
-**Profile Editor — Matching Configuration**
-![Matching Config](docs/screenshots/07_profile_editor_matching.png)
 
 ## Installation
 
@@ -77,6 +66,7 @@ CRF-Migrate/
 ├── ui/
 │   ├── components.py         # Shared widgets, PDF utilities, phase invalidation
 │   ├── profile_editor.py     # Profile selector, rule editor, rule tester
+│   ├── loader.py             # Loading animation (SMIL SVG)
 │   ├── phase1_review.py      # Annotation extraction & review
 │   ├── phase2_review.py      # Field extraction & review
 │   ├── phase3_review.py      # Match dashboard, approve/reject, manual assign
@@ -96,7 +86,7 @@ CRF-Migrate/
 │   ├── cdisc_standard.yaml   # Default CDISC profile
 │   ├── rave_medidata.yaml    # Medidata Rave profile
 │   └── veeva_vault.yaml      # Veeva Vault profile
-└── tests/                    # 181 tests, 93% coverage
+└── tests/                    # 354 tests, 94% coverage
 ```
 
 ## Profiles
@@ -110,63 +100,6 @@ Profiles are the only mechanism for adapting to different CRF formats. No code c
 | `cdisc_standard` | Default — CDISC-compliant annotation patterns |
 | `rave_medidata` | Medidata Rave EDC conventions |
 | `veeva_vault` | Veeva Vault EDC conventions |
-
-### Profile sections
-
-```yaml
-meta:
-  name: My Profile
-  version: "1.0"
-  parent: cdisc_standard   # optional: inherit from another profile
-
-domain_codes: [DM, AE, VS, ...]
-
-classification_rules:
-  - conditions:
-      contains: "[NOT SUBMITTED]"
-    category: not_submitted
-  - conditions:
-      regex: "^([A-Z]{2,4})=(.+)$"
-      domain_in: domain_codes
-    category: domain_label
-  - conditions:
-      fallback: true
-    category: sdtm_mapping
-
-matching_config:
-  exact_threshold: 1.0
-  fuzzy_same_form_threshold: 0.80
-  fuzzy_cross_form_threshold: 0.90
-  position_fallback_confidence: 0.50
-
-style_defaults:
-  font: "Arial,BoldItalic"
-  font_size: 18
-  text_color: [0, 0, 0]
-  border_color: [0.75, 1.0, 1.0]
-```
-
-### Profile inheritance
-
-A child profile deep-merges with its parent. Lists support `_append` (extend) or `_replace` (overwrite) directives:
-
-```yaml
-meta:
-  name: My Custom Profile
-  parent: cdisc_standard
-
-domain_codes:
-  _append:
-    - MYCUSTOM
-
-classification_rules:
-  _replace:
-    - conditions:
-        fallback: true
-      category: sdtm_mapping
-```
-
-> **Tip:** Use the built-in [Profile Editor](#profile-editor) to modify profiles visually — no need to hand-edit YAML files directly.
 
 ## Profile Editor
 
@@ -307,7 +240,7 @@ The **Style** tab controls how annotations look in the output PDF.
 
 The color swatch next to each row shows a live preview of the current color.
 
-> Default: black text `[0, 0, 0]`, black border `[0.0, 0, 0]` — matching the standard aCRF convention. Supposed to stick with default as per MSG.
+> Default: black text `[0, 0, 0]`, black border `[0, 0, 0]` — matching the standard aCRF convention. Supposed to stick with default as per MSG.
 
 ---
 
@@ -330,7 +263,7 @@ Phase 3 runs four cascading passes. Each pass only processes annotations not yet
 3. **Fuzzy cross-form** — same algorithm across all remaining fields (default threshold: 90%)
 4. **Position fallback** — coordinate scaling from source to target page dimensions; domain labels use absolute placement
 
-Each match record carries a `confidence` score, `match_type`, and `status` (pending / approved / rejected / modified).
+Each match record carries a `confidence` score, `match_type`, and `status` (approved / re-pairing).
 
 ## CSV Workflow
 
@@ -340,7 +273,7 @@ All three record types support CSV round-trips for bulk editing outside the app:
 Export CSV → edit in Excel/Numbers → Import CSV → review changes in app
 ```
 
-- **Annotations CSV**: all fields including `rect`, `style` (JSON-serialized)
+- **Annotations CSV**: all fields including `rect`, `style`, `anchor_rect` (JSON-serialized)
 - **Fields CSV**: all fields including `rect`
 - **Matches CSV**: all fields including `target_rect`, `field_id` (blank = unmatched)
 
@@ -382,15 +315,16 @@ pytest tests/test_matcher.py -v
 |--------|----------|
 | `models.py` | 100% |
 | `profile_models.py` | 100% |
-| `rule_engine.py` | 100% |
-| `matcher.py` | 95% |
+| `matcher.py` | 99% |
+| `field_parser.py` | 99% |
+| `rule_engine.py` | 99% |
 | `writer.py` | 95% |
-| `field_parser.py` | 94% |
 | `profile_loader.py` | 91% |
+| `pdf_utils.py` | 89% |
 | `session.py` | 89% |
 | `csv_handler.py` | 89% |
-| `extractor.py` | 87% |
-| **Total** | **93%** |
+| `extractor.py` | 84% |
+| **Total** | **94%** |
 
 ## License
 
