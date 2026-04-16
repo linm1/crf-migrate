@@ -1,12 +1,26 @@
 """Profile editor UI for CRF-Migrate."""
+import copy
 from pathlib import Path
 
 import yaml
 import streamlit as st
 
-from src.profile_loader import list_profiles, load_profile
+from src.profile_loader import list_profiles, load_profile, validate_profile_data
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine
+
+
+_EDITOR_LIST_FIELDS = (
+    "domain_codes",
+    "classification_rules",
+    "visit_rules",
+)
+
+_EDITOR_DICT_FIELDS = (
+    "form_name_rules",
+    "matching_config",
+    "style_defaults",
+)
 
 
 def _inject_page_css() -> None:
@@ -174,11 +188,7 @@ def render_profile_editor(profiles_dir: Path) -> None:
         if st.button("Import", key="pe_imp_toggle", use_container_width=True):
             st.session_state["pe_show_import"] = not st.session_state.get("pe_show_import", False)
     with tb_save:
-        if st.button("Save", key="pe_save_top", use_container_width=True):
-            if "draft_profile_data" in st.session_state:
-                _save_profile(profiles_dir, selected, st.session_state["draft_profile_data"])
-            else:
-                st.warning("No draft to save — try reloading the profile.")
+        save_requested = st.button("Save", key="pe_save_top", use_container_width=True)
 
     # File uploader: toggle-revealed below toolbar
     if st.session_state.get("pe_show_import", False):
@@ -226,6 +236,9 @@ def render_profile_editor(profiles_dir: Path) -> None:
     with tabs[6]:
         _render_yaml_tab(draft, profiles_dir, selected)
 
+    if save_requested:
+        _save_profile(profiles_dir, selected, draft)
+
 
 
 
@@ -239,16 +252,21 @@ def _load_profile_into_state(profiles_dir: Path, name: str) -> None:
     st.session_state["profile"] = profile
     st.session_state["profile_name"] = name
     st.session_state["rule_engine"] = RuleEngine(profile)
-    st.session_state["draft_profile_data"] = profile.model_dump()
+    profile_dump = profile.model_dump()
+    st.session_state["draft_profile_data"] = copy.deepcopy(profile_dump)
+    st.session_state["original_profile_data"] = copy.deepcopy(profile_dump)
 
 
 def _reset_draft(profiles_dir: Path, name: str) -> None:
     profile_path = profiles_dir / f"{name}.yaml"
     try:
         profile = load_profile(profile_path, profiles_dir)
-        st.session_state["draft_profile_data"] = profile.model_dump()
+        profile_dump = profile.model_dump()
+        st.session_state["draft_profile_data"] = copy.deepcopy(profile_dump)
+        st.session_state["original_profile_data"] = copy.deepcopy(profile_dump)
     except Exception:
         st.session_state["draft_profile_data"] = {}
+        st.session_state["original_profile_data"] = {}
 
 
 def _duplicate_profile(profiles_dir: Path, source_name: str) -> None:
@@ -266,6 +284,7 @@ def _duplicate_profile(profiles_dir: Path, source_name: str) -> None:
     dest_path.write_text(yaml.dump(raw, allow_unicode=True), encoding="utf-8")
     st.session_state["profile_name"] = new_name
     st.session_state.pop("draft_profile_data", None)
+    st.session_state.pop("original_profile_data", None)
     st.success(f"Duplicated to '{new_name}'")
 
 
@@ -277,6 +296,7 @@ def _import_yaml(profiles_dir: Path, uploaded) -> None:
         dest.write_text(yaml.dump(raw, allow_unicode=True), encoding="utf-8")
         st.session_state["profile_name"] = name
         st.session_state.pop("draft_profile_data", None)
+        st.session_state.pop("original_profile_data", None)
         st.success(f"Imported profile '{name}'")
     except Exception as e:
         st.error(f"Import failed: {e}")
@@ -701,6 +721,82 @@ def _render_rule_tester() -> None:
 # Save
 # ---------------------------------------------------------------------------
 
+
+def _load_current_raw_profile(profile_path: Path) -> dict:
+    if not profile_path.exists():
+        return {}
+    with profile_path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _strip_stale_fields(raw: dict) -> None:
+    anchor_cfg = raw.get("anchor_text_config")
+    if isinstance(anchor_cfg, dict):
+        anchor_cfg.pop("exclude_patterns", None)
+
+
+def _serialize_list_field(
+    field: str,
+    current_raw: dict,
+    values: list,
+    profiles_dir: Path,
+):
+    parent_name = current_raw.get("meta", {}).get("parent")
+    if parent_name is None:
+        return copy.deepcopy(values)
+
+    parent_path = profiles_dir / f"{parent_name}.yaml"
+    parent_profile = load_profile(parent_path, profiles_dir)
+    parent_values = copy.deepcopy(parent_profile.model_dump().get(field, []))
+
+    if values == parent_values:
+        return None
+    if values[: len(parent_values)] == parent_values:
+        return {"_append": copy.deepcopy(values[len(parent_values):])}
+    return {"_replace": copy.deepcopy(values)}
+
+
+def _merge_changed_editor_fields(
+    current_raw: dict,
+    validated_dump: dict,
+    original_dump: dict,
+    profiles_dir: Path,
+) -> dict:
+    merged = copy.deepcopy(current_raw)
+
+    for field in _EDITOR_LIST_FIELDS:
+        if validated_dump.get(field) != original_dump.get(field):
+            serialized = _serialize_list_field(
+                field,
+                current_raw,
+                validated_dump.get(field),
+                profiles_dir,
+            )
+            if serialized is None:
+                merged.pop(field, None)
+            else:
+                merged[field] = serialized
+
+    for field in _EDITOR_DICT_FIELDS:
+        validated_section = validated_dump.get(field, {})
+        original_section = original_dump.get(field, {})
+        changed_keys = [
+            key for key, value in validated_section.items()
+            if value != original_section.get(key)
+        ]
+        if not changed_keys:
+            continue
+        raw_section = merged.get(field)
+        if not isinstance(raw_section, dict):
+            raw_section = {}
+        else:
+            raw_section = copy.deepcopy(raw_section)
+        for key in changed_keys:
+            raw_section[key] = copy.deepcopy(validated_section[key])
+        merged[field] = raw_section
+
+    return merged
+
 def _save_profile(profiles_dir: Path, name: str, draft: dict) -> None:
     try:
         profile = Profile.model_validate(draft)
@@ -708,13 +804,26 @@ def _save_profile(profiles_dir: Path, name: str, draft: dict) -> None:
         st.error(f"Validation error: {e}")
         return
     profile_path = profiles_dir / f"{name}.yaml"
+    current_raw = _load_current_raw_profile(profile_path)
+    _strip_stale_fields(current_raw)
+    validated_dump = profile.model_dump()
+    original_dump = st.session_state.get("original_profile_data") or {}
+    merge_base = current_raw if current_raw else copy.deepcopy(validated_dump)
+    try:
+        merged_raw = _merge_changed_editor_fields(merge_base, validated_dump, original_dump, profiles_dir)
+        validate_profile_data(merged_raw, profiles_dir)
+    except Exception as e:
+        st.error(f"Validation error: {e}")
+        return
     profile_path.write_text(
-        yaml.dump(profile.model_dump(), allow_unicode=True, sort_keys=False), encoding="utf-8"
+        yaml.dump(merged_raw, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
     # Reload from disk so session state always matches the saved file exactly
     profile = load_profile(profile_path, profiles_dir)
     st.session_state["profile"] = profile
     st.session_state["rule_engine"] = RuleEngine(profile)
-    st.session_state["draft_profile_data"] = profile.model_dump()
+    profile_dump = profile.model_dump()
+    st.session_state["draft_profile_data"] = copy.deepcopy(profile_dump)
+    st.session_state["original_profile_data"] = copy.deepcopy(profile_dump)
     st.success(f"Profile '{name}' saved.")
     st.rerun()
