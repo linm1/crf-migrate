@@ -33,10 +33,14 @@ if not isinstance(sys.modules["streamlit"], MagicMock):
     sys.modules["streamlit.components"] = MagicMock()
     sys.modules["streamlit.components.v1"] = MagicMock()
 
-# rapidfuzz.fuzz must expose a callable attribute `token_sort_ratio`
-_rfuzz_stub = MagicMock()
-sys.modules["rapidfuzz"] = _rfuzz_stub
-sys.modules["rapidfuzz.fuzz"] = _rfuzz_stub.fuzz
+# rapidfuzz.fuzz must expose a callable attribute `token_sort_ratio`.
+# Only install the MagicMock stub when the real module is NOT available;
+# replacing an already-loaded real module would corrupt the entire test session
+# because the stub leaks into sys.modules for all subsequent imports.
+if not isinstance(sys.modules.get("rapidfuzz"), types.ModuleType):
+    _rfuzz_stub = MagicMock()
+    sys.modules["rapidfuzz"] = _rfuzz_stub
+    sys.modules["rapidfuzz.fuzz"] = _rfuzz_stub.fuzz
 
 # ---------------------------------------------------------------------------
 

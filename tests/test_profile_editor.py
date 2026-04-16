@@ -160,7 +160,7 @@ class TestRenderListRow:
         sys.modules.pop("ui.profile_editor", None)
         from ui.profile_editor import _render_list_row
         _render_list_row(3, lambda: None, del_key="del_test_3")
-        st.container.assert_called_once_with(key="list_row_3")
+        st.container.assert_called_once_with(key="list_row_row_3")
 
 
 class TestFormNameExcludePatternsDelete:
