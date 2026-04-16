@@ -25,7 +25,7 @@ class RuleEngine:
             re.compile(p, re.IGNORECASE)
             for p in profile.form_name_rules.exclude_patterns
         ]
-        self._anchor_excludes = self._form_name_excludes  # same object, same list
+        self._anchor_excludes: list[re.Pattern[str]] = self._form_name_excludes  # same object, same list
 
     # ------------------------------------------------------------------
     # Public API

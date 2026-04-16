@@ -1413,16 +1413,6 @@ class TestSharedExcludePatterns:
         for raw in profile.form_name_rules.exclude_patterns:
             assert raw in form_name_pattern_strings
 
-    def test_anchor_excludes_uses_form_name_patterns(self):
-        """_anchor_excludes shares form_name_rules.exclude_patterns (unified list)."""
-        from src.profile_loader import load_profile
-        from pathlib import Path
-        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
-        engine = RuleEngine(profile)
-        anchor_pattern_strings = {p.pattern for p in engine._anchor_excludes}
-        for raw in profile.form_name_rules.exclude_patterns:
-            assert raw in anchor_pattern_strings
-
     def test_anchor_exclude_patterns_property_returns_anchor_excludes(self):
         """anchor_exclude_patterns property returns _anchor_excludes."""
         from src.profile_loader import load_profile

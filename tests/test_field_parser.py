@@ -453,7 +453,7 @@ class TestFormNameDerivationExcludePatterns:
         from src.field_parser import extract_fields
         from pathlib import Path
         pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
-            ("CDISC", 50, 40, 7.3),
+            ("CDISC", 50, 40, 10.0),
             ("Adverse Events", 50, 80, 10.0),
             ("aPTT", 50, 120, 9.0),
             ("___________", 200, 120, 9.0),
@@ -467,7 +467,7 @@ class TestFormNameDerivationExcludePatterns:
         from src.field_parser import extract_fields
         from pathlib import Path
         pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
-            ("CDISC", 50, 40, 7.3),
+            ("CDISC", 50, 40, 10.0),
             ("___________", 200, 120, 9.0),
         ])
         fields = extract_fields(pdf_path, profile, engine)
@@ -479,7 +479,7 @@ class TestFormNameDerivationExcludePatterns:
         from src.field_parser import extract_fields
         from pathlib import Path
         pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
-            ("Page 1 of 109", 50, 30, 8.0),
+            ("Page 1 of 109", 50, 30, 10.0),
             ("Vital Signs", 50, 70, 10.0),
             ("Systolic BP", 50, 120, 9.0),
             ("___________", 200, 120, 9.0),
