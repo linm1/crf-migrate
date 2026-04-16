@@ -25,10 +25,7 @@ class RuleEngine:
             re.compile(p, re.IGNORECASE)
             for p in profile.form_name_rules.exclude_patterns
         ]
-        self._anchor_excludes: list[re.Pattern[str]] = [
-            re.compile(p, re.IGNORECASE)
-            for p in profile.anchor_text_config.exclude_patterns
-        ]
+        self._anchor_excludes = self._form_name_excludes  # same object, same list
 
     # ------------------------------------------------------------------
     # Public API
@@ -157,6 +154,11 @@ class RuleEngine:
     def anchor_exclude_patterns(self) -> list[re.Pattern[str]]:
         """Pre-compiled exclude patterns for anchor text extraction."""
         return self._anchor_excludes
+
+    @property
+    def form_name_exclude_patterns(self) -> list[re.Pattern[str]]:
+        """Pre-compiled exclude patterns for form name identification."""
+        return self._form_name_excludes
 
     # ------------------------------------------------------------------
     # Private helpers

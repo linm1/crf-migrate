@@ -280,7 +280,7 @@ def _extract_anchor_text(
     config = profile.anchor_text_config
     if exclude_patterns is None:
         exclude_patterns = [
-            re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
+            re.compile(p, re.IGNORECASE) for p in profile.form_name_rules.exclude_patterns
         ]
     marker_rect = [annot_rect.x0, annot_rect.y0, annot_rect.x1, annot_rect.y1]
     return find_nearest_label(
