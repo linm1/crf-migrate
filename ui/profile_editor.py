@@ -703,13 +703,13 @@ def _render_rule_tester() -> None:
 
 def _save_profile(profiles_dir: Path, name: str, draft: dict) -> None:
     try:
-        Profile.model_validate(draft)
+        profile = Profile.model_validate(draft)
     except Exception as e:
         st.error(f"Validation error: {e}")
         return
     profile_path = profiles_dir / f"{name}.yaml"
     profile_path.write_text(
-        yaml.dump(draft, allow_unicode=True, sort_keys=False), encoding="utf-8"
+        yaml.dump(profile.model_dump(), allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
     # Reload from disk so session state always matches the saved file exactly
     profile = load_profile(profile_path, profiles_dir)

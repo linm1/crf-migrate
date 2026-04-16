@@ -288,3 +288,83 @@ class TestDomainCodesTab:
         _render_domain_codes_tab(draft)
 
         assert draft["domain_codes"] == ["DM", "AE"]
+
+
+class TestSaveProfile:
+    """Tests for _save_profile — verifies stale fields are stripped on save."""
+
+    def test_stale_anchor_text_exclude_patterns_not_written_to_disk(self, tmp_path):
+        """_save_profile serialises profile.model_dump(), not the raw draft.
+
+        A draft containing a stale ``anchor_text_config.exclude_patterns`` key
+        (present in pre-beaf116 YAML files but removed from AnchorTextConfig)
+        must NOT be written back to disk.  The fix is to pass
+        ``profile.model_dump()`` to ``yaml.dump()`` instead of the raw draft.
+        """
+        import yaml
+        from pathlib import Path
+
+        # Build a minimal valid draft that includes the stale field
+        draft = {
+            "meta": {"name": "test", "version": "1.0", "parent": None},
+            "domain_codes": ["DM"],
+            "classification_rules": [],
+            "form_name_rules": {
+                "strategy": "largest_bold_text",
+                "min_font_size": 12.0,
+                "exclude_patterns": [],
+                "top_region_fraction": None,
+                "label_prefix": None,
+            },
+            "visit_rules": [],
+            "anchor_text_config": {
+                "radius_px": 100.0,
+                "prefer_direction": ["left", "above"],
+                "left_column_tolerance_px": 50.0,
+                # stale field that should be stripped by model_dump()
+                "exclude_patterns": ["DRAFT", "OBSOLETE"],
+            },
+            "annotation_filter": {
+                "min_width": 10.0,
+                "min_height": 10.0,
+                "require_text": True,
+            },
+            "matching_config": {
+                "exact_threshold": 1.0,
+                "fuzzy_same_form_threshold": 0.8,
+                "fuzzy_cross_form_threshold": 0.9,
+                "position_fallback_confidence": 0.5,
+            },
+            "style_defaults": {
+                "font_size": 18.0,
+                "fill_color": [0.75, 1.0, 1.0],
+                "text_color": [0.0, 0.0, 0.0],
+                "border_width": 1.0,
+            },
+        }
+
+        profiles_dir = tmp_path
+
+        # Patch st, load_profile, and RuleEngine so _save_profile can run
+        fake_st = _make_st_mock()
+        sys.modules["streamlit"] = fake_st
+        sys.modules.pop("ui.profile_editor", None)
+
+        from unittest.mock import patch, MagicMock
+        from src.profile_models import Profile
+
+        fake_profile = Profile.model_validate(draft)
+
+        with patch("ui.profile_editor.load_profile", return_value=fake_profile), \
+             patch("ui.profile_editor.RuleEngine", return_value=MagicMock()):
+            from ui.profile_editor import _save_profile
+            _save_profile(profiles_dir, "test", draft)
+
+        saved_path = profiles_dir / "test.yaml"
+        assert saved_path.exists(), "Profile file was not written"
+
+        saved = yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+        anchor_cfg = saved.get("anchor_text_config", {})
+        assert "exclude_patterns" not in anchor_cfg, (
+            f"Stale 'exclude_patterns' was written to disk: {anchor_cfg}"
+        )
