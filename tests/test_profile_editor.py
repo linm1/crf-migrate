@@ -225,12 +225,17 @@ class TestFormNameExcludePatternsDelete:
         st = self._make_tab_mock(button_key_that_deletes=None)
         # Make the add button return True (simulate click)
         st.button.side_effect = lambda label, key=None, **kw: key == "add_exclude_pat"
+        # Echo back the initial pattern value when text_input is called with value=
+        def text_input_side_effect(label, value="", key=None, **kw):
+            return value
+        st.text_input.side_effect = text_input_side_effect
         sys.modules["streamlit"] = st
         sys.modules.pop("ui.profile_editor", None)
         from ui.profile_editor import _render_form_name_tab
         draft = {"form_name_rules": {"exclude_patterns": ["DRAFT"]}}
         _render_form_name_tab(draft)
         st.rerun.assert_called_once()
+        assert draft["form_name_rules"]["exclude_patterns"] == ["DRAFT", ""]
 
 
 class TestDomainCodesTab:
