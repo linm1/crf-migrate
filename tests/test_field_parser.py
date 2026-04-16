@@ -426,3 +426,78 @@ class TestDateRE:
     def test_matches_numeric_date_us_format(self):
         from src.field_parser import _DATE_RE
         assert _DATE_RE.search("03/15/24")
+
+
+class TestFormNameDerivationExcludePatterns:
+    """Phase 2 form_name derivation must respect form_name_rules.exclude_patterns."""
+
+    def _make_page_pdf(self, tmp_path, blocks):
+        import fitz
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+        from pathlib import Path
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+        for text, x, y, fontsize in blocks:
+            page.insert_text((x, y), text, fontsize=fontsize)
+        pdf_path = tmp_path / "test.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+        return pdf_path, profile, engine
+
+    def test_excluded_topmost_record_is_skipped_for_form_name(self, tmp_path):
+        from src.field_parser import extract_fields
+        from pathlib import Path
+        pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
+            ("CDISC", 50, 40, 7.3),
+            ("Adverse Events", 50, 80, 10.0),
+            ("aPTT", 50, 120, 9.0),
+            ("___________", 200, 120, 9.0),
+        ])
+        fields = extract_fields(pdf_path, profile, engine)
+        assert fields
+        for f in fields:
+            assert f.form_name == "Adverse Events", f"Expected 'Adverse Events', got '{f.form_name}'"
+
+    def test_cdisc_not_used_as_form_name(self, tmp_path):
+        from src.field_parser import extract_fields
+        from pathlib import Path
+        pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
+            ("CDISC", 50, 40, 7.3),
+            ("___________", 200, 120, 9.0),
+        ])
+        fields = extract_fields(pdf_path, profile, engine)
+        assert fields
+        for f in fields:
+            assert f.form_name != "CDISC", f"'CDISC' should be excluded, got '{f.form_name}'"
+
+    def test_page_number_excluded_from_form_name(self, tmp_path):
+        from src.field_parser import extract_fields
+        from pathlib import Path
+        pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
+            ("Page 1 of 109", 50, 30, 8.0),
+            ("Vital Signs", 50, 70, 10.0),
+            ("Systolic BP", 50, 120, 9.0),
+            ("___________", 200, 120, 9.0),
+        ])
+        fields = extract_fields(pdf_path, profile, engine)
+        assert fields
+        for f in fields:
+            assert f.form_name == "Vital Signs", f"Expected 'Vital Signs', got '{f.form_name}'"
+
+    def test_non_excluded_topmost_still_used(self, tmp_path):
+        from src.field_parser import extract_fields
+        from pathlib import Path
+        pdf_path, profile, engine = self._make_page_pdf(tmp_path, [
+            ("Demographics", 50, 40, 12.0),
+            ("Date of Birth", 50, 120, 9.0),
+            ("DD/MON/YYYY", 200, 120, 9.0),
+        ])
+        fields = extract_fields(pdf_path, profile, engine)
+        assert fields
+        for f in fields:
+            assert f.form_name == "Demographics", f"Expected 'Demographics', got '{f.form_name}'"
