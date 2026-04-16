@@ -548,6 +548,9 @@ def _render_form_name_tab(draft: dict) -> None:
         config["exclude_patterns"] = patterns
     if st.button("＋ Add Exclude Pattern", key="add_exclude_pat", use_container_width=True):
         config["exclude_patterns"] = patterns + [""]
+        draft["form_name_rules"] = config
+        st.rerun()
+        return
     draft["form_name_rules"] = config
 
 

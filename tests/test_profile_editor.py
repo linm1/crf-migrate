@@ -220,6 +220,18 @@ class TestFormNameExcludePatternsDelete:
         _render_form_name_tab(draft)
         assert draft["form_name_rules"]["exclude_patterns"] == ["DRAFT", "TEST"]
 
+    def test_add_exclude_pattern_calls_rerun(self):
+        """Clicking '+ Add Exclude Pattern' appends empty string and calls st.rerun()."""
+        st = self._make_tab_mock(button_key_that_deletes=None)
+        # Make the add button return True (simulate click)
+        st.button.side_effect = lambda label, key=None, **kw: key == "add_exclude_pat"
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_form_name_tab
+        draft = {"form_name_rules": {"exclude_patterns": ["DRAFT"]}}
+        _render_form_name_tab(draft)
+        st.rerun.assert_called_once()
+
 
 class TestDomainCodesTab:
     def _make_tab_mock(self, **kwargs):
