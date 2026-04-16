@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(where python3.exe)",
+      "Bash(where python.exe)",
+      "Bash(where py.exe)",
+      "Bash(py --version)",
+      "Bash(python3.exe --version)",
+      "Bash(py:*)",
+      "Bash(git checkout:*)",
+      "Bash(where python3:*)",
+      "Read(//usr/**)",
+      "Bash(pytest -q)",
+      "Bash(pip install:*)",
+      "Bash(pytest tests/test_phase3_pagination.py -v)",
+      "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -c \"import streamlit; print\\(streamlit.__version__\\)\")",
+      "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/test_rule_engine.py -v)",
+      "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/ -v)",
+      "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/test_rule_engine.py tests/test_profile_loader.py tests/test_session.py tests/test_csv_handler.py -v)",
+      "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/test_rule_engine.py -k \"test_tr04\" -v)",
+      "Bash(C:\\\\Program Files\\\\Python312\\\\python.exe:*)"
+    ]
+  }
+}

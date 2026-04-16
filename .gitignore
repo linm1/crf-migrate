@@ -60,3 +60,6 @@ DESIGN.md
 
 # Bold font verification script output
 scripts/
+
+# memory layer
+graphify-out/

@@ -48,6 +48,18 @@ _MATCH_TYPE_BADGE_COLORS: dict[str, tuple[str, str, str]] = {
 _MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
 
 
+def _build_page_groups(filtered: list[MatchRecord]) -> list[int]:
+    """Return sorted target_page values for the filtered match list.
+
+    Matched pages (target_page >= 1) come first in ascending order.
+    Unmatched (target_page == 0) is appended last if any exist.
+    Returns an empty list when filtered is empty.
+    """
+    matched_pages = sorted({m.target_page for m in filtered if m.target_page >= 1})
+    has_unmatched = any(m.target_page == 0 for m in filtered)
+    return matched_pages + ([0] if has_unmatched else [])
+
+
 def _compute_predicted_confidence(
     annot: AnnotationRecord,
     field: FieldRecord,
