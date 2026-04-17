@@ -1095,11 +1095,11 @@ class TestMultiPagePageCountMismatchFallback:
 
 
 class TestRepeatingFieldVerticalOrder:
-    """Same label appearing multiple times on one page: each annotation matches
-    the first field with that label (field reuse — field is a reusable anchor)."""
+    """Same label appearing multiple times on one page: Nth annotation (by y0)
+    matches Nth field occurrence (by y0)."""
 
-    def test_three_date_annotations_all_match_same_field(self):
-        """Three 'Date' annotations each match the first 'Date' field (field reuse)."""
+    def test_three_date_annotations_match_by_vertical_rank(self):
+        """a1 (y=100) -> f1 (y=110), a2 (y=200) -> f2 (y=210), a3 (y=300) -> f3 (y=310)."""
         a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
         a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
         a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
@@ -1115,12 +1115,13 @@ class TestRepeatingFieldVerticalOrder:
             [a1, a2, a3], [f1, f2, f3], profile, src_dims, tgt_dims,
         )
         by_annot = {m.annotation_id: m for m in matches}
-        # All three annotations exactly match against the first field encountered
         assert all(by_annot[f"a{i}"].match_type == "exact" for i in range(1, 4))
-        assert all(by_annot[f"a{i}"].field_id == "f1" for i in range(1, 4))
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+        assert by_annot["a3"].field_id == "f3"
 
-    def test_annotations_out_of_order_all_match_first_field(self):
-        """Annotations given in any order still match the first field (field reuse)."""
+    def test_annotations_out_of_order_still_pair_by_vertical_rank(self):
+        """Even if annotations are passed in reverse order, pairing is by y0 rank."""
         a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
         a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
         a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
@@ -1136,8 +1137,57 @@ class TestRepeatingFieldVerticalOrder:
             [a3, a1, a2], [f1, f2, f3], profile, src_dims, tgt_dims,
         )
         by_annot = {m.annotation_id: m for m in matches}
-        assert all(by_annot[aid].match_type == "exact" for aid in ["a1", "a2", "a3"])
-        assert all(by_annot[aid].field_id == "f1" for aid in ["a1", "a2", "a3"])
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+        assert by_annot["a3"].field_id == "f3"
+
+    def test_more_annotations_than_fields_extras_use_last_field(self):
+        """If 3 annotations but only 2 fields, the 3rd annotation maps to f2 (last field)."""
+        a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
+        a2 = _make_annot("a2", "Date", "Vitals", page=1, y=200.0)
+        a3 = _make_annot("a3", "Date", "Vitals", page=1, y=300.0)
+
+        f1 = _make_field("f1", "Date", "Vitals", page=1, y=110.0)
+        f2 = _make_field("f2", "Date", "Vitals", page=1, y=210.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {1: (595.0, 842.0)}
+        matches = match_annotations(
+            [a1, a2, a3], [f1, f2], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+        assert by_annot["a3"].field_id == "f2"
+
+    def test_single_annotation_single_field_unchanged(self):
+        """No regression: single annotation, single same-label field — still exact match."""
+        a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
+        f1 = _make_field("f1", "Date", "Vitals", page=1, y=110.0)
+
+        profile = _make_profile_default()
+        matches = match_annotations(
+            [a1], [f1], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
+        )
+        assert matches[0].field_id == "f1"
+        assert matches[0].match_type == "exact"
+
+    def test_different_labels_on_same_page_not_affected(self):
+        """Annotations with different labels still match their respective fields."""
+        a1 = _make_annot("a1", "Date", "Vitals", page=1, y=100.0)
+        a2 = _make_annot("a2", "Time", "Vitals", page=1, y=200.0)
+
+        f1 = _make_field("f1", "Date", "Vitals", page=1, y=110.0)
+        f2 = _make_field("f2", "Time", "Vitals", page=1, y=210.0)
+
+        profile = _make_profile_default()
+        matches = match_annotations(
+            [a1, a2], [f1, f2], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
 
 
 class TestExactCaseInsensitiveMatch:
