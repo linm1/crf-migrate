@@ -259,12 +259,22 @@ def _exact_pass(
         annot_groups[key].sort(key=lambda a: (a.page, a.rect[1]))
 
     # Build (norm_form, norm_label) -> [fields sorted by (page, y0)]
+    # Deduplicate fields that share the same (form, label, page, y_row): when a label
+    # row produces both a section_header and a text_field at the same y, keep only the
+    # first one encountered after sorting — section_header is the positional anchor used
+    # by _apply_anchor_offset, so it is always the correct match target.
     field_groups: dict[tuple[str, str], list[FieldRecord]] = {}
     for field in fields:
         key = (_norm(field.form_name), _norm(field.label))
         field_groups.setdefault(key, []).append(field)
     for key in field_groups:
         field_groups[key].sort(key=lambda f: (f.page, f.rect[1]))
+        # Remove duplicate rows: drop any field whose (page, y0) is within 2px of its predecessor
+        deduped: list[FieldRecord] = []
+        for f in field_groups[key]:
+            if not deduped or f.page != deduped[-1].page or abs(f.rect[1] - deduped[-1].rect[1]) > 2.0:
+                deduped.append(f)
+        field_groups[key] = deduped
 
     # Pair Nth annotation -> Nth field globally.
     # "Extras use last field" only applies when all annotations share the same source page
