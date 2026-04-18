@@ -1189,6 +1189,47 @@ class TestRepeatingFieldVerticalOrder:
         assert by_annot["a1"].field_id == "f1"
         assert by_annot["a2"].field_id == "f2"
 
+    def test_cross_page_target_repeating_labels_pair_by_global_rank(self):
+        """Bug: source has 2 备注 on page 1; target has 备注 on page 1 AND page 2.
+        Both annotations must NOT both land on the same target field.
+        a1 (src p1 y=100) -> f1 (tgt p1 y=110), a2 (src p1 y=600) -> f2 (tgt p2 y=300)."""
+        a1 = _make_annot("a1", "备注", "LB", page=1, y=100.0)
+        a2 = _make_annot("a2", "备注", "LB", page=1, y=600.0)
+
+        f1 = _make_field("f1", "备注", "LB", page=1, y=110.0)
+        f2 = _make_field("f2", "备注", "LB", page=2, y=300.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {1: (595.0, 842.0), 2: (595.0, 842.0)}
+        matches = match_annotations([a1, a2], [f1, f2], profile, src_dims, tgt_dims)
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+        assert by_annot["a1"].target_page == 1
+        assert by_annot["a2"].target_page == 2
+
+    def test_three_annotations_one_page_three_fields_cross_page(self):
+        """Bug: source has 3 备注 all on page 1; target has 备注 on pages 1, 2, and 3.
+        All 3 source annotations must NOT all land on target field f1.
+        a1 -> f1 (tgt p1), a2 -> f2 (tgt p2), a3 -> f3 (tgt p3)."""
+        a1 = _make_annot("a1", "备注", "LB", page=1, y=100.0)
+        a2 = _make_annot("a2", "备注", "LB", page=1, y=400.0)
+        a3 = _make_annot("a3", "备注", "LB", page=1, y=700.0)
+
+        f1 = _make_field("f1", "备注", "LB", page=1, y=110.0)
+        f2 = _make_field("f2", "备注", "LB", page=2, y=200.0)
+        f3 = _make_field("f3", "备注", "LB", page=3, y=200.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {1: (595.0, 842.0), 2: (595.0, 842.0), 3: (595.0, 842.0)}
+        matches = match_annotations([a1, a2, a3], [f1, f2, f3], profile, src_dims, tgt_dims)
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1"
+        assert by_annot["a2"].field_id == "f2"
+        assert by_annot["a3"].field_id == "f3"
+
 
 class TestExactCaseInsensitiveMatch:
     """Exact pass uses case-insensitive comparison for both form_name and label."""
