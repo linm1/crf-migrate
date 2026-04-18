@@ -191,6 +191,30 @@ def _parse_device_rgb(raw: str) -> list[float] | None:
     return None
 
 
+_AP_STROKE_RGB_PATTERN = re.compile(
+    r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG"
+)
+
+
+def _parse_ap_border_color(doc: fitz.Document, annot: fitz.Annot) -> list[float] | None:
+    """Extract border stroke color from the AP stream (R G B RG operator)."""
+    try:
+        ap_ref = doc.xref_get_key(annot.xref, "AP/N")
+        if not ap_ref or ap_ref[1] == "null":
+            return None
+        n_num = int(ap_ref[1].split()[0])
+        stream = doc.xref_stream(n_num)
+        if not stream:
+            return None
+        text = stream.decode("latin-1", errors="replace")
+        m = _AP_STROKE_RGB_PATTERN.search(text)
+        if m:
+            return [float(m.group(i)) for i in range(1, 4)]
+    except Exception:
+        pass
+    return None
+
+
 def _parse_css_color_value(raw_value: str) -> list[float] | None:
     """Parse a CSS color value into normalized RGB floats."""
     value = raw_value.strip()
@@ -296,11 +320,16 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     except Exception:
         pass
 
+    # Extract real border color from AP stream; fall back to black only if absent
+    doc = annot.parent.parent
+    ap_border_color = _parse_ap_border_color(doc, annot)
+    border_color = ap_border_color if ap_border_color is not None else [0.0, 0.0, 0.0]
+
     return StyleInfo(
         font=font,
         font_size=font_size,
         text_color=text_color,
-        border_color=[0.0, 0.0, 0.0],  # guideline: always black
+        border_color=border_color,
         fill_color=fill_color,
         border_width=border_width,
         border_dashes=border_dashes,
