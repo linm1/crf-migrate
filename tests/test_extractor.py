@@ -243,6 +243,21 @@ class TestExtractAnnotations:
             assert len(r.style.border_color) == 3
             assert all(isinstance(c, float) for c in r.style.border_color)
 
+    def test_border_color_not_derived_from_text_color(self, sample_acrf_path, cdisc_profile, cdisc_engine):
+        """border_color must come from the AP stream RG operator, not text_color."""
+        records = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
+        for r in records:
+            # Structural check: border_color is always a 3-float list in [0,1] range.
+            assert all(0.0 <= c <= 1.0 for c in r.style.border_color), (
+                f"border_color out of [0,1] range: {r.style.border_color}"
+            )
+            # text_color being red ([1,0,0]) must NOT bleed into border_color
+            if r.style.text_color == [1.0, 0.0, 0.0]:
+                assert r.style.border_color != [1.0, 0.0, 0.0], (
+                    f"Annotation '{r.content}': border_color was set to red — "
+                    "border color must come from AP stream, not text_color"
+                )
+
     def test_text_color_in_style(self, sample_acrf_path, cdisc_profile, cdisc_engine):
         """StyleInfo.text_color is a list of three floats."""
         records = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)
