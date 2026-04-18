@@ -632,6 +632,8 @@ def _render_style_tab(draft: dict) -> None:
 
     disabled = use_source
 
+
+
     new_config["font"] = config.get("font", "Arial,BoldItalic")
     new_config["font_size"] = st.number_input(
         "Font Size", min_value=4.0, max_value=72.0,

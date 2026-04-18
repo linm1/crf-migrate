@@ -94,7 +94,7 @@ class StyleDefaults(BaseModel):
     text_color: list[float] = [0.0, 0.0, 0.0]
     border_color: list[float] = [0.0, 0.0, 0.0]
     fill_color: list[float] | None = None
-    use_source_style: bool = False
+    use_source_style: bool = True
 
 
 class ProfileMeta(BaseModel):
