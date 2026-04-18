@@ -205,11 +205,6 @@ def _patch_ap_border_color(
     Must be called AFTER a.update() — update() regenerates the AP stream.
     """
     r, g, b = border_color
-    # Skip the patch when the border is already the default black, to avoid
-    # unnecessary stream rewrites when the source annotation used black borders.
-    if (r, g, b) == (0.0, 0.0, 0.0):
-        return
-
     n_key = doc.xref_get_key(annot.xref, "AP/N")
     if n_key[0] == "null":
         return

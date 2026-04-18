@@ -758,3 +758,51 @@ class TestSourceStyleMode:
         da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
         assert "Times-Roman" in da
         doc.close()
+
+
+# ---------------------------------------------------------------------------
+# Border color fidelity — AP stream RG operator must not be overwritten by
+# text_color when source annotation has a distinct border_color.
+# ---------------------------------------------------------------------------
+
+def test_border_color_preserved_from_source(tmp_path):
+    """AP stream RG operator must reflect border_color (black), not text_color (red).
+
+    Given a source annotation with red text (text_color=[1,0,0]) and black border
+    (border_color=[0,0,0]), the output AP stream must contain '0 0 0 RG' and must
+    NOT contain '1 0 0 RG'.
+    """
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = AnnotationRecord(
+        id="annot-border",
+        page=1,
+        content="BRTHDTC",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(
+            text_color=[1.0, 0.0, 0.0],   # red text
+            border_color=[0.0, 0.0, 0.0],  # black border
+            fill_color=[0.75, 1.0, 1.0],
+        ),
+    )
+    match = make_match(annot_id="annot-border", status="approved")
+    profile = _make_profile()
+    profile.style_defaults.use_source_style = True
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    a = list(doc[0].annots())[0]
+    n_num = int(doc.xref_get_key(a.xref, "AP/N")[1].split()[0])
+    ap_stream = doc.xref_stream(n_num)
+    doc.close()
+
+    assert b"0 0 0 RG" in ap_stream, (
+        f"Expected '0 0 0 RG' (black border) in AP stream, got: {ap_stream}"
+    )
+    assert b"1 0 0 RG" not in ap_stream, (
+        f"Found '1 0 0 RG' (red, from text_color) in AP stream — border color was overwritten"
+    )
