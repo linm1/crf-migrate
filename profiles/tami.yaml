@@ -184,6 +184,7 @@ matching_config:
   position_fallback_confidence: 0.5
   visit_boost: 5.0
 style_defaults:
+  use_source_style: true
   font: Arial,BoldItalic
   font_size: 10.0
   domain_label_font_size: 12.0

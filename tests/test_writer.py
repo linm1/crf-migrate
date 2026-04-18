@@ -20,7 +20,7 @@ from src.profile_models import (
     StyleDefaults,
     VisitRule,
 )
-from src.writer import build_qc_report, write_annotations
+from src.writer import build_qc_report, write_annotations, _normalise_font_name, _apply_font_style
 
 
 # ---------------------------------------------------------------------------
@@ -531,3 +531,230 @@ def test_re_pairing_match_is_not_written(tmp_path):
     doc = fitz.open(str(output))
     assert sum(1 for _ in doc[0].annots()) == 0
     doc.close()
+
+
+class TestNormaliseFontName:
+    def test_arial_bold_italic(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("Arial,BoldItalic")
+        assert alias == "hebi"
+        assert pdf_name == "Helvetica-BoldOblique"
+        assert bold is True
+        assert italic is True
+
+    def test_arial_bold_italic_mt(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("Arial-BoldItalicMT")
+        assert alias == "hebi"
+        assert pdf_name == "Helvetica-BoldOblique"
+        assert bold is True
+        assert italic is True
+
+    def test_helvetica_bold(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("Helvetica-Bold")
+        assert alias == "hebo"
+        assert pdf_name == "Helvetica-Bold"
+        assert bold is True
+        assert italic is False
+
+    def test_times_italic(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("TimesNewRomanPS-ItalicMT")
+        assert alias == "tiit"
+        assert pdf_name == "Times-Italic"
+        assert bold is False
+        assert italic is True
+
+    def test_plain_arial(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("ArialMT")
+        assert alias == "helv"
+        assert pdf_name == "Helvetica"
+        assert bold is False
+        assert italic is False
+
+    def test_courier_bold(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("Courier-Bold")
+        assert alias == "cobo"
+        assert pdf_name == "Courier-Bold"
+        assert bold is True
+        assert italic is False
+
+    def test_unknown_font_defaults_to_helvetica(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("SomeCustomFont")
+        assert alias == "helv"
+        assert pdf_name == "Helvetica"
+
+    def test_hebo_alias_passthrough(self):
+        alias, pdf_name, bold, italic = _normalise_font_name("hebo")
+        assert alias == "hebo"
+        assert pdf_name == "Helvetica-Bold"
+        assert bold is True
+        assert italic is False
+
+
+class TestApplyFontStyle:
+    def _make_pdf_with_freetext(self):
+        """Create a PDF with one FreeText annotation, return (doc, page, annot)."""
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        a = page.add_freetext_annot(
+            rect=fitz.Rect(50, 50, 250, 80),
+            text="TEST",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        a.update(fill_color=(0.75, 1.0, 1.0), text_color=(0, 0, 0))
+        return doc, page, a
+
+    def test_bold_font_style(self):
+        doc, page, annot = self._make_pdf_with_freetext()
+        _apply_font_style(doc, page, annot, 12.0, "Helvetica-Bold")
+        da = doc.xref_get_key(annot.xref, "DA")[1]
+        assert "Helvetica-Bold" in da
+        doc.close()
+
+    def test_italic_font_style(self):
+        doc, page, annot = self._make_pdf_with_freetext()
+        _apply_font_style(doc, page, annot, 12.0, "Helvetica-Oblique")
+        da = doc.xref_get_key(annot.xref, "DA")[1]
+        assert "Helvetica-Oblique" in da
+        doc.close()
+
+    def test_bold_italic_font_style(self):
+        doc, page, annot = self._make_pdf_with_freetext()
+        _apply_font_style(doc, page, annot, 12.0, "Helvetica-BoldOblique")
+        da = doc.xref_get_key(annot.xref, "DA")[1]
+        assert "Helvetica-BoldOblique" in da
+        doc.close()
+
+    def test_text_color_in_da(self):
+        doc, page, annot = self._make_pdf_with_freetext()
+        _apply_font_style(doc, page, annot, 10.0, "Helvetica-Bold", (1.0, 0.0, 0.0))
+        da = doc.xref_get_key(annot.xref, "DA")[1]
+        assert "1.0 0.0 0.0 rg" in da
+        doc.close()
+
+
+class TestSourceStyleMode:
+    def test_source_style_uses_annotation_font_size(self, tmp_path):
+        """When use_source_style=True, font size comes from source annotation."""
+        target = make_target_pdf(tmp_path)
+        output = tmp_path / "output.pdf"
+        annot = AnnotationRecord(
+            id="annot-src",
+            page=1,
+            content="BRTHDTC",
+            domain="DM",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[100.0, 90.0, 300.0, 110.0],
+            style=StyleInfo(
+                font="Arial,BoldItalic",
+                font_size=12.0,
+                text_color=[0.0, 0.0, 0.0],
+                fill_color=[0.749, 1.0, 1.0],
+            ),
+        )
+        match = make_match(annot_id="annot-src", status="approved")
+        profile = _make_profile()
+        profile.style_defaults.use_source_style = True
+
+        write_annotations(target, output, [match], [annot], profile)
+
+        doc = fitz.open(str(output))
+        da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+        # Should use 12pt (from source), not 10pt (profile default)
+        assert "12" in da
+        # Should use Helvetica-BoldOblique (normalised from Arial,BoldItalic)
+        assert "Helvetica-BoldOblique" in da
+        doc.close()
+
+    def test_source_style_uses_annotation_fill_color(self, tmp_path):
+        """When use_source_style=True, fill_color comes from source annotation."""
+        target = make_target_pdf(tmp_path)
+        output = tmp_path / "output.pdf"
+        annot = AnnotationRecord(
+            id="annot-src2",
+            page=1,
+            content="DSSTDTC",
+            domain="DS",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[100.0, 90.0, 300.0, 110.0],
+            style=StyleInfo(
+                font="Arial,BoldItalic",
+                font_size=10.0,
+                text_color=[0.0, 0.0, 0.0],
+                fill_color=[1.0, 1.0, 0.667],  # yellow
+            ),
+        )
+        match = make_match(annot_id="annot-src2", status="approved")
+        profile = _make_profile()
+        profile.style_defaults.use_source_style = True
+
+        write_annotations(target, output, [match], [annot], profile)
+
+        doc = fitz.open(str(output))
+        annots = list(doc[0].annots())
+        fill = annots[0].colors.get("stroke")  # PyMuPDF exposes /C as "stroke" for FreeText
+        # Fill should be yellow-ish, not cyan
+        assert fill is not None
+        assert fill[0] > 0.9  # R ≈ 1.0
+        doc.close()
+
+    def test_profile_style_overrides_annotation(self, tmp_path):
+        """When use_source_style=False (default), profile style_defaults are used."""
+        target = make_target_pdf(tmp_path)
+        output = tmp_path / "output.pdf"
+        annot = AnnotationRecord(
+            id="annot-prof",
+            page=1,
+            content="BRTHDTC",
+            domain="DM",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[100.0, 90.0, 300.0, 110.0],
+            style=StyleInfo(
+                font="Arial,BoldItalic",
+                font_size=12.0,
+            ),
+        )
+        match = make_match(annot_id="annot-prof", status="approved")
+        profile = _make_profile()
+        # use_source_style is False by default
+
+        write_annotations(target, output, [match], [annot], profile)
+
+        doc = fitz.open(str(output))
+        da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+        # Should use 10pt from profile (not 12pt from source)
+        assert "10" in da
+        doc.close()
+
+    def test_source_style_plain_times_font(self, tmp_path):
+        """When use_source_style=True with a plain Times font, DA contains Times-Roman."""
+        target = make_target_pdf(tmp_path)
+        output = tmp_path / "output.pdf"
+        annot = AnnotationRecord(
+            id="annot-times",
+            page=1,
+            content="BRTHDTC",
+            domain="DM",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[100.0, 90.0, 300.0, 110.0],
+            style=StyleInfo(
+                font="TimesNewRomanPSMT",
+                font_size=10.0,
+                fill_color=[0.75, 1.0, 1.0],
+            ),
+        )
+        match = make_match(annot_id="annot-times", status="approved")
+        profile = _make_profile()
+        profile.style_defaults.use_source_style = True
+
+        write_annotations(target, output, [match], [annot], profile)
+
+        doc = fitz.open(str(output))
+        da = doc.xref_get_key(list(doc[0].annots())[0].xref, "DA")[1]
+        assert "Times-Roman" in da
+        doc.close()

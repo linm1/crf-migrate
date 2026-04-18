@@ -317,6 +317,95 @@ class TestExtractAnnotations:
         assert len(records) == 1
         assert records[0].style.font_size == 14.0
 
+    def test_text_color_extracted_from_richtext_rc_when_da_is_black(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """Rich-text color from RC overrides a stale black DA text color.
+
+        Source aCRFs can store the visible text color in the RC XHTML/CSS while
+        leaving /DA at black. The extractor should preserve the rendered source
+        text color instead of defaulting to DA's black fallback.
+        """
+        import fitz
+
+        rc_xml = (
+            "<?xml version='1.0'?>"
+            "<body xmlns='http://www.w3.org/1999/xhtml'>"
+            "<p><span style='color:#FF0000'>[NOT SUBMITTED]</span></p>"
+            "</body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 240, 90),
+            rc_xml,
+            fontsize=10,
+            fontname="Helvetica",
+            text_color=(1, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+            border_color=(0, 0, 0),
+            richtext=True,
+        )
+        annot.set_info(content="[NOT SUBMITTED]", subject="SV")
+        annot.update()
+
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Arial,BoldItalic 10 Tf)")
+
+        pdf_path = tmp_path / "richtext_red.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        assert records[0].style.text_color == pytest.approx([1.0, 0.0, 0.0], abs=0.02)
+
+    def test_text_color_uses_last_rc_color_declaration(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """Later text-color declarations win over earlier defaults in RC XHTML."""
+        import fitz
+
+        rc_xml = (
+            "<?xml version='1.0'?>"
+            "<body xmlns='http://www.w3.org/1999/xhtml' style='color:rgb(0,0,0)'>"
+            "<p><span style='background-color:#000000;color:#FF0000'>SVSTDTC/SVENDTC</span></p>"
+            "</body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 260, 90),
+            rc_xml,
+            fontsize=10,
+            fontname="Helvetica",
+            text_color=(1, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+            border_color=(0, 0, 0),
+            richtext=True,
+        )
+        annot.set_info(content="SVSTDTC/SVENDTC", subject="SV")
+        annot.update()
+
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Arial,BoldItalic 10 Tf)")
+
+        pdf_path = tmp_path / "richtext_last_color_wins.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        assert records[0].style.text_color == pytest.approx([1.0, 0.0, 0.0], abs=0.02)
+
 
 class TestGetTextBlocksAnnotFiltering:
     """Verify that _make_clean_page + _get_text_blocks cleanly separates SDTM annotation

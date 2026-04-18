@@ -15,27 +15,82 @@ from src.profile_models import Profile
 
 _FALLBACK_FILL: tuple[float, float, float] = (0.75, 1.0, 1.0)  # cyan
 
+# ---------------------------------------------------------------------------
+# Font name normalisation — map arbitrary source font names to Base-14
+# ---------------------------------------------------------------------------
+
+# Font family detection patterns
+_FAMILY_TIMES = re.compile(r"(?i)(times|tiro|tiit|tibo|tibi)")
+_FAMILY_COURIER = re.compile(r"(?i)(courier|cour|coit|cobo|cobi)")
+# Anything else (Arial, Helvetica, unknown) → Helvetica family
+
+# Base-14 lookup: (family, bold, italic) → (pymupdf_alias, pdf_standard_name)
+_BASE14_MAP: dict[tuple[str, bool, bool], tuple[str, str]] = {
+    ("helvetica", False, False): ("helv", "Helvetica"),
+    ("helvetica", False, True):  ("heit", "Helvetica-Oblique"),
+    ("helvetica", True, False):  ("hebo", "Helvetica-Bold"),
+    ("helvetica", True, True):   ("hebi", "Helvetica-BoldOblique"),
+    ("times", False, False):     ("tiro", "Times-Roman"),
+    ("times", False, True):      ("tiit", "Times-Italic"),
+    ("times", True, False):      ("tibo", "Times-Bold"),
+    ("times", True, True):       ("tibi", "Times-BoldItalic"),
+    ("courier", False, False):   ("cour", "Courier"),
+    ("courier", False, True):    ("coit", "Courier-Oblique"),
+    ("courier", True, False):    ("cobo", "Courier-Bold"),
+    ("courier", True, True):     ("cobi", "Courier-BoldOblique"),
+}
+
+_BOLD_RE = re.compile(r"(?i)(bold|hebo|hebi|cobo|cobi|tibo|tibi)")
+_ITALIC_RE = re.compile(r"(?i)(italic|oblique|heit|hebi|coit|cobi|tiit|tibi)")
+
+
+def _normalise_font_name(raw: str) -> tuple[str, str, bool, bool]:
+    """Map an arbitrary font name to (pymupdf_alias, pdf_standard_name, is_bold, is_italic).
+
+    Detects bold/italic from the name, determines the font family,
+    and returns the closest Base-14 equivalent.
+    """
+    is_bold = bool(_BOLD_RE.search(raw))
+    is_italic = bool(_ITALIC_RE.search(raw))
+
+    if _FAMILY_TIMES.search(raw):
+        family = "times"
+    elif _FAMILY_COURIER.search(raw):
+        family = "courier"
+    else:
+        family = "helvetica"
+
+    alias, pdf_name = _BASE14_MAP[(family, is_bold, is_italic)]
+    return alias, pdf_name, is_bold, is_italic
+
 
 def _resolve_text_style(
     annot: AnnotationRecord,
     profile: Profile,
-) -> tuple[str, float, tuple[float, float, float]]:
-    """Return (fontname, fontsize, text_color) per SDTM guideline.
+) -> tuple[str, str, float, tuple[float, float, float], bool, bool]:
+    """Return (pymupdf_alias, pdf_standard_name, fontsize, text_color, is_bold, is_italic).
 
-    Font sizes are read from profile.style_defaults:
-    - domain_label_font_size for domain_label category
-    - font_size for all other categories
+    When profile.style_defaults.use_source_style is True:
+      - font weight/style/size/color come from the source annotation's StyleInfo
+      - font name is normalised to the closest Base-14 equivalent
 
-    - domain_label:    Helvetica Bold (hebo), domain_label_font_size, black
-    - cross_reference: Helvetica Regular (helv), font_size, #00FFFF
-    - all others:      Helvetica Regular (helv), font_size, black
+    When False (default — current behaviour):
+      - category-driven rules: domain_label uses bold, cross_reference uses cyan, etc.
     """
     sd = profile.style_defaults
+
+    if sd.use_source_style:
+        alias, pdf_name, is_bold, is_italic = _normalise_font_name(annot.style.font)
+        fontsize = annot.style.font_size
+        tc = annot.style.text_color
+        text_color = (tc[0], tc[1], tc[2]) if len(tc) >= 3 else (0.0, 0.0, 0.0)
+        return alias, pdf_name, fontsize, text_color, is_bold, is_italic
+
     if annot.category == "domain_label":
-        return "hebo", sd.domain_label_font_size, (0.0, 0.0, 0.0)
+        return "hebo", "Helvetica-Bold", sd.domain_label_font_size, (0.0, 0.0, 0.0), True, False
     if annot.category == "cross_reference":
-        return "helv", sd.font_size, (0.0, 1.0, 1.0)
-    return "helv", sd.font_size, (0.0, 0.0, 0.0)
+        return "helv", "Helvetica", sd.font_size, (0.0, 1.0, 1.0), False, False
+    return "helv", "Helvetica", sd.font_size, (0.0, 0.0, 0.0), False, False
 
 
 def write_annotations(
@@ -102,56 +157,37 @@ def build_qc_report(
     }
 
 
-def _apply_bold_font(
+def _apply_font_style(
     doc: fitz.Document,
     page: fitz.Page,
     annot: fitz.Annot,
     fontsize: float,
+    pdf_font_name: str,
+    text_color: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> None:
-    """Patch the annotation's DA and AP stream to use Helvetica-Bold.
+    """Patch a FreeText annotation to use a specific Base-14 font variant.
 
-    PyMuPDF's add_freetext_annot always writes /Helv in both the DA string
-    and the AP stream regardless of the fontname argument.  Four steps are
-    all required to produce bold that survives viewer interaction:
+    4-step pattern (documented in CLAUDE.md):
+    1. Register font by standard PDF Base-14 name on the page.
+    2. Rewrite /DA to reference the standard name.
+    3. Patch AP stream content: /Helv → /FontName.
+    4. Register font in the AP stream's own /Resources/Font dict.
 
-    1. Register "Helvetica-Bold" (standard PDF Base-14 name) in page resources.
-    2. Rewrite /DA to reference /Helvetica-Bold — this is what viewers read
-       when they regenerate the AP stream on user interaction (click/edit).
-    3. In the AP stream content, replace /Helv with /Helvetica-Bold so the
-       initial render is also bold (viewers use the AP stream for display).
-    4. Add /Helvetica-Bold to the AP stream's own /Resources/Font dict so
-       the viewer can resolve the name inside the self-contained Form XObject.
-
-    Using the standard PDF name "Helvetica-Bold" (not the PyMuPDF alias
-    "hebo") is the critical invariant.  Viewers resolve /Helvetica-Bold as a
-    known Base-14 font when regenerating the AP stream; /hebo is unknown to
-    all viewers and causes silent fallback to regular Helvetica on touch.
-
-    Must be called after a.update() so the DA rewrite is not overwritten.
+    Must be called AFTER a.update() — update() overwrites /DA.
     """
-    # 1. Register Helvetica-Bold by its standard PDF Base-14 name and get its xref.
-    #    Using the standard name (not the PyMuPDF alias "hebo") is critical: when
-    #    a viewer regenerates the AP stream on user interaction it reads /DA and
-    #    must resolve the font name.  Viewers understand "Helvetica-Bold" as a
-    #    Base-14 standard font; "hebo" is a PyMuPDF-internal alias unknown to any
-    #    viewer, causing silent fallback to regular Helvetica on touch.
-    page.insert_font(fontname="Helvetica-Bold")
-    hb_xref = next(
-        f[0] for f in page.get_fonts() if f[4] == "Helvetica-Bold"
-    )
+    page.insert_font(fontname=pdf_font_name)
+    font_xref = next(f[0] for f in page.get_fonts() if f[4] == pdf_font_name)
 
-    # 2. Rewrite the DA string with the standard PDF font name.
-    da_str = f"0 0 0 rg /Helvetica-Bold {fontsize} Tf"
+    r, g, b = text_color
+    da_str = f"{r} {g} {b} rg /{pdf_font_name} {fontsize} Tf"
     doc.xref_set_key(annot.xref, "DA", f"({da_str})")
 
-    # 3. Patch the AP stream content: /Helv → /Helvetica-Bold.
     n_num = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
     stream = doc.xref_stream(n_num)
-    patched = re.sub(rb"/Helv\b", b"/Helvetica-Bold", stream)
+    patched = re.sub(rb"/Helv\b", f"/{pdf_font_name}".encode(), stream)
     doc.update_stream(n_num, patched)
 
-    # 4. Register /Helvetica-Bold in the AP stream's own /Resources/Font dict.
-    doc.xref_set_key(n_num, "Resources/Font/Helvetica-Bold", f"{hb_xref} 0 R")
+    doc.xref_set_key(n_num, f"Resources/Font/{pdf_font_name}", f"{font_xref} 0 R")
 
 
 def _write_single_annotation(
@@ -173,7 +209,7 @@ def _write_single_annotation(
     update(fill_color=...) sets /C correctly; overwriting it breaks both the
     fill color and the border color on viewer re-render.
     """
-    fontname, fontsize, text_color = _resolve_text_style(annot, profile)
+    alias, pdf_name, fontsize, text_color, is_bold, is_italic = _resolve_text_style(annot, profile)
     fill_src = annot.style.fill_color
     fill = (fill_src[0], fill_src[1], fill_src[2]) if fill_src and len(fill_src) >= 3 else _FALLBACK_FILL
     style = annot.style
@@ -183,7 +219,7 @@ def _write_single_annotation(
         rect=rect,
         text=annot.content,
         fontsize=fontsize,
-        fontname="helv",  # PyMuPDF only supports helv here; bold patched below
+        fontname="helv",  # PyMuPDF only supports helv here; bold/italic patched below
         text_color=text_color,
         fill_color=fill,
     )
@@ -195,5 +231,5 @@ def _write_single_annotation(
     if annot.rotation:
         a.set_rotation(annot.rotation)
     a.update(fill_color=fill, text_color=text_color)
-    if fontname == "hebo":
-        _apply_bold_font(doc, page, a, fontsize)
+    if pdf_name != "Helvetica":
+        _apply_font_style(doc, page, a, fontsize, pdf_name, text_color)

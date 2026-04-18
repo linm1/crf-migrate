@@ -683,3 +683,30 @@ class TestSaveProfile:
         assert appended_rules[0]["conditions"]["contains"] == "Visit"
         assert appended_rules[1]["category"] == "note"
         assert appended_rules[1]["conditions"]["contains"] == "RELREC"
+
+
+class TestStyleTabUseSourceStyleToggle:
+    def test_toggle_renders_and_updates_draft(self):
+        """The use_source_style toggle should update draft config."""
+        st = _make_st_mock()
+        st.toggle = MagicMock(return_value=True)
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_style_tab
+        draft = {"style_defaults": {"use_source_style": False}}
+        _render_style_tab(draft)
+        assert draft["style_defaults"]["use_source_style"] is True
+
+    def test_toggle_false_keeps_controls_enabled(self):
+        """When toggle is False, number_input disabled param should be False."""
+        st = _make_st_mock()
+        st.toggle = MagicMock(return_value=False)
+        sys.modules["streamlit"] = st
+        sys.modules.pop("ui.profile_editor", None)
+        from ui.profile_editor import _render_style_tab
+        draft = {"style_defaults": {}}
+        _render_style_tab(draft)
+        # Verify number_input was called with disabled=False
+        for call in st.number_input.call_args_list:
+            args, kwargs = call
+            assert kwargs.get("disabled", False) is False

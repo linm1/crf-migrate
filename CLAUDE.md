@@ -115,30 +115,46 @@ Domain labels must render bold **and stay bold after viewer interaction**. AP st
 
 **Root cause:** PyMuPDF alias `hebo` is internal only. No PDF viewer recognizes it. Standard Base-14 name `Helvetica-Bold` is universally understood.
 
-**Correct pattern in `src/writer.py` — `_apply_bold_font()`:**
+**Correct pattern in `src/writer.py` — `_apply_font_style()`:**
 ```python
-# 1. Register by standard PDF Base-14 name (not "hebo")
-page.insert_font(fontname="Helvetica-Bold")
-hb_xref = next(f[0] for f in page.get_fonts() if f[4] == "Helvetica-Bold")
+# 1. Register by standard PDF Base-14 name (not PyMuPDF alias)
+page.insert_font(fontname=pdf_font_name)  # e.g. "Helvetica-Bold"
+font_xref = next(f[0] for f in page.get_fonts() if f[4] == pdf_font_name)
 
 # 2. DA with standard name — viewer reads this on touch to regenerate AP
-doc.xref_set_key(annot.xref, "DA", f"(0 0 0 rg /Helvetica-Bold {fontsize} Tf)")
+r, g, b = text_color
+doc.xref_set_key(annot.xref, "DA", f"({r} {g} {b} rg /{pdf_font_name} {fontsize} Tf)")
 
 # 3. Patch AP stream bytes
 n_num = int(doc.xref_get_key(annot.xref, "AP/N")[1].split()[0])
 stream = doc.xref_stream(n_num)
-patched = re.sub(rb"/Helv\b", b"/Helvetica-Bold", stream)
+patched = re.sub(rb"/Helv\b", f"/{pdf_font_name}".encode(), stream)
 doc.update_stream(n_num, patched)
 
 # 4. Register in AP stream's own /Resources/Font dict (AP is self-contained Form XObject)
-doc.xref_set_key(n_num, "Resources/Font/Helvetica-Bold", f"{hb_xref} 0 R")
+doc.xref_set_key(n_num, f"Resources/Font/{pdf_font_name}", f"{font_xref} 0 R")
 ```
 
 **Rules — never violate these:**
-- Always use `Helvetica-Bold` (standard PDF name), never `hebo` in `/DA`.
-- All four steps required: missing step 4 → `/Helvetica-Bold` unresolvable inside AP Form XObject → invisible or wrong font.
-- Call `_apply_bold_font()` **after** `a.update()` — `update()` overwrites `/DA`.
+- Always use standard PDF Base-14 names (`Helvetica-Bold`, `Helvetica-Oblique`, `Helvetica-BoldOblique`), never PyMuPDF aliases (`hebo`, `heit`, `hebi`) in `/DA`.
+- All four steps required: missing step 4 → font name unresolvable inside AP Form XObject → invisible or wrong font.
+- Call `_apply_font_style()` **after** `a.update()` — `update()` overwrites `/DA`.
 - `re.sub(rb"/Helv\b", ...)` not `replace(b"/Helv ", ...)` — regex word boundary matches regardless of trailing whitespace.
+
+### FreeText Italic / Bold-Italic — Same 4-Step AP Patch Pattern
+
+The exact same 4-step approach used for Bold applies to Italic (`Helvetica-Oblique`)
+and Bold-Italic (`Helvetica-BoldOblique`). The shared helper `_apply_font_style()`
+in `src/writer.py` handles all three variants:
+
+1. Register by standard Base-14 name: `page.insert_font(fontname="Helvetica-Oblique")`
+2. Rewrite `/DA` with the standard name
+3. Patch AP stream: `/Helv` → `/Helvetica-Oblique`
+4. Register in AP stream's `/Resources/Font` dict
+
+**Font Name Normalisation:** Source PDFs use arbitrary font names (`Arial,BoldItalic`,
+`Arial-BoldItalicMT`, etc.). `_normalise_font_name()` maps these to Base-14 equivalents
+using family detection + bold/italic flag parsing.
 
 ## Key Conventions
 
@@ -156,6 +172,10 @@ doc.xref_set_key(n_num, "Resources/Font/Helvetica-Bold", f"{hb_xref} 0 R")
 - `veeva_vault.yaml` — Veeva Vault conventions
 
 Profile sections: `meta`, `domain_codes`, `classification_rules`, `form_name_rules`, `visit_rules`, `anchor_text_config`, `annotation_filter`, `matching_config`, `style_defaults`.
+
+- `use_source_style` (bool, default false): when true, Phase 4 writer replicates
+  each source annotation's original font weight, size, text color, fill color,
+  and border color instead of applying the unified style_defaults.
 
 ## PyMuPDF License Note
 

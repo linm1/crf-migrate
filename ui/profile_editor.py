@@ -618,15 +618,31 @@ def _render_style_tab(draft: dict) -> None:
     st.markdown('<p class="pe-section-title">Style Defaults</p>', unsafe_allow_html=True)
 
     new_config: dict = dict(config)
+
+    # Source-style toggle
+    use_source = st.toggle(
+        "Use source annotation style",
+        value=bool(config.get("use_source_style", False)),
+        key="style_use_source",
+        help="When enabled, annotations in the output PDF replicate the original "
+             "source aCRF's font, size, text color, fill color, and weight. "
+             "When disabled, the unified style settings below are applied.",
+    )
+    new_config["use_source_style"] = use_source
+
+    disabled = use_source
+
     new_config["font"] = config.get("font", "Arial,BoldItalic")
     new_config["font_size"] = st.number_input(
         "Font Size", min_value=4.0, max_value=72.0,
         value=float(config.get("font_size", 18.0)), step=0.5, key="style_font_size",
+        disabled=disabled,
     )
     new_config["domain_label_font_size"] = st.number_input(
         "Domain Label Font Size", min_value=4.0, max_value=72.0,
         value=float(config.get("domain_label_font_size", 14.0)), step=0.5,
         key="style_domain_label_font_size",
+        disabled=disabled,
     )
 
     tc = list(config.get("text_color", [0.0, 0.0, 0.0]))
@@ -639,9 +655,9 @@ def _render_style_tab(draft: dict) -> None:
     )
     tc_cols = st.columns(3)
     new_tc = [
-        tc_cols[0].number_input("R", 0.0, 1.0, float(tc[0]), 0.01, key="style_tc_r"),
-        tc_cols[1].number_input("G", 0.0, 1.0, float(tc[1]), 0.01, key="style_tc_g"),
-        tc_cols[2].number_input("B", 0.0, 1.0, float(tc[2]), 0.01, key="style_tc_b"),
+        tc_cols[0].number_input("R", 0.0, 1.0, float(tc[0]), 0.01, key="style_tc_r", disabled=disabled),
+        tc_cols[1].number_input("G", 0.0, 1.0, float(tc[1]), 0.01, key="style_tc_g", disabled=disabled),
+        tc_cols[2].number_input("B", 0.0, 1.0, float(tc[2]), 0.01, key="style_tc_b", disabled=disabled),
     ]
     new_config["text_color"] = new_tc
 
@@ -655,9 +671,9 @@ def _render_style_tab(draft: dict) -> None:
     )
     bc_cols = st.columns(3)
     new_bc = [
-        bc_cols[0].number_input("R", 0.0, 1.0, float(bc[0]), 0.01, key="style_bc_r"),
-        bc_cols[1].number_input("G", 0.0, 1.0, float(bc[1]), 0.01, key="style_bc_g"),
-        bc_cols[2].number_input("B", 0.0, 1.0, float(bc[2]), 0.01, key="style_bc_b"),
+        bc_cols[0].number_input("R", 0.0, 1.0, float(bc[0]), 0.01, key="style_bc_r", disabled=disabled),
+        bc_cols[1].number_input("G", 0.0, 1.0, float(bc[1]), 0.01, key="style_bc_g", disabled=disabled),
+        bc_cols[2].number_input("B", 0.0, 1.0, float(bc[2]), 0.01, key="style_bc_b", disabled=disabled),
     ]
     new_config["border_color"] = new_bc
 

@@ -228,6 +228,40 @@ class TestProfileYamlFormNameConfig:
         assert engine.extract_form_name(blocks) == "Demographics"
 
 
+def test_use_source_style_flag_default(tmp_path):
+    """use_source_style defaults to False when omitted."""
+    yaml_text = """
+meta:
+  name: Test
+domain_codes: [DM]
+classification_rules:
+  - conditions: {fallback: true}
+    category: sdtm_mapping
+"""
+    p = tmp_path / "test.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    profile = load_profile(p)
+    assert profile.style_defaults.use_source_style is False
+
+
+def test_use_source_style_flag_true(tmp_path):
+    """use_source_style=true is correctly loaded."""
+    yaml_text = """
+meta:
+  name: Test
+domain_codes: [DM]
+classification_rules:
+  - conditions: {fallback: true}
+    category: sdtm_mapping
+style_defaults:
+  use_source_style: true
+"""
+    p = tmp_path / "test.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    profile = load_profile(p)
+    assert profile.style_defaults.use_source_style is True
+
+
 class TestListProfiles:
     def test_list_profiles_returns_yaml_stems(self, tmp_path):
         """list_profiles returns stem names of all .yaml files."""
