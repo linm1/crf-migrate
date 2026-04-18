@@ -192,12 +192,16 @@ def _parse_device_rgb(raw: str) -> list[float] | None:
 
 
 _AP_STROKE_RGB_PATTERN = re.compile(
-    r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG"
+    r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b"
 )
 
 
 def _parse_ap_border_color(doc: fitz.Document, annot: fitz.Annot) -> list[float] | None:
-    """Extract border stroke color from the AP stream (R G B RG operator)."""
+    """Extract border stroke color from the AP stream (R G B RG operator).
+
+    PDF graphics operators execute in order; the LAST ``RG`` before paint is the
+    active stroke color, so we take the last match rather than the first.
+    """
     try:
         ap_ref = doc.xref_get_key(annot.xref, "AP/N")
         if not ap_ref or ap_ref[1] == "null":
@@ -207,9 +211,12 @@ def _parse_ap_border_color(doc: fitz.Document, annot: fitz.Annot) -> list[float]
         if not stream:
             return None
         text = stream.decode("latin-1", errors="replace")
-        m = _AP_STROKE_RGB_PATTERN.search(text)
-        if m:
-            return [float(m.group(i)) for i in range(1, 4)]
+        matches = _AP_STROKE_RGB_PATTERN.findall(text)
+        if matches:
+            r, g, b = matches[-1]
+            values = [float(r), float(g), float(b)]
+            if all(0.0 <= v <= 1.0 for v in values):
+                return values
     except Exception:
         pass
     return None
