@@ -191,8 +191,10 @@ def _render_pdf_preview(output_pdf_path: Path) -> None:
 
     page_idx = page_num - 1  # convert 1-indexed to 0-indexed
     with fitz.open(str(output_pdf_path)) as source_doc:
-        single_page_doc = fitz.Document()
-        single_page_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
-        page_bytes = single_page_doc.tobytes()
+        page = source_doc[page_idx]
+        zoom = height / page.rect.height
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        png_bytes = pix.tobytes("png")
 
-    st.pdf(page_bytes, height=height)
+    st.image(png_bytes, use_container_width=True)
