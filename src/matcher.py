@@ -238,49 +238,46 @@ def _exact_pass(
 ) -> list[MatchRecord]:
     """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
 
-    For annotations and fields that share the same form, page-rank, and label,
-    the Nth annotation (sorted by y0) is paired with the Nth field (sorted by y0).
-    If there are more annotations than fields, extras are paired to the last field.
-
-    Page rank constrains each annotation to fields on the corresponding page
-    of the target form (same relative page order as the source).
+    For annotations and fields that share the same form and label, the Nth
+    annotation (sorted globally by page then y0) is paired with the Nth field
+    (sorted globally by page then y0). If there are more annotations than
+    fields, extras are paired to the last field.
     """
     results: list[MatchRecord] = []
 
-    # Build (norm_form, src_rank, norm_label) -> [annotations sorted by y0]
-    annot_groups: dict[tuple[str, int, str], list[AnnotationRecord]] = {}
+    # Build (norm_form, norm_label) -> [annotations sorted by (page, y0)]
+    annot_groups: dict[tuple[str, str], list[AnnotationRecord]] = {}
     for annot in annotations:
         if annot.id not in unmatched_annot_ids:
             continue
         if not annot.anchor_text.strip():
             continue
-        key = (
-            _norm(annot.form_name),
-            src_rank_map.get(_norm(annot.form_name), {}).get(annot.page, 0),
-            _norm(annot.anchor_text),
-        )
+        key = (_norm(annot.form_name), _norm(annot.anchor_text))
         annot_groups.setdefault(key, []).append(annot)
     for key in annot_groups:
-        annot_groups[key].sort(key=lambda a: a.rect[1])
+        annot_groups[key].sort(key=lambda a: (a.page, a.rect[1]))
 
-    # Build (norm_form, tgt_rank, norm_label) -> [fields sorted by y0]
-    field_groups: dict[tuple[str, int, str], list[FieldRecord]] = {}
+    # Build (norm_form, norm_label) -> [fields sorted by (page, y0)]
+    field_groups: dict[tuple[str, str], list[FieldRecord]] = {}
     for field in fields:
-        key = (
-            _norm(field.form_name),
-            tgt_rank_map.get(_norm(field.form_name), {}).get(field.page, 0),
-            _norm(field.label),
-        )
+        key = (_norm(field.form_name), _norm(field.label))
         field_groups.setdefault(key, []).append(field)
     for key in field_groups:
-        field_groups[key].sort(key=lambda f: f.rect[1])
+        field_groups[key].sort(key=lambda f: (f.page, f.rect[1]))
 
-    # Pair Nth annotation -> Nth field; extras use the last field
-    for (norm_form, src_rank, norm_label), sorted_annots in annot_groups.items():
-        sorted_fields = field_groups.get((norm_form, src_rank, norm_label))
+    # Pair Nth annotation -> Nth field globally.
+    # "Extras use last field" only applies when all annotations share the same source page
+    # (same-page repeating rows). When annotations span multiple source pages, a missing
+    # target page means the annotation has no exact-pass counterpart and falls through.
+    for (norm_form, norm_label), sorted_annots in annot_groups.items():
+        sorted_fields = field_groups.get((norm_form, norm_label))
         if not sorted_fields:
             continue
+        src_pages = {a.page for a in sorted_annots}
+        allow_extras = len(src_pages) == 1
         for idx, annot in enumerate(sorted_annots):
+            if idx >= len(sorted_fields) and not allow_extras:
+                continue
             field = sorted_fields[min(idx, len(sorted_fields) - 1)]
             final_rect, placement_adjusted = _apply_placement_guard(
                 _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
