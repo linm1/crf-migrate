@@ -224,7 +224,7 @@ def _patch_ap_border_color(
         return s if s else "0"
 
     replacement = f"{_fmt(r)} {_fmt(g)} {_fmt(b)} RG".encode()
-    patched = re.sub(rb"\d[\d. ]* RG\b", replacement, stream, count=1)
+    patched = re.sub(rb"[\d.][\d. ]* RG\b", replacement, stream, count=1)
     doc.update_stream(n_num, patched)
 
 
