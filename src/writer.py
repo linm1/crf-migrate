@@ -190,6 +190,44 @@ def _apply_font_style(
     doc.xref_set_key(n_num, f"Resources/Font/{pdf_font_name}", f"{font_xref} 0 R")
 
 
+def _patch_ap_border_color(
+    doc: fitz.Document,
+    annot: fitz.Annot,
+    border_color: tuple[float, float, float],
+) -> None:
+    """Patch the AP stream RG operator to set the FreeText border stroke color.
+
+    PyMuPDF 1.26.x raises ValueError when border_color is passed to update()
+    for non-richtext FreeText annotations.  The AP stream approach is the only
+    reliable path: PyMuPDF encodes the border stroke as ``r g b RG`` in the AP
+    Form XObject.  We replace the existing RG triplet with the desired values.
+
+    Must be called AFTER a.update() — update() regenerates the AP stream.
+    """
+    r, g, b = border_color
+    # Skip the patch when the border is already the default black, to avoid
+    # unnecessary stream rewrites when the source annotation used black borders.
+    if (r, g, b) == (0.0, 0.0, 0.0):
+        return
+
+    n_key = doc.xref_get_key(annot.xref, "AP/N")
+    if n_key[0] == "null":
+        return
+    n_num = int(n_key[1].split()[0])
+    stream = doc.xref_stream(n_num)
+
+    # AP stream encodes fill as ``R G B rg`` and border stroke as ``R G B RG``.
+    # Replace only the first RG occurrence (the border color line).
+    def _fmt(v: float) -> str:
+        # Format float: strip trailing zeros for compactness, match PyMuPDF style
+        s = f"{v:.6f}".rstrip("0").rstrip(".")
+        return s if s else "0"
+
+    replacement = f"{_fmt(r)} {_fmt(g)} {_fmt(b)} RG".encode()
+    patched = re.sub(rb"\d[\d. ]* RG\b", replacement, stream, count=1)
+    doc.update_stream(n_num, patched)
+
+
 def _write_single_annotation(
     page: fitz.Page,
     target_rect: list[float],
@@ -213,6 +251,8 @@ def _write_single_annotation(
     fill_src = annot.style.fill_color
     fill = (fill_src[0], fill_src[1], fill_src[2]) if fill_src and len(fill_src) >= 3 else _FALLBACK_FILL
     style = annot.style
+    bc_src = annot.style.border_color
+    border_color = (bc_src[0], bc_src[1], bc_src[2]) if bc_src and len(bc_src) >= 3 else (0.0, 0.0, 0.0)
     rect = fitz.Rect(target_rect)
 
     a = page.add_freetext_annot(
@@ -231,5 +271,6 @@ def _write_single_annotation(
     if annot.rotation:
         a.set_rotation(annot.rotation)
     a.update(fill_color=fill, text_color=text_color)
+    _patch_ap_border_color(doc, a, border_color)
     if pdf_name != "Helvetica":
         _apply_font_style(doc, page, a, fontsize, pdf_name, text_color)
