@@ -233,15 +233,16 @@ def _exact_pass(
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
     exact_threshold: float,
-    src_rank_map: dict,
-    tgt_rank_map: dict,
 ) -> list[MatchRecord]:
     """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
 
     For annotations and fields that share the same form and label, the Nth
     annotation (sorted globally by page then y0) is paired with the Nth field
-    (sorted globally by page then y0). If there are more annotations than
-    fields, extras are paired to the last field.
+    (sorted globally by page then y0). If annotations outnumber fields and all
+    source annotations share one page (same-page repeating rows with a single
+    target field), extras are pinned to the last field. Otherwise surplus
+    annotations fall through to later passes. Mutates `unmatched_annot_ids`
+    in place.
     """
     results: list[MatchRecord] = []
 
@@ -500,7 +501,6 @@ def match_annotations(
 
     results += _exact_pass(
         annotations, fields, unmatched_annot_ids, config.exact_threshold,
-        src_rank_map, tgt_rank_map,
     )
     results += _fuzzy_same_form_pass(
         annotations, fields, unmatched_annot_ids,
