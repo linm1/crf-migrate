@@ -276,20 +276,34 @@ def _exact_pass(
                 deduped.append(f)
         field_groups[key] = deduped
 
-    # Pair Nth annotation -> Nth field globally.
-    # "Extras use last field" only applies when all annotations share the same source page
-    # (same-page repeating rows). When annotations span multiple source pages, a missing
-    # target page means the annotation has no exact-pass counterpart and falls through.
+    # Pair Nth source row -> Nth target field globally.
+    # Multiple annotations at the same (page, y) are siblings on one source row — they
+    # all map to the same target field (their row index, not their annotation index).
+    # "Extras use last field" only when all annotations share one source page.
     for (norm_form, norm_label), sorted_annots in annot_groups.items():
         sorted_fields = field_groups.get((norm_form, norm_label))
         if not sorted_fields:
             continue
         src_pages = {a.page for a in sorted_annots}
         allow_extras = len(src_pages) == 1
-        for idx, annot in enumerate(sorted_annots):
-            if idx >= len(sorted_fields) and not allow_extras:
+        # Assign a row index to each annotation: annotations within 2px of the previous
+        # on the same page share the same row slot.
+        row_idx = 0
+        prev_page: int | None = None
+        prev_y: float | None = None
+        annot_row: list[int] = []
+        for annot in sorted_annots:
+            if prev_page is not None and (
+                annot.page != prev_page or abs(annot.rect[1] - prev_y) > 2.0
+            ):
+                row_idx += 1
+            annot_row.append(row_idx)
+            prev_page = annot.page
+            prev_y = annot.rect[1]
+        for annot, ridx in zip(sorted_annots, annot_row):
+            if ridx >= len(sorted_fields) and not allow_extras:
                 continue
-            field = sorted_fields[min(idx, len(sorted_fields) - 1)]
+            field = sorted_fields[min(ridx, len(sorted_fields) - 1)]
             final_rect, placement_adjusted = _apply_placement_guard(
                 _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
                 if annot.anchor_rect
