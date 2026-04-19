@@ -28,6 +28,7 @@ CLEARABLE_STATE_KEYS = [
     "source_pdf_path", "target_pdf_path", "output_pdf_path",
     "phases_complete", "current_page",
     "p1_page", "p2_page", "p3_page",
+    "p3_filter_type", "p3_filter_status",
     "sidebar_workspace",
 ]
 

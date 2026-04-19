@@ -48,6 +48,22 @@ _MATCH_TYPE_BADGE_COLORS: dict[str, tuple[str, str, str]] = {
 _MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
 
 
+def _restore_filter_state(
+    key: str,
+    available_options: list[str],
+    fallback_values: list[str],
+) -> list[str]:
+    """Restore a multiselect from session state and drop unavailable values."""
+    if key not in st.session_state:
+        values = fallback_values
+    else:
+        values = st.session_state.get(key, [])
+
+    restored = [value for value in values if value in available_options]
+    st.session_state[key] = restored
+    return restored
+
+
 def _build_page_groups(filtered: list[MatchRecord]) -> list[int]:
     """Return sorted target_page values for the filtered match list.
 
@@ -636,12 +652,16 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
 
+    _DEFAULT_TYPES = [t for t in ["fuzzy", "position_only", "unmatched"] if t in all_types]
+    _restore_filter_state("p3_filter_type", all_types, _DEFAULT_TYPES)
+    _restore_filter_state("p3_filter_status", all_statuses, [])
+
     t_col, s_col, ba_col = st.columns([3, 3, 2])
     with t_col:
-        sel_types = st.multiselect("Match Type \u25be", all_types, default=all_types,
+        sel_types = st.multiselect("Match Type \u25be", all_types,
                                    key="p3_filter_type", label_visibility="visible")
     with s_col:
-        sel_statuses = st.multiselect("Status \u25be", all_statuses, default=all_statuses,
+        sel_statuses = st.multiselect("Status \u25be", all_statuses,
                                       key="p3_filter_status", label_visibility="visible")
     with ba_col:
         pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
@@ -654,11 +674,16 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
                 invalidate_phases([4])
                 st.rerun()
 
-    filtered = [
-        m for m in matches
-        if m.match_type in sel_types
-        and m.status in sel_statuses
-    ]
+    # Each active filter acts as a constraint; empty filter = no constraint on that axis.
+    # Both empty → show nothing.
+    if not sel_types and not sel_statuses:
+        filtered = []
+    else:
+        filtered = [
+            m for m in matches
+            if (not sel_types or m.match_type in sel_types)
+            and (not sel_statuses or m.status in sel_statuses)
+        ]
     st.caption(f"Showing {len(filtered)} of {len(matches)} matches")
     return filtered
 
@@ -686,6 +711,13 @@ def _render_match_rows(
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
     drawer_id: str | None = st.session_state.get("_p3_drawer_id")
+
+    # Page navigator — group filtered matches by target_page
+    page_groups = _build_page_groups(filtered)
+    if len(page_groups) > 1:
+        selected_page = render_page_navigator_windowed(len(page_groups), key="p3_match_nav")
+        current_page_val = page_groups[selected_page - 1]
+        filtered = [m for m in filtered if m.target_page == current_page_val]
 
     # Decide layout: columns([2,1]) when drawer open, container() when closed
     if drawer_id and any(m.annotation_id == drawer_id for m in filtered):
