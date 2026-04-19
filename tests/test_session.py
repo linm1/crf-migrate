@@ -161,3 +161,31 @@ class TestSessionOpen:
         existing.mkdir()
         sess = Session.open(existing)
         assert sess.workspace == existing
+
+
+class TestListSessions:
+    def test_returns_session_dirs_newest_first(self, tmp_path):
+        """list_sessions returns session_* dirs sorted newest-first."""
+        (tmp_path / "session_20260101_090000").mkdir()
+        (tmp_path / "session_20260301_120000").mkdir()
+        (tmp_path / "session_20260201_060000").mkdir()
+        result = Session.list_sessions(tmp_path)
+        assert result == [
+            "session_20260301_120000",
+            "session_20260201_060000",
+            "session_20260101_090000",
+        ]
+
+    def test_ignores_non_session_dirs(self, tmp_path):
+        """list_sessions ignores directories not starting with 'session_'."""
+        (tmp_path / "session_20260101_090000").mkdir()
+        (tmp_path / "some_other_dir").mkdir()
+        (tmp_path / "temp_work").mkdir()
+        result = Session.list_sessions(tmp_path)
+        assert result == ["session_20260101_090000"]
+
+    def test_returns_empty_when_base_missing(self, tmp_path):
+        """list_sessions returns [] when base_dir does not exist."""
+        missing = tmp_path / "nonexistent"
+        result = Session.list_sessions(missing)
+        assert result == []
