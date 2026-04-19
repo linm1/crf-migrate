@@ -27,6 +27,7 @@ CLEARABLE_STATE_KEYS = [
     "source_pdf_path", "target_pdf_path", "output_pdf_path",
     "phases_complete", "current_page",
     "p1_page", "p2_page", "p3_page",
+    "sidebar_workspace",
 ]
 
 # ---------------------------------------------------------------------------
@@ -551,7 +552,7 @@ def _render_sidebar() -> None:
                 key="sidebar_workspace",
                 label_visibility="collapsed",
             )
-            if selected != current_name:
+            if selected != current_name and current_name in all_sessions:
                 for k in CLEARABLE_STATE_KEYS:
                     st.session_state.pop(k, None)
                 _load_session_into_state(Session.open(SESSION_BASE / selected))
