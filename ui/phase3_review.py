@@ -21,6 +21,7 @@ from ui.components import (
     render_page_navigator_windowed,
 )
 from ui.loader import clear_loader, loader_html
+from ui.style_helpers import build_centered_icon_button_css
 
 _DEFAULT_VISIT_BOOST: float = 5.0
 _DEFAULT_CROSS_FORM_THRESHOLD: float = 0.5
@@ -46,6 +47,14 @@ _MATCH_TYPE_BADGE_COLORS: dict[str, tuple[str, str, str]] = {
 }
 
 _MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
+
+
+# Re-pair open icon button helper CSS
+_P3_REPAIR_ICON_CSS = build_centered_icon_button_css(
+    key_prefixes=["p3_repairopen_"],
+    size_px=28,
+    font_size_px=13,
+)
 
 
 def _restore_filter_state(
@@ -263,25 +272,16 @@ def _inject_page_css() -> None:
             border-color: #383838 !important;
         }
         /* ── ↺ re-pair open button on approved/re-pairing rows ── */
+        """
+        + _P3_REPAIR_ICON_CSS
+        + """
         [class*="st-key-p3_repairopen_"] button {
-            height: 28px !important;
-            padding: 0 !important;
-            line-height: 1 !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
             border-radius: 2px !important;
             border: 2px solid #383838 !important;
             background: #f4efea !important;
             color: #818181 !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
+            font-weight: 700 !important;
             transition: background-color 0.15s, color 0.15s !important;
-        }
-        [class*="st-key-p3_repairopen_"] button p {
-            line-height: 1 !important;
-            margin: 0 !important;
-            padding: 0 !important;
         }
         [class*="st-key-p3_repairopen_"] button:hover {
             background-color: #383838 !important;
@@ -317,6 +317,9 @@ def _inject_page_css() -> None:
             font-weight: 700 !important;
             padding: 4px 10px !important;
             line-height: 1 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
         /* ── Field pick card button — unselected ── */

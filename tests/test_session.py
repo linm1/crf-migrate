@@ -232,3 +232,43 @@ class TestLatestSession:
         (tmp_path / "session_20260201_060000").mkdir()  # empty
         sess = Session.latest(tmp_path)
         assert sess is None
+
+
+class TestRenameDelete:
+    def test_rename_changes_directory_name(self, tmp_path):
+        """Renamed workspace exists at the new path and old path is gone."""
+        session = Session(tmp_path)
+        old_path = session.workspace
+        new_path = Session.rename(old_path, "session_renamed_001")
+        assert new_path.exists()
+        assert not old_path.exists()
+        assert new_path.name == "session_renamed_001"
+
+    def test_rename_preserves_artifacts(self, tmp_path):
+        """Files inside the workspace survive renaming."""
+        session = Session(tmp_path)
+        (session.workspace / "annotations.json").write_text("[]")
+        new_path = Session.rename(session.workspace, "session_renamed_artifacts")
+        assert (new_path / "annotations.json").exists()
+
+    def test_rename_session_remains_discoverable(self, tmp_path):
+        """A session renamed with a session_ prefix is still found by list_sessions."""
+        session = Session(tmp_path)
+        Session.rename(session.workspace, "session_renamed_disc")
+        sessions = Session.list_sessions(tmp_path)
+        assert "session_renamed_disc" in sessions
+
+    def test_delete_removes_directory(self, tmp_path):
+        """Deleted workspace directory no longer exists."""
+        session = Session(tmp_path)
+        workspace_path = session.workspace
+        Session.delete(workspace_path)
+        assert not workspace_path.exists()
+
+    def test_delete_removes_contents(self, tmp_path):
+        """Delete removes workspace directory and all its contents."""
+        session = Session(tmp_path)
+        (session.workspace / "annotations.json").write_text("[]")
+        workspace_path = session.workspace
+        Session.delete(workspace_path)
+        assert not workspace_path.exists()

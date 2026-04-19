@@ -125,3 +125,23 @@ class Session:
             if (candidate / "annotations.json").exists():
                 return cls.open(candidate)
         return None
+
+    @classmethod
+    def rename(cls, workspace: Path, new_name: str) -> Path:
+        """Rename a session directory; returns new Path.
+
+        ``new_name`` must start with ``session_`` to remain discoverable by
+        ``list_sessions()``.  Caller is responsible for validation.
+        """
+        new_path = workspace.parent / new_name
+        workspace.rename(new_path)
+        return new_path
+
+    @classmethod
+    def delete(cls, workspace: Path) -> None:
+        """Permanently remove a session workspace directory.
+
+        ``workspace`` must be a vetted session workspace path obtained from
+        ``Session.open()`` or ``Session.list_sessions()``.  This is irreversible.
+        """
+        shutil.rmtree(workspace)

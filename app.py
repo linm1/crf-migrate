@@ -1,5 +1,6 @@
 """CRF-Migrate Streamlit application entry point."""
 import html
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -14,6 +15,7 @@ from ui.phase4_review import _inject_page_css as _inject_phase4_css
 from ui.profile_editor import _inject_page_css as _inject_pe_css
 from ui.phase4_review import render_phase4
 from ui.profile_editor import render_profile_editor
+from ui.style_helpers import build_centered_icon_button_css
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -31,6 +33,13 @@ CLEARABLE_STATE_KEYS = [
     "p3_filter_type", "p3_filter_status",
     "sidebar_workspace",
 ]
+
+_WORKSPACE_ICON_BUTTON_CSS = build_centered_icon_button_css(
+    key_prefixes=["ws_rename_btn_", "ws_del_btn_"],
+    size_px=24,
+    font_size_px=12,
+    gap_px=6,
+)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -169,6 +178,11 @@ st.markdown(
     div[data-testid="stVerticalBlock"] {
         box-shadow: none !important;
     }
+
+    /* Session row icon buttons (✎ ✕) — Phase 3 style centered icon treatment */
+    """
+    + _WORKSPACE_ICON_BUTTON_CSS
+    + """
     </style>
     """,
     unsafe_allow_html=True,
@@ -410,6 +424,13 @@ _inject_pe_css()
 # ---------------------------------------------------------------------------
 
 
+_SAFE_SESSION_NAME = re.compile(r'^session_[\w\-]+$')
+
+
+def _valid_session_name(name: str) -> bool:
+    return bool(_SAFE_SESSION_NAME.match(name)) and len(name) <= 64
+
+
 def _load_session_into_state(sess: Session) -> None:
     """Load all artifacts from sess into st.session_state."""
     st.session_state["session"] = sess
@@ -563,7 +584,8 @@ def _render_sidebar() -> None:
         current_name = current_sess.workspace.name if current_sess else None
 
         if all_sessions:
-            display_name = current_name or all_sessions[0]
+            _raw_name = current_name or all_sessions[0]
+            display_name = _raw_name.removeprefix("session_")
             st.markdown(
                 f'<p class="pe-sidebar-current">{html.escape(display_name)}</p>',
                 unsafe_allow_html=True,
@@ -579,18 +601,75 @@ def _render_sidebar() -> None:
                     st.rerun()
                 st.divider()
                 for ws in all_sessions:
-                    if st.button(
-                        ws,
-                        key=f"ws_pick_{ws}",
-                        use_container_width=True,
-                        type="primary" if ws == current_name else "secondary",
-                    ):
-                        if ws != current_name:
-                            for k in CLEARABLE_STATE_KEYS:
-                                st.session_state.pop(k, None)
-                            _load_session_into_state(Session.open(SESSION_BASE / ws))
-                            st.session_state.setdefault("current_page", "Profile Editor")
-                        st.rerun()
+                    rename_key = f"ws_rename_{ws}"
+                    del_key = f"ws_delete_confirm_{ws}"
+
+                    if st.session_state.get(rename_key):
+                        # Rename mode — show only the human-editable suffix; session_ is auto-prepended on save
+                        _PREFIX = "session_"
+                        suffix_default = ws[len(_PREFIX):] if ws.startswith(_PREFIX) else ws
+                        new_suffix = st.text_input(
+                            "New name", value=suffix_default,
+                            key=f"ws_rename_input_{ws}",
+                            label_visibility="collapsed",
+                            placeholder="e.g. trial_v2",
+                        )
+                        c1, c2 = st.columns(2)
+                        if c1.button("Save", key=f"ws_rename_save_{ws}", use_container_width=True, type="primary"):
+                            new_name = _PREFIX + new_suffix.strip()
+                            if _valid_session_name(new_name) and (new_name == ws or new_name not in all_sessions):
+                                old_path = SESSION_BASE / ws
+                                new_path = Session.rename(old_path, new_name)
+                                if ws == current_name:
+                                    _load_session_into_state(Session.open(new_path))
+                                st.session_state.pop(rename_key, None)
+                                st.rerun()
+                            else:
+                                st.error("Invalid or duplicate name.")
+                        if c2.button("Cancel", key=f"ws_rename_cancel_{ws}", use_container_width=True):
+                            st.session_state.pop(rename_key, None)
+                            st.rerun()
+
+                    elif st.session_state.get(del_key):
+                        # Delete confirm mode
+                        st.warning(f"Delete **{ws.removeprefix('session_')}**?", icon="⚠️")
+                        c1, c2 = st.columns(2)
+                        if c1.button("Delete", key=f"ws_del_confirm_{ws}", use_container_width=True, type="primary"):
+                            workspace_path = SESSION_BASE / ws
+                            remaining = [s for s in all_sessions if s != ws]
+                            if ws == current_name:
+                                for k in CLEARABLE_STATE_KEYS:
+                                    st.session_state.pop(k, None)
+                                if remaining:
+                                    _load_session_into_state(Session.open(SESSION_BASE / remaining[0]))
+                                else:
+                                    new_sess = Session(SESSION_BASE)
+                                    _load_session_into_state(new_sess)
+                                st.session_state.setdefault("current_page", "Profile Editor")
+                            Session.delete(workspace_path)
+                            st.session_state.pop(del_key, None)
+                            st.rerun()
+                        if c2.button("Cancel", key=f"ws_del_cancel_{ws}", use_container_width=True):
+                            st.session_state.pop(del_key, None)
+                            st.rerun()
+
+                    else:
+                        # Normal mode — session name + edit/delete icons
+                        c1, c2, c3 = st.columns([6, 0.5, 0.5])
+                        if c1.button(ws.removeprefix("session_"), key=f"ws_pick_{ws}", use_container_width=True,
+                                     type="primary" if ws == current_name else "secondary"):
+                            if ws != current_name:
+                                for k in CLEARABLE_STATE_KEYS:
+                                    st.session_state.pop(k, None)
+                                _load_session_into_state(Session.open(SESSION_BASE / ws))
+                                st.session_state.setdefault("current_page", "Profile Editor")
+                            st.rerun()
+                        if c2.button("✎", key=f"ws_rename_btn_{ws}", use_container_width=True):
+                            st.session_state[rename_key] = True
+                            st.rerun()
+                        if c3.button("✕", key=f"ws_del_btn_{ws}", use_container_width=True):
+                            st.session_state[del_key] = True
+                            st.rerun()
 
 
 # ---------------------------------------------------------------------------
