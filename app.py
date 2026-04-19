@@ -202,6 +202,7 @@ st.markdown(
     .st-key-sidebar_workspace [data-baseweb="select"] * {
         font-size: 13px !important;
     }
+    /* Options list renders in a DOM portal (document.body), so cannot be scoped to sidebar. */
     [data-baseweb="popover"] [data-baseweb="menu"] li {
         font-size: 13px !important;
     }
