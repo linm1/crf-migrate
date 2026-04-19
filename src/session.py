@@ -110,7 +110,7 @@ class Session:
     @classmethod
     def list_sessions(cls, base_dir: Path) -> list[str]:
         """Return all session_* directory names under base_dir, newest-first."""
-        if not base_dir.exists():
+        if not base_dir.is_dir():
             return []
         return sorted(
             [d.name for d in base_dir.iterdir() if d.is_dir() and d.name.startswith("session_")],

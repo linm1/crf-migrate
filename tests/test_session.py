@@ -177,12 +177,19 @@ class TestListSessions:
         ]
 
     def test_ignores_non_session_dirs(self, tmp_path):
-        """list_sessions ignores directories not starting with 'session_'."""
+        """list_sessions ignores non-directory entries and dirs not starting with 'session_'."""
         (tmp_path / "session_20260101_090000").mkdir()
         (tmp_path / "some_other_dir").mkdir()
         (tmp_path / "temp_work").mkdir()
+        # A file that looks like a session directory name — must be excluded
+        (tmp_path / "session_20260201_000000").write_text("not a dir")
         result = Session.list_sessions(tmp_path)
         assert result == ["session_20260101_090000"]
+
+    def test_returns_empty_when_base_dir_is_empty(self, tmp_path):
+        """list_sessions returns [] when base_dir exists but contains no session dirs."""
+        result = Session.list_sessions(tmp_path)
+        assert result == []
 
     def test_returns_empty_when_base_missing(self, tmp_path):
         """list_sessions returns [] when base_dir does not exist."""
