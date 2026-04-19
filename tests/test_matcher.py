@@ -1270,3 +1270,137 @@ class TestExactCaseInsensitiveMatch:
         assert matches[0].match_type == "exact"
         assert matches[0].field_id == "f1"
         assert matches[0].status == "approved"
+
+
+# ---------------------------------------------------------------------------
+# TestExactPassRepeatingPageRank
+# Bug 1: sibling threshold widened to 5px
+# Bug 2: cross-page groups aligned by form-page rank (not global index)
+# ---------------------------------------------------------------------------
+
+from src.matcher import _exact_pass  # noqa: E402
+
+
+class TestExactPassRepeatingPageRank:
+    """Tests that exercise _exact_pass directly for the two targeted bugs."""
+
+    def _annot(self, aid: str, form_name: str, anchor: str, page: int, y: float = 100.0):
+        return AnnotationRecord(
+            id=aid,
+            page=page,
+            content="X",
+            domain="DM",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[10.0, y, 100.0, y + 12.0],
+            anchor_text=anchor,
+            form_name=form_name,
+        )
+
+    def _field(self, fid: str, form_name: str, label: str, page: int, y: float = 100.0):
+        return FieldRecord(
+            id=fid,
+            page=page,
+            label=label,
+            form_name=form_name,
+            rect=[5.0, y, 100.0, y + 12.0],
+            field_type="text_field",
+        )
+
+    # ------------------------------------------------------------------
+    # Bug 1: sibling proximity threshold
+    # ------------------------------------------------------------------
+
+    def test_siblings_with_2_4px_gap_share_same_row(self):
+        """Two annotations 2.4px apart in y (just above old 2px threshold, below new 5px)
+        must be treated as siblings and both map to the first target field, not to f1 then f2."""
+        a = self._annot("a", "FORM", "Label X", page=1, y=67.74)
+        b = self._annot("b", "FORM", "Label X", page=1, y=70.14)  # gap = 2.4 px
+        f1 = self._field("f1", "FORM", "Label X", page=1, y=65.0)
+        f2 = self._field("f2", "FORM", "Label X", page=1, y=80.0)
+
+        unmatched = {"a", "b"}
+        results = _exact_pass([a, b], [f1, f2], unmatched, exact_threshold=1.0)
+
+        matched = {r.annotation_id: r.field_id for r in results}
+        assert matched["a"] == "f1"
+        assert matched["b"] == "f1", (
+            "sibling annotation (2.4 px gap, within new 5 px threshold) "
+            "must share row with 'a' and map to the same field"
+        )
+
+    # ------------------------------------------------------------------
+    # Bug 2: cross-page form-page-rank alignment
+    # ------------------------------------------------------------------
+
+    def test_cross_page_aligns_by_form_page_rank(self):
+        """Source annotations on PE pages 24/25 are form-page ranks 2/3 globally
+        (because page 23 of PE exists via another label).  They must map to the
+        target fields whose form-page rank matches (pages 24 and 25 respectively),
+        not to the first two target fields (pages 23 and 24).
+
+        Old code: index-0 annotation -> index-0 field (page 23) — off by one page.
+        New code: rank-2 annotation  -> rank-2 field  (page 24) — correct.
+        """
+        # Anchor annotation/field on PE page 23 establishes:
+        #   global src_pg_rank["pe"] = {23:1, 24:2, 25:3}
+        #   global tgt_pg_rank["pe"] = {23:1, 24:2, 25:3, 26:4}
+        anchor_src = self._annot("s_anchor", "PE", "Anchor", page=23, y=50.0)
+        annot_a = self._annot("a", "PE", "FormLabel", page=24, y=67.0)   # rank 2
+        annot_b = self._annot("b", "PE", "FormLabel", page=25, y=62.0)   # rank 3
+
+        anchor_tgt = self._field("ft_anchor", "PE", "Anchor", page=23, y=50.0)
+        f23 = self._field("f23", "PE", "FormLabel", page=23, y=60.0)     # rank 1
+        f24 = self._field("f24", "PE", "FormLabel", page=24, y=60.0)     # rank 2
+        f25 = self._field("f25", "PE", "FormLabel", page=25, y=60.0)     # rank 3
+        f26 = self._field("f26", "PE", "FormLabel", page=26, y=60.0)     # rank 4
+
+        all_annots = [anchor_src, annot_a, annot_b]
+        all_fields = [anchor_tgt, f23, f24, f25, f26]
+        unmatched = {"s_anchor", "a", "b"}
+        results = _exact_pass(all_annots, all_fields, unmatched, exact_threshold=1.0)
+
+        matched = {r.annotation_id: r.field_id for r in results}
+        assert matched.get("a") == "f24", (
+            f"page-24 annotation (rank 2) must map to f24, got {matched.get('a')!r}"
+        )
+        assert matched.get("b") == "f25", (
+            f"page-25 annotation (rank 3) must map to f25, got {matched.get('b')!r}"
+        )
+
+    def test_cross_page_sibling_clusters_map_to_correct_pages(self):
+        """3 sibling annotations per page (2.4 px gaps, outside old 2 px but inside new 5 px
+        threshold) must be grouped into one row per page and each cluster maps to
+        the target field for its form-page rank, not to whichever field has the same index.
+
+        Old code: 2 px threshold breaks siblings into separate rows; multi-page allow_extras=False
+        drops most of them.  New code: 5 px threshold keeps siblings together; rank-based
+        bucketing maps each cluster to the right target page.
+        """
+        # Page-1 cluster — siblings with 2.4 px gaps
+        c1a = self._annot("c1a", "STUDY", "Section", page=1, y=100.0)
+        c1b = self._annot("c1b", "STUDY", "Section", page=1, y=102.4)
+        c1c = self._annot("c1c", "STUDY", "Section", page=1, y=104.8)
+        # Page-2 cluster — siblings with 2.4 px gaps
+        c2a = self._annot("c2a", "STUDY", "Section", page=2, y=200.0)
+        c2b = self._annot("c2b", "STUDY", "Section", page=2, y=202.4)
+        c2c = self._annot("c2c", "STUDY", "Section", page=2, y=204.8)
+
+        fp1 = self._field("fp1", "STUDY", "Section", page=1, y=98.0)
+        fp2 = self._field("fp2", "STUDY", "Section", page=2, y=198.0)
+
+        unmatched = {"c1a", "c1b", "c1c", "c2a", "c2b", "c2c"}
+        results = _exact_pass(
+            [c1a, c1b, c1c, c2a, c2b, c2c],
+            [fp1, fp2],
+            unmatched,
+            exact_threshold=1.0,
+        )
+
+        matched = {r.annotation_id: r.field_id for r in results}
+        assert matched.get("c1a") == "fp1", "page-1 cluster must map to fp1"
+        assert matched.get("c1b") == "fp1", "sibling c1b must share fp1 with c1a"
+        assert matched.get("c1c") == "fp1", "sibling c1c must share fp1 with c1a"
+        assert matched.get("c2a") == "fp2", "page-2 cluster must map to fp2"
+        assert matched.get("c2b") == "fp2", "sibling c2b must share fp2 with c2a"
+        assert matched.get("c2c") == "fp2", "sibling c2c must share fp2 with c2a"

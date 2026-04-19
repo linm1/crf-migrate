@@ -269,59 +269,103 @@ def _exact_pass(
         field_groups.setdefault(key, []).append(field)
     for key in field_groups:
         field_groups[key].sort(key=lambda f: (f.page, f.rect[1]))
-        # Remove duplicate rows: drop any field whose (page, y0) is within 2px of its predecessor
+        # Remove duplicate rows: drop any field whose (page, y0) is within 5px of its predecessor
         deduped: list[FieldRecord] = []
         for f in field_groups[key]:
-            if not deduped or f.page != deduped[-1].page or abs(f.rect[1] - deduped[-1].rect[1]) > 2.0:
+            if not deduped or f.page != deduped[-1].page or abs(f.rect[1] - deduped[-1].rect[1]) > 5.0:
                 deduped.append(f)
         field_groups[key] = deduped
 
-    # Pair Nth source row -> Nth target field globally.
-    # Multiple annotations at the same (page, y) are siblings on one source row — they
-    # all map to the same target field (their row index, not their annotation index).
-    # "Extras use last field" only when all annotations share one source page.
+    # Global form-page rank maps (used to align multi-page groups by rank, not by list index).
+    # Computed once from the full annotation/field lists so that each form's page ranks
+    # reflect all labels on that form, not just the current (norm_form, norm_label) group.
+    src_pg_rank = _build_page_rank_map(annotations, lambda a: _norm(a.form_name))
+    tgt_pg_rank = _build_page_rank_map(fields, lambda f: _norm(f.form_name))
+
+    def _emit_match(annot: AnnotationRecord, field: FieldRecord) -> MatchRecord:
+        final_rect, placement_adjusted = _apply_placement_guard(
+            _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+            if annot.anchor_rect
+            else list(field.rect),
+            field,
+            fields,
+        )
+        return MatchRecord(
+            annotation_id=annot.id,
+            field_id=field.id,
+            match_type="exact",
+            confidence=exact_threshold,
+            target_rect=final_rect,
+            target_page=field.page,
+            placement_adjusted=placement_adjusted,
+            status="approved",
+        )
+
+    def _assign_row_indices(annots: list[AnnotationRecord]) -> list[int]:
+        """Assign a row index to each annotation.
+
+        Annotations within 5 px of their predecessor on the same page share
+        the same row slot (siblings).  A page change or a gap > 5 px increments
+        the row counter.
+        """
+        row_idx = 0
+        prev_page: int | None = None
+        prev_y: float | None = None
+        rows: list[int] = []
+        for annot in annots:
+            if prev_page is not None and (
+                annot.page != prev_page or abs(annot.rect[1] - prev_y) > 5.0
+            ):
+                row_idx += 1
+            rows.append(row_idx)
+            prev_page = annot.page
+            prev_y = annot.rect[1]
+        return rows
+
+    # Pair Nth source row -> Nth target field.
+    # When annotations span a single source page the original "extras pin to last field"
+    # behavior is preserved.  When annotations span multiple source pages they are first
+    # bucketed by form-page rank so that source rank N is always paired against target
+    # rank N (not against the first N fields in the sorted list, which may be on an
+    # entirely different page).
     for (norm_form, norm_label), sorted_annots in annot_groups.items():
         sorted_fields = field_groups.get((norm_form, norm_label))
         if not sorted_fields:
             continue
+
         src_pages = {a.page for a in sorted_annots}
-        allow_extras = len(src_pages) == 1
-        # Assign a row index to each annotation: annotations within 2px of the previous
-        # on the same page share the same row slot.
-        row_idx = 0
-        prev_page: int | None = None
-        prev_y: float | None = None
-        annot_row: list[int] = []
-        for annot in sorted_annots:
-            if prev_page is not None and (
-                annot.page != prev_page or abs(annot.rect[1] - prev_y) > 2.0
-            ):
-                row_idx += 1
-            annot_row.append(row_idx)
-            prev_page = annot.page
-            prev_y = annot.rect[1]
-        for annot, ridx in zip(sorted_annots, annot_row):
-            if ridx >= len(sorted_fields) and not allow_extras:
-                continue
-            field = sorted_fields[min(ridx, len(sorted_fields) - 1)]
-            final_rect, placement_adjusted = _apply_placement_guard(
-                _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
-                if annot.anchor_rect
-                else list(field.rect),
-                field,
-                fields,
-            )
-            results.append(MatchRecord(
-                annotation_id=annot.id,
-                field_id=field.id,
-                match_type="exact",
-                confidence=exact_threshold,
-                target_rect=final_rect,
-                target_page=field.page,
-                placement_adjusted=placement_adjusted,
-                status="approved",
-            ))
-            unmatched_annot_ids.discard(annot.id)
+
+        if len(src_pages) == 1:
+            # ── Single-page: original behaviour with updated 5 px sibling threshold ──
+            annot_row = _assign_row_indices(sorted_annots)
+            for annot, ridx in zip(sorted_annots, annot_row):
+                field = sorted_fields[min(ridx, len(sorted_fields) - 1)]
+                results.append(_emit_match(annot, field))
+                unmatched_annot_ids.discard(annot.id)
+        else:
+            # ── Multi-page: bucket by form-page rank, pair within each bucket ──
+            form_src_ranks = src_pg_rank.get(norm_form, {})
+            form_tgt_ranks = tgt_pg_rank.get(norm_form, {})
+
+            annots_by_rank: dict[int, list[AnnotationRecord]] = defaultdict(list)
+            for a in sorted_annots:
+                annots_by_rank[form_src_ranks.get(a.page, 0)].append(a)
+
+            fields_by_rank: dict[int, list[FieldRecord]] = defaultdict(list)
+            for f in sorted_fields:
+                fields_by_rank[form_tgt_ranks.get(f.page, 0)].append(f)
+
+            for rank, rank_annots in sorted(annots_by_rank.items()):
+                rank_fields = fields_by_rank.get(rank)
+                if not rank_fields:
+                    # No matching target page for this rank; fall through to later passes.
+                    continue
+                # Row-index pre-pass within this single-page bucket.
+                annot_row = _assign_row_indices(rank_annots)
+                for annot, ridx in zip(rank_annots, annot_row):
+                    field = rank_fields[min(ridx, len(rank_fields) - 1)]
+                    results.append(_emit_match(annot, field))
+                    unmatched_annot_ids.discard(annot.id)
 
     return results
 
