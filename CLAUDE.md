@@ -100,6 +100,7 @@ a = page.add_freetext_annot(rect=rect, text=..., fill_color=fill, text_color=tex
 a.set_border(width=..., dashes=...)
 a.set_info(...)
 a.update(fill_color=fill, text_color=text_color)
+_patch_ap_border_color(doc, a, border_color)  # always call — see border color note below
 # STOP HERE. Do not touch /C or /IC via xref_set_key.
 ```
 
@@ -107,7 +108,8 @@ a.update(fill_color=fill, text_color=text_color)
 - Always pass `fill_color` and `text_color` to `a.update()` explicitly so PyMuPDF sets `/C` correctly.
 - **Never** call `xref_set_key(xref, "C", ...)` after `update()` — it overwrites the fill color, causing black background on viewer re-render.
 - **Never** call `xref_set_key(xref, "IC", ...)` on FreeText — `/IC` is not a valid FreeText key; most viewers ignore it, and some may misinterpret it.
-- The border color (black) lives only in the AP stream; this is correct and survives viewer interaction as long as `/C` is not overwritten.
+- **Always** call `_patch_ap_border_color()` after `a.update()` — PyMuPDF encodes `text_color` into the AP stream `RG` operator during annotation creation, so without the patch the border inherits the text color (e.g. red border for red-text annotations). Do not skip this even when the border is black.
+- The border color lives only in the AP stream as an `RG` operator. It is extracted from the source annotation by `_parse_ap_border_color()` in `src/extractor.py` and written by `_patch_ap_border_color()` in `src/writer.py`.
 
 ### FreeText Bold — Must Use Standard PDF Font Name, Not PyMuPDF Alias
 
@@ -173,9 +175,11 @@ using family detection + bold/italic flag parsing.
 
 Profile sections: `meta`, `domain_codes`, `classification_rules`, `form_name_rules`, `visit_rules`, `anchor_text_config`, `annotation_filter`, `matching_config`, `style_defaults`.
 
-- `use_source_style` (bool, default false): when true, Phase 4 writer replicates
-  each source annotation's original font weight, size, text color, fill color,
-  and border color instead of applying the unified style_defaults.
+- `use_source_style` (bool, default false): controls whether Phase 4 replicates the source annotation's original style or applies the profile's `style_defaults`.
+  - **`false` (default):** Category-driven rules apply — `domain_label` gets Helvetica-Bold, `cross_reference` gets cyan text, all others get the profile's `font_size` and black text.
+  - **`true`:** Each annotation's font weight, size, text color, fill color, and border color are taken directly from the source aCRF annotation. Font names are normalised to Base-14 equivalents via `_normalise_font_name()`.
+  - Toggle is exposed in the **Style tab of the profile editor** (`ui/profile_editor.py`). Changing it does not require any code change — only a profile YAML edit.
+  - In both modes, border color is **never hardcoded** — it is always read from the source annotation's AP stream `RG` operator by `_parse_ap_border_color()` and faithfully written to the output by `_patch_ap_border_color()`.
 
 ## PyMuPDF License Note
 
