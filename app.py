@@ -197,6 +197,14 @@ st.markdown(
         margin: 0 0 4px 0 !important;
         font-family: Aeonik, ui-sans-serif, sans-serif !important;
     }
+    /* Sidebar dropdowns: normalize font size between closed value and open options */
+    .st-key-sidebar_profile [data-baseweb="select"] *,
+    .st-key-sidebar_workspace [data-baseweb="select"] * {
+        font-size: 13px !important;
+    }
+    [data-baseweb="popover"] [data-baseweb="menu"] li {
+        font-size: 13px !important;
+    }
     div[data-testid="stTabs"] button[role="tab"] {
         background: #FFFFFF !important;
         border: 2px solid #383838 !important;
@@ -521,6 +529,7 @@ def _render_sidebar() -> None:
                 profiles,
                 index=profiles.index(current_profile),
                 key="sidebar_profile",
+                label_visibility="collapsed",
             )
             if selected != st.session_state.get("profile_name"):
                 try:
