@@ -534,9 +534,38 @@ def _render_sidebar() -> None:
                     st.error(f"Failed to load profile: {e}")
 
         st.divider()
-        ws = st.session_state.get("session")
-        if ws:
-            st.caption(f"Workspace: {ws.workspace.name}")
+        st.markdown(
+            '<p class="pe-sidebar-label">WORKSPACE</p>',
+            unsafe_allow_html=True,
+        )
+        all_sessions = Session.list_sessions(SESSION_BASE)
+        current_sess = st.session_state.get("session")
+        current_name = current_sess.workspace.name if current_sess else None
+
+        if all_sessions:
+            selected_idx = all_sessions.index(current_name) if current_name in all_sessions else 0
+            selected = st.selectbox(
+                "Workspace",
+                all_sessions,
+                index=selected_idx,
+                key="sidebar_workspace",
+                label_visibility="collapsed",
+            )
+            if selected != current_name:
+                for k in CLEARABLE_STATE_KEYS:
+                    st.session_state.pop(k, None)
+                _load_session_into_state(Session.open(SESSION_BASE / selected))
+                st.session_state.setdefault("current_page", "Profile Editor")
+                st.rerun()
+
+        if st.button("NEW SESSION", key="sidebar_new_session", use_container_width=True):
+            for k in CLEARABLE_STATE_KEYS:
+                st.session_state.pop(k, None)
+            SESSION_BASE.mkdir(parents=True, exist_ok=True)
+            new_sess = Session(SESSION_BASE)
+            _load_session_into_state(new_sess)
+            st.session_state["current_page"] = "Profile Editor"
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------
