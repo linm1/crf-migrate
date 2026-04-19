@@ -99,3 +99,10 @@ class Session:
     def copy_profile(self, profile_path: Path) -> None:
         """Copy the active profile YAML into the workspace for reproducibility."""
         shutil.copy2(profile_path, self.workspace / "active_profile.yaml")
+
+    @classmethod
+    def open(cls, workspace: Path) -> "Session":
+        """Attach to an existing workspace directory without creating a new one."""
+        instance = cls.__new__(cls)
+        instance.workspace = workspace
+        return instance

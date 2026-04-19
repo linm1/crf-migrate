@@ -142,3 +142,22 @@ class TestCopyProfile:
         session.copy_profile(src_profile)
         content = (session.workspace / "active_profile.yaml").read_text()
         assert "name: Test" in content
+
+
+class TestSessionOpen:
+    def test_open_attaches_to_existing_workspace(self, tmp_path):
+        """Session.open() attaches to an existing directory without creating anything new."""
+        existing = tmp_path / "session_20260101_120000"
+        existing.mkdir()
+        before = list(tmp_path.iterdir())
+        sess = Session.open(existing)
+        after = list(tmp_path.iterdir())
+        assert sess.workspace == existing
+        assert before == after  # no new directories created
+
+    def test_open_does_not_require_annotations(self, tmp_path):
+        """Session.open() works on an empty directory."""
+        existing = tmp_path / "session_20260101_120000"
+        existing.mkdir()
+        sess = Session.open(existing)
+        assert sess.workspace == existing
