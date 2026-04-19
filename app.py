@@ -1,4 +1,5 @@
 """CRF-Migrate Streamlit application entry point."""
+import html
 from pathlib import Path
 
 import streamlit as st
@@ -197,14 +198,15 @@ st.markdown(
         margin: 0 0 4px 0 !important;
         font-family: Aeonik, ui-sans-serif, sans-serif !important;
     }
-    /* Sidebar dropdowns: normalize font size between closed value and open options */
-    .st-key-sidebar_profile [data-baseweb="select"] *,
-    .st-key-sidebar_workspace [data-baseweb="select"] * {
+    /* Sidebar picker current-value display */
+    .pe-sidebar-current {
         font-size: 13px !important;
-    }
-    /* Options list renders in a DOM portal (document.body), so cannot be scoped to sidebar. */
-    [data-baseweb="popover"] [data-baseweb="menu"] li {
-        font-size: 13px !important;
+        color: #e0e0e0 !important;
+        margin: 0 0 6px 0 !important;
+        font-family: Aeonik, ui-sans-serif, sans-serif !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     div[data-testid="stTabs"] button[role="tab"] {
         background: #FFFFFF !important;
@@ -521,28 +523,34 @@ def _render_sidebar() -> None:
             current_profile = st.session_state.get("profile_name", profiles[0])
             if current_profile not in profiles:
                 current_profile = profiles[0]
+                st.session_state["profile_name"] = profiles[0]
             st.markdown(
                 '<p class="pe-sidebar-label">ACTIVE PROFILE</p>',
                 unsafe_allow_html=True,
             )
-            selected = st.selectbox(
-                "Profile",
-                profiles,
-                index=profiles.index(current_profile),
-                key="sidebar_profile",
-                label_visibility="collapsed",
+            st.markdown(
+                f'<p class="pe-sidebar-current">{html.escape(current_profile)}</p>',
+                unsafe_allow_html=True,
             )
-            if selected != st.session_state.get("profile_name"):
-                try:
-                    profile_path = PROFILES_DIR / f"{selected}.yaml"
-                    profile = load_profile(profile_path, PROFILES_DIR)
-                    st.session_state["profile"] = profile
-                    st.session_state["profile_name"] = selected
-                    st.session_state["rule_engine"] = RuleEngine(profile)
-                    st.session_state.pop("draft_profile_data", None)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to load profile: {e}")
+            with st.popover("Change", use_container_width=True):
+                for p in profiles:
+                    if st.button(
+                        p,
+                        key=f"prof_pick_{p}",
+                        use_container_width=True,
+                        type="primary" if p == current_profile else "secondary",
+                    ):
+                        if p != current_profile:
+                            try:
+                                profile_path = PROFILES_DIR / f"{p}.yaml"
+                                profile = load_profile(profile_path, PROFILES_DIR)
+                                st.session_state["profile"] = profile
+                                st.session_state["profile_name"] = p
+                                st.session_state["rule_engine"] = RuleEngine(profile)
+                                st.session_state.pop("draft_profile_data", None)
+                            except Exception as e:
+                                st.error(f"Failed to load profile: {e}")
+                        st.rerun()
 
         st.divider()
         st.markdown(
@@ -554,29 +562,34 @@ def _render_sidebar() -> None:
         current_name = current_sess.workspace.name if current_sess else None
 
         if all_sessions:
-            selected_idx = all_sessions.index(current_name) if current_name in all_sessions else 0
-            selected = st.selectbox(
-                "Workspace",
-                all_sessions,
-                index=selected_idx,
-                key="sidebar_workspace",
-                label_visibility="collapsed",
+            display_name = current_name or all_sessions[0]
+            st.markdown(
+                f'<p class="pe-sidebar-current">{html.escape(display_name)}</p>',
+                unsafe_allow_html=True,
             )
-            if selected != current_name and current_name in all_sessions:
-                for k in CLEARABLE_STATE_KEYS:
-                    st.session_state.pop(k, None)
-                _load_session_into_state(Session.open(SESSION_BASE / selected))
-                st.session_state.setdefault("current_page", "Profile Editor")
-                st.rerun()
-
-        if st.button("NEW SESSION", key="sidebar_new_session", use_container_width=True):
-            for k in CLEARABLE_STATE_KEYS:
-                st.session_state.pop(k, None)
-            SESSION_BASE.mkdir(parents=True, exist_ok=True)
-            new_sess = Session(SESSION_BASE)
-            _load_session_into_state(new_sess)
-            st.session_state["current_page"] = "Profile Editor"
-            st.rerun()
+            with st.popover("Change", use_container_width=True):
+                if st.button("+ New Session", key="ws_new_session", use_container_width=True, type="primary"):
+                    for k in CLEARABLE_STATE_KEYS:
+                        st.session_state.pop(k, None)
+                    SESSION_BASE.mkdir(parents=True, exist_ok=True)
+                    new_sess = Session(SESSION_BASE)
+                    _load_session_into_state(new_sess)
+                    st.session_state["current_page"] = "Profile Editor"
+                    st.rerun()
+                st.divider()
+                for ws in all_sessions:
+                    if st.button(
+                        ws,
+                        key=f"ws_pick_{ws}",
+                        use_container_width=True,
+                        type="primary" if ws == current_name else "secondary",
+                    ):
+                        if ws != current_name:
+                            for k in CLEARABLE_STATE_KEYS:
+                                st.session_state.pop(k, None)
+                            _load_session_into_state(Session.open(SESSION_BASE / ws))
+                            st.session_state.setdefault("current_page", "Profile Editor")
+                        st.rerun()
 
 
 # ---------------------------------------------------------------------------
