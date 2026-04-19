@@ -116,3 +116,12 @@ class Session:
             [d.name for d in base_dir.iterdir() if d.is_dir() and d.name.startswith("session_")],
             reverse=True,
         )
+
+    @classmethod
+    def latest(cls, base_dir: Path) -> "Session | None":
+        """Return the most recent session that contains annotations.json, or None."""
+        for name in cls.list_sessions(base_dir):
+            candidate = base_dir / name
+            if (candidate / "annotations.json").exists():
+                return cls.open(candidate)
+        return None

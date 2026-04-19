@@ -196,3 +196,39 @@ class TestListSessions:
         missing = tmp_path / "nonexistent"
         result = Session.list_sessions(missing)
         assert result == []
+
+
+class TestLatestSession:
+    def test_returns_most_recent_with_annotations(self, tmp_path):
+        """latest() returns the newest session that has annotations.json."""
+        old = tmp_path / "session_20260101_090000"
+        old.mkdir()
+        (old / "annotations.json").write_text("[]")
+
+        newer = tmp_path / "session_20260301_120000"
+        newer.mkdir()
+        (newer / "annotations.json").write_text("[]")
+
+        sess = Session.latest(tmp_path)
+        assert sess is not None
+        assert sess.workspace == newer
+
+    def test_skips_sessions_without_annotations(self, tmp_path):
+        """latest() skips empty session dirs and returns the newest that has annotations.json."""
+        empty = tmp_path / "session_20260401_080000"
+        empty.mkdir()  # no annotations.json
+
+        with_work = tmp_path / "session_20260301_120000"
+        with_work.mkdir()
+        (with_work / "annotations.json").write_text("[]")
+
+        sess = Session.latest(tmp_path)
+        assert sess is not None
+        assert sess.workspace == with_work
+
+    def test_returns_none_when_no_qualified_session(self, tmp_path):
+        """latest() returns None when no session has annotations.json."""
+        (tmp_path / "session_20260101_090000").mkdir()  # empty
+        (tmp_path / "session_20260201_060000").mkdir()  # empty
+        sess = Session.latest(tmp_path)
+        assert sess is None
