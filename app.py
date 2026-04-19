@@ -21,6 +21,14 @@ from ui.profile_editor import render_profile_editor
 PROFILES_DIR = Path(__file__).parent / "profiles"
 SESSION_BASE = Path(__file__).parent / "sessions"
 
+# Keys cleared when switching sessions
+CLEARABLE_STATE_KEYS = [
+    "annotations", "fields", "matches", "qc_report",
+    "source_pdf_path", "target_pdf_path", "output_pdf_path",
+    "phases_complete", "current_page",
+    "p1_page", "p2_page", "p3_page",
+]
+
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
@@ -389,55 +397,58 @@ _inject_pe_css()
 # ---------------------------------------------------------------------------
 
 
+def _load_session_into_state(sess: Session) -> None:
+    """Load all artifacts from sess into st.session_state."""
+    st.session_state["session"] = sess
+    ws = sess.workspace
+
+    try:
+        st.session_state["annotations"] = sess.load_annotations()
+    except FileNotFoundError:
+        st.session_state["annotations"] = []
+
+    try:
+        st.session_state["fields"] = sess.load_fields()
+    except FileNotFoundError:
+        st.session_state["fields"] = []
+
+    try:
+        st.session_state["matches"] = sess.load_matches()
+    except FileNotFoundError:
+        st.session_state["matches"] = []
+
+    try:
+        st.session_state["qc_report"] = sess.load_qc_report()
+    except FileNotFoundError:
+        st.session_state["qc_report"] = None
+
+    for key, fname in [
+        ("source_pdf_path", "source_acrf.pdf"),
+        ("target_pdf_path", "target_crf.pdf"),
+        ("output_pdf_path", "output_acrf.pdf"),
+    ]:
+        p = ws / fname
+        st.session_state[key] = p if p.exists() else None
+
+    st.session_state["phases_complete"] = {
+        1: (ws / "annotations.json").exists(),
+        2: (ws / "fields.json").exists(),
+        3: (ws / "matches.json").exists(),
+        4: (ws / "output_acrf.pdf").exists(),
+    }
+
+
 def _init_session_state() -> None:
     """Initialize all session state keys exactly once per browser session."""
     if "session" not in st.session_state:
         SESSION_BASE.mkdir(parents=True, exist_ok=True)
-        sess = Session(SESSION_BASE)
-        st.session_state["session"] = sess
+        sess = Session.latest(SESSION_BASE)
+        if sess is None:
+            sess = Session(SESSION_BASE)
+        _load_session_into_state(sess)
 
-        # Restore workspace artifacts if present
-        ws = sess.workspace
-        try:
-            st.session_state["annotations"] = sess.load_annotations()
-        except FileNotFoundError:
-            st.session_state.setdefault("annotations", [])
-
-        try:
-            st.session_state["fields"] = sess.load_fields()
-        except FileNotFoundError:
-            st.session_state.setdefault("fields", [])
-
-        try:
-            st.session_state["matches"] = sess.load_matches()
-        except FileNotFoundError:
-            st.session_state.setdefault("matches", [])
-
-        try:
-            st.session_state["qc_report"] = sess.load_qc_report()
-        except FileNotFoundError:
-            st.session_state.setdefault("qc_report", None)
-
-        # Restore PDF paths
-        source_pdf = ws / "source_acrf.pdf"
-        if source_pdf.exists():
-            st.session_state["source_pdf_path"] = source_pdf
-        target_pdf = ws / "target_crf.pdf"
-        if target_pdf.exists():
-            st.session_state["target_pdf_path"] = target_pdf
-        output_pdf = ws / "output_acrf.pdf"
-        if output_pdf.exists():
-            st.session_state["output_pdf_path"] = output_pdf
-
-    # Phase completion state
-    st.session_state.setdefault(
-        "phases_complete", {1: False, 2: False, 3: False, 4: False}
-    )
-
-    # Default page
     st.session_state.setdefault("current_page", "Profile Editor")
 
-    # Load default profile if none loaded
     if "profile" not in st.session_state:
         profiles = list_profiles(PROFILES_DIR)
         if profiles:
