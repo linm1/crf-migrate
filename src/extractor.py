@@ -529,8 +529,9 @@ def extract_arrows(
 
                 head_vertex, tail_vertex = result
 
+                vertices_str = ",".join(f"{x:.4f}:{y:.4f}" for x, y in vertices)
                 arrow_id = hashlib.sha1(
-                    f"{page_index}:{vertices}".encode()
+                    f"{page_index}:{vertices_str}".encode()
                 ).hexdigest()[:16]
 
                 # Tail snap: find nearest AnnotationRecord within radius
