@@ -7,9 +7,9 @@ from pathlib import Path
 import streamlit as st
 
 from src.csv_handler import export_annotations_csv, import_annotations_csv
-from src.extractor import extract_annotations
+from src.extractor import extract_annotations, extract_arrows
 from src.field_parser import extract_fields
-from src.models import AnnotationRecord, FieldRecord
+from src.models import AnnotationRecord, ArrowRecord, FieldRecord
 from ui.components import (
     get_pdf_page_count,
     invalidate_phases,
@@ -211,6 +211,7 @@ def _render_upload_card(session, profile, rule_engine) -> None:
                 try:
                     _result["records"] = extract_annotations(source_pdf_path, profile, rule_engine)
                     _result["fields"] = extract_fields(source_pdf_path, profile, rule_engine)
+                    _result["arrows"] = extract_arrows(source_pdf_path, _result["records"], profile)
                 except Exception as exc:
                     _result["error"] = exc
 
@@ -226,14 +227,18 @@ def _render_upload_card(session, profile, rule_engine) -> None:
             else:
                 records = _result["records"]
                 fields = _result["fields"]
+                arrows: list[ArrowRecord] = _result.get("arrows", [])
                 session.save_annotations(records)
+                session.save_arrows(arrows)
                 st.session_state["annotations"] = records
                 st.session_state["source_fields"] = fields
+                st.session_state["arrows"] = arrows
                 st.session_state["phases_complete"][1] = True
                 invalidate_phases([3, 4])
                 session.log_action("phase1_extract", {
                     "annotations": len(records),
                     "fields": len(fields),
+                    "arrows": len(arrows),
                 })
                 st.rerun()
 

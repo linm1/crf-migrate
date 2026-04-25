@@ -126,6 +126,8 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
                         matches,
                         annotations,
                         profile,
+                        arrow_matches=st.session_state.get("arrow_matches", []),
+                        arrows=st.session_state.get("arrows", []),
                     )
                 except Exception as exc:
                     _result["error"] = exc

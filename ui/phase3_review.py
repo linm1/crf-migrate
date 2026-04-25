@@ -10,8 +10,8 @@ import streamlit as st
 from rapidfuzz import fuzz as _fuzz
 
 from src.csv_handler import export_matches_csv, import_matches_csv
-from src.matcher import apply_manual_match, batch_approve_exact, compute_target_rect, match_annotations
-from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from src.matcher import apply_manual_match, batch_approve_exact, compute_target_rect, match_annotations, resolve_arrows
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, FieldRecord, MatchRecord
 from src.session import Session
 from ui.components import (
     get_page_dims_from_pdf,
@@ -519,6 +519,13 @@ def _render_action_card(
                         source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
                         target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
                         _result["matches"] = match_annotations(annotations, fields, profile, source_dims, target_dims)
+                        arrows: list[ArrowRecord] = st.session_state.get("arrows", [])
+                        if arrows and target_pdf_path:
+                            _result["arrow_matches"] = resolve_arrows(
+                                arrows, _result["matches"], fields, target_pdf_path, profile
+                            )
+                        else:
+                            _result["arrow_matches"] = []
                     except Exception as exc:
                         _result["error"] = exc
 
@@ -533,11 +540,17 @@ def _render_action_card(
                     st.error(f"Matching failed: {_result['error']}")
                 else:
                     new_matches = _result["matches"]
+                    arrow_matches: list[ArrowMatch] = _result.get("arrow_matches", [])
                     session.save_matches(new_matches)
+                    session.save_arrow_matches(arrow_matches)
                     st.session_state["matches"] = new_matches
+                    st.session_state["arrow_matches"] = arrow_matches
                     st.session_state["phases_complete"][3] = True
                     invalidate_phases([4])
-                    session.log_action("phase3_match", {"count": len(new_matches)})
+                    session.log_action("phase3_match", {
+                        "count": len(new_matches),
+                        "arrow_matches": len(arrow_matches),
+                    })
                     st.rerun()
     if _no_session_error:
         st.error("No active session. Please restart the app.")
