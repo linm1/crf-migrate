@@ -98,6 +98,7 @@ class ArrowRecord(BaseModel):
     source_page: int                           # 0-indexed (PyMuPDF page_index, not 1-indexed like AnnotationRecord.page)
     tail_vertex: tuple[float, float]           # head/tail disambiguated
     head_vertex: tuple[float, float]
+    head_source_rect: tuple[float, float, float, float] | None = None  # bounding box of source text block at head snap
     tail_annotation_id: str | None
     head_text: str
     head_search_hint: tuple[float, float]      # = head_vertex; tiebreaker on target side

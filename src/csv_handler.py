@@ -255,6 +255,7 @@ def _flatten_arrow_record(record: ArrowRecord) -> dict:
     data = record.model_dump()
     data["tail_vertex"] = json.dumps(data["tail_vertex"])
     data["head_vertex"] = json.dumps(data["head_vertex"])
+    data["head_source_rect"] = json.dumps(data["head_source_rect"])  # None → "null"
     data["head_search_hint"] = json.dumps(data["head_search_hint"])
     data["style"] = json.dumps(data["style"])
     return data
@@ -266,6 +267,16 @@ def _unflatten_arrow_row(row: dict) -> dict:
     for key in ("tail_vertex", "head_vertex", "head_search_hint", "style"):
         if key in result and isinstance(result[key], str):
             result[key] = json.loads(result[key])
+    if "head_source_rect" in result:
+        val = result["head_source_rect"]
+        if isinstance(val, str):
+            stripped = val.strip()
+            if stripped == "" or stripped == "null":
+                result["head_source_rect"] = None
+            else:
+                result["head_source_rect"] = json.loads(stripped)
+        elif val != val:  # NaN
+            result["head_source_rect"] = None
     if "tail_annotation_id" in result:
         val = result["tail_annotation_id"]
         if val != val or val == "":  # NaN or empty string

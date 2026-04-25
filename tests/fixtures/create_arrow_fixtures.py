@@ -100,6 +100,26 @@ def create_arrow_target_pdf(path: Path) -> Path:
     return path
 
 
+def create_arrow_output_target_pdf(path: Path) -> Path:
+    """Create a 2-page target PDF for arrow writer tests.
+
+    Page 1 has a field text area ("Field Label" at [50, 80, 200, 100]).
+    Page 2 is blank. Used for arrow writing integration tests.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open()
+    # Page 1: field area
+    page1 = doc.new_page(width=595, height=842)
+    page1.insert_text(fitz.Point(50, 95), "Field Label", fontsize=10, color=(0, 0, 0))
+    page1.insert_text(fitz.Point(210, 65), "Yes", fontsize=10, color=(0, 0, 0))
+    # Page 2: blank
+    doc.new_page(width=595, height=842)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
 if __name__ == "__main__":
     dest = Path(__file__).parent / "arrows_source.pdf"
     create_arrow_source_pdf(dest)

@@ -111,3 +111,16 @@ def test_disabled_profile_returns_empty(arrow_source_pdf: Path, cdisc_profile) -
     )
     arrows = extract_arrows(arrow_source_pdf, [], disabled_profile)
     assert arrows == []
+
+
+def test_head_source_rect_populated(arrow_source_pdf: Path, cdisc_profile) -> None:
+    """head_source_rect is not None for valid arrows that snapped to a text block."""
+    arrows = extract_arrows(arrow_source_pdf, [], cdisc_profile)
+    assert len(arrows) == 2
+    for arrow in arrows:
+        assert arrow.head_source_rect is not None, (
+            f"Arrow {arrow.arrow_id} should have head_source_rect populated"
+        )
+        x0, y0, x1, y1 = arrow.head_source_rect
+        assert x1 > x0, "head_source_rect width must be positive"
+        assert y1 > y0, "head_source_rect height must be positive"

@@ -456,6 +456,38 @@ def _nearest_text_block_to_point(
     return best_text
 
 
+def _nearest_text_block_with_rect(
+    point: tuple[float, float],
+    blocks: list,
+    radius: float,
+) -> tuple[str, tuple[float, float, float, float] | None]:
+    """Return (text, block_rect) of the nearest text block centre within radius.
+
+    Args:
+        point: (x, y) query point.
+        blocks: Raw output of page.get_text("blocks") — tuples of
+                (x0, y0, x1, y1, text, block_no, block_type).
+        radius: Maximum Euclidean distance to the block centre.
+
+    Returns:
+        (stripped_text, (x0, y0, x1, y1)) of the closest block, or ('', None).
+    """
+    best_text = ""
+    best_rect: tuple[float, float, float, float] | None = None
+    best_dist = radius
+    for block in blocks:
+        if block[6] != 0:  # skip image blocks
+            continue
+        cx = (block[0] + block[2]) / 2.0
+        cy = (block[1] + block[3]) / 2.0
+        dist = ((point[0] - cx) ** 2 + (point[1] - cy) ** 2) ** 0.5
+        if dist < best_dist:
+            best_dist = dist
+            best_text = block[4].strip()
+            best_rect = (float(block[0]), float(block[1]), float(block[2]), float(block[3]))
+    return best_text, best_rect
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -551,7 +583,7 @@ def extract_arrows(
                     tail_annotation_id = nearest_annot.id
 
                 # Head snap: find nearest text block within radius
-                head_text = _nearest_text_block_to_point(
+                head_text, head_source_rect = _nearest_text_block_with_rect(
                     head_vertex, blocks, arrow_cfg.head_text_search_radius_pt
                 )
                 if not head_text:
@@ -584,6 +616,7 @@ def extract_arrows(
                         source_page=page_index,
                         tail_vertex=tail_vertex,
                         head_vertex=head_vertex,
+                        head_source_rect=head_source_rect,
                         tail_annotation_id=tail_annotation_id,
                         head_text=head_text,
                         head_search_hint=head_vertex,

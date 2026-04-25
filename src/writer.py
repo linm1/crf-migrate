@@ -10,7 +10,7 @@ import re
 
 import fitz  # PyMuPDF
 
-from src.models import AnnotationRecord, MatchRecord
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, MatchRecord
 from src.profile_models import Profile
 
 _FALLBACK_FILL: tuple[float, float, float] = (0.75, 1.0, 1.0)  # cyan
@@ -99,6 +99,8 @@ def write_annotations(
     matches: list[MatchRecord],
     annotations: list[AnnotationRecord],
     profile: Profile,
+    arrow_matches: list[ArrowMatch] | None = None,
+    arrows: list[ArrowRecord] | None = None,
 ) -> dict:
     """Write approved annotations to target PDF. Returns qc_report dict."""
     annot_by_id: dict[str, AnnotationRecord] = {a.id: a for a in annotations}
@@ -124,10 +126,32 @@ def write_annotations(
         else:
             skipped_ids.append(match.annotation_id)
 
+    # Build placed_rects from match records (annotation_id → placed rect)
+    placed_rects: dict[str, list[float]] = {
+        m.annotation_id: m.target_rect
+        for m in matches
+        if m.status == "approved" and m.annotation_id in annot_by_id
+    }
+
+    # Write arrows if provided
+    arrows_written = 0
+    arrows_skipped = 0
+    if arrow_matches and arrows:
+        arrows_by_id = {a.arrow_id: a for a in arrows}
+        for arm in arrow_matches:
+            wrote = _write_single_arrow(doc, arm, arrows_by_id, placed_rects, annot_by_id, profile)
+            if wrote:
+                arrows_written += 1
+            else:
+                arrows_skipped += 1
+
     doc.save(str(output_pdf_path))
     doc.close()
 
-    return build_qc_report(matches, written_ids, skipped_ids)
+    report = build_qc_report(matches, written_ids, skipped_ids)
+    report["arrows_written"] = arrows_written
+    report["arrows_skipped"] = arrows_skipped
+    return report
 
 
 def build_qc_report(
@@ -269,3 +293,82 @@ def _write_single_annotation(
     _patch_ap_border_color(doc, a, border_color)
     if pdf_name != "Helvetica":
         _apply_font_style(doc, page, a, fontsize, pdf_name, text_color)
+
+
+def _write_single_arrow(
+    doc: fitz.Document,
+    arm: ArrowMatch,
+    arrows_by_id: dict[str, ArrowRecord],
+    placed_rects: dict[str, list[float]],
+    annot_by_id: dict[str, AnnotationRecord],
+    profile: Profile,
+) -> bool:
+    """Write a single resolved arrow as a Line annotation. Returns True if written."""
+    from src.arrow_geometry import hybrid_endpoint_placement, clamp_to_page
+
+    # Skip unresolved
+    if arm.head_match_method == "unresolved" or arm.head_target_rect is None:
+        return False
+
+    arrow = arrows_by_id.get(arm.arrow_id)
+    if arrow is None:
+        return False
+
+    # Tail endpoint
+    tail_pt: tuple[float, float]
+    if arrow.tail_annotation_id and arrow.tail_annotation_id in placed_rects:
+        target_annot_rect = placed_rects[arrow.tail_annotation_id]
+        source_annot = annot_by_id.get(arrow.tail_annotation_id)
+        source_annot_rect = tuple(source_annot.rect) if source_annot else tuple(target_annot_rect)
+        tail_pt = hybrid_endpoint_placement(
+            source_box=tuple(source_annot_rect),
+            source_point=arrow.tail_vertex,
+            target_box=tuple(target_annot_rect),
+            other_endpoint=arrow.head_vertex,
+            size_similarity_tolerance=profile.arrows.size_similarity_tolerance,
+        )
+    else:
+        # Fallback: use raw tail vertex (tail annotation wasn't placed)
+        tail_pt = arrow.tail_vertex
+
+    # Head endpoint
+    head_target_rect = arm.head_target_rect  # (x0, y0, x1, y1)
+    if arrow.head_source_rect is not None:
+        head_pt = hybrid_endpoint_placement(
+            source_box=arrow.head_source_rect,
+            source_point=arrow.head_vertex,
+            target_box=head_target_rect,
+            other_endpoint=arrow.tail_vertex,
+            size_similarity_tolerance=profile.arrows.size_similarity_tolerance,
+        )
+    else:
+        # No source rect for head → use edge_midpoint_from_direction (Branch B)
+        from src.arrow_geometry import edge_midpoint_from_direction
+        head_pt = edge_midpoint_from_direction(
+            other_endpoint=arrow.tail_vertex,
+            target_box=head_target_rect,
+        )
+
+    # Clamp to page
+    page_index = arm.target_page - 1  # Convert 1-indexed to 0-indexed
+    if page_index < 0 or page_index >= doc.page_count:
+        return False
+    page = doc[page_index]
+    page_rect = (0.0, 0.0, float(page.rect.width), float(page.rect.height))
+    tail_pt = clamp_to_page(tail_pt, page_rect)
+    head_pt = clamp_to_page(head_pt, page_rect)
+
+    # Draw the line annotation
+    p1 = fitz.Point(tail_pt[0], tail_pt[1])
+    p2 = fitz.Point(head_pt[0], head_pt[1])
+    a = page.add_line_annot(p1=p1, p2=p2)
+
+    # Apply style
+    style = arrow.style
+    a.set_colors(stroke=list(style.stroke_color))
+    a.set_border(width=style.width, dashes=list(style.dashes))
+    # line_ends: (start, end) where start=p1 (tail), end=p2 (head)
+    a.set_line_ends(style.line_ends[0], style.line_ends[1])
+    a.update(opacity=style.opacity)
+
+    return True
