@@ -80,7 +80,30 @@ def create_arrow_source_pdf(out_path: Path) -> Path:
     return out_path
 
 
+def create_arrow_target_pdf(path: Path) -> Path:
+    """Create a 1-page target PDF with text blocks for arrow resolution tests.
+
+    Layout (PDF points, origin top-left):
+    - "Yes"     baseline at (210, 65) → block approx [210, 55, 260, 70]
+    - "No"      baseline at (210, 105) → block approx [210, 95, 260, 110]
+    - "Unknown" baseline at (210, 145) → block approx [210, 135, 260, 150]
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text(fitz.Point(210, 65), "Yes", fontsize=10, color=(0, 0, 0))
+    page.insert_text(fitz.Point(210, 105), "No", fontsize=10, color=(0, 0, 0))
+    page.insert_text(fitz.Point(210, 145), "Unknown", fontsize=10, color=(0, 0, 0))
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
 if __name__ == "__main__":
     dest = Path(__file__).parent / "arrows_source.pdf"
     create_arrow_source_pdf(dest)
     print(f"Written: {dest}")
+    dest2 = Path(__file__).parent / "arrows_target.pdf"
+    create_arrow_target_pdf(dest2)
+    print(f"Written: {dest2}")
