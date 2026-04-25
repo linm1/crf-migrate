@@ -173,19 +173,19 @@ def edge_midpoint_from_direction(
     if box_height > 0 and box_width > 0 and adx * box_height > ady * box_width:
         # Approach via left or right edge
         if dx > 0:
-            # center is to the RIGHT of other_endpoint → approach from right edge
-            return (x1 + outward_offset, cy)
-        else:
-            # center is to the LEFT → approach from left edge
+            # center is to the RIGHT → other_endpoint is left → arrow enters LEFT edge
             return (x0 - outward_offset, cy)
+        else:
+            # center is to the LEFT → other_endpoint is right → arrow enters RIGHT edge
+            return (x1 + outward_offset, cy)
     else:
         # Approach via top or bottom edge
         if dy > 0:
-            # center is BELOW other_endpoint → approach from bottom edge
-            return (cx, y1 + outward_offset)
-        else:
-            # center is ABOVE → approach from top edge
+            # center is BELOW → other_endpoint is above → arrow enters TOP edge
             return (cx, y0 - outward_offset)
+        else:
+            # center is ABOVE → other_endpoint is below → arrow enters BOTTOM edge
+            return (cx, y1 + outward_offset)
 
 
 # ---------------------------------------------------------------------------

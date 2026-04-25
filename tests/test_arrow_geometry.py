@@ -183,73 +183,115 @@ class TestHybridEndpointPlacement:
     OTHER_EP    = (500.0, 25.0)  # far to the right
 
     def test_branch_a_same_size_result_on_edge(self):
-        """Target box same size → Branch A → result on target box edge."""
+        """Target box same size → Branch A → exact left-edge midpoint."""
         target_box = (200.0, 0.0, 300.0, 50.0)  # same width=100, height=50
         source_point = (10.0, 25.0)             # near left edge of source
+        # offset = (10/100, 25/50) = (0.1, 0.5)
+        # raw_pt = (200+10, 0+25) = (210, 25)
+        # snap: dist to left=10, right=90, top=25, bottom=25 → left edge
         result = hybrid_endpoint_placement(
             self.SOURCE_BOX, source_point, target_box, self.OTHER_EP
         )
-        assert _point_on_box_edge(result, target_box), (
-            f"Result {result} is not on target box edge {target_box}"
-        )
+        assert result == (200.0, 25.0), f"Expected (200.0, 25.0), got {result}"
 
     def test_branch_a_within_tolerance(self):
-        """Target 15% wider/taller — still within 20% → Branch A."""
+        """Target 15% wider/taller — still within 20% → Branch A → top edge."""
         target_box = (200.0, 0.0, 315.0, 57.5)  # +15% width and height
         source_point = (50.0, 25.0)
+        # offset = (0.5, 0.5); raw_pt = (200+57.5, 0+28.75) = (257.5, 28.75)
+        # snap: dist to left=57.5, right=57.5, top=28.75, bottom=28.75 → top wins (first min)
         result = hybrid_endpoint_placement(
             self.SOURCE_BOX, source_point, target_box, self.OTHER_EP
         )
-        assert _point_on_box_edge(result, target_box), (
-            f"Result {result} is not on target box edge {target_box}"
-        )
+        assert result == (257.5, 0.0), f"Expected (257.5, 0.0), got {result}"
 
     def test_branch_b_half_size_target(self):
-        """Target half the size → Branch B → result near target box edge."""
+        """Target half the size → Branch B → right edge (other_endpoint is right of center)."""
         target_box = (200.0, 0.0, 250.0, 25.0)  # half width and height
         source_point = (10.0, 25.0)
+        # OTHER_EP=(500,25), target center=(225,12.5)
+        # dx=225-500=-275 (center left of other_ep) → RIGHT edge
+        # dy=12.5-25=-12.5 → horizontal dominates (275*25 > 12.5*50)
+        # result = (x1+1, cy) = (251, 12.5)
         result = hybrid_endpoint_placement(
             self.SOURCE_BOX, source_point, target_box, self.OTHER_EP
         )
-        # Branch B returns edge_midpoint_from_direction which is 1pt outside
-        # the box — check it's within a small distance of the box
-        x, y = result
-        x0, y0, x1, y1 = target_box
-        dist_to_box = min(
-            abs(x - x0), abs(x - x1), abs(y - y0), abs(y - y1)
-        )
-        assert dist_to_box <= 2.0, (
-            f"Result {result} is too far from target box edge {target_box}"
-        )
+        assert result == (251.0, 12.5), f"Expected (251.0, 12.5), got {result}"
 
     def test_branch_b_asymmetric_width(self):
-        """Target wider but same height → width ratio fails → Branch B."""
+        """Target wider but same height → width ratio fails → Branch B → right edge."""
         # 50% wider fails the width check
         target_box = (200.0, 0.0, 350.0, 50.0)   # width=150, height=50
         source_point = (10.0, 25.0)
+        # OTHER_EP=(500,25), target center=(275,25)
+        # dx=275-500=-225 (center left of other_ep) → RIGHT edge
+        # dy=0 → horizontal dominates
+        # result = (x1+1, cy) = (351, 25)
         result = hybrid_endpoint_placement(
             self.SOURCE_BOX, source_point, target_box, self.OTHER_EP
         )
-        x, y = result
-        x0, y0, x1, y1 = target_box
-        dist_to_box = min(
-            abs(x - x0), abs(x - x1), abs(y - y0), abs(y - y1)
-        )
-        assert dist_to_box <= 2.0, (
-            f"Result {result} is too far from target box edge {target_box}"
-        )
+        assert result == (351.0, 25.0), f"Expected (351.0, 25.0), got {result}"
 
     def test_branch_a_result_is_on_edge_exactly(self):
-        """Branch A result must be ON the target box edge (distance ≤ 1e-6)."""
+        """Branch A: source_point at top center → maps to top edge of target."""
         target_box = (200.0, 10.0, 300.0, 60.0)  # same size as SOURCE_BOX
-        # source_point at top center of source box
-        source_point = (50.0, 0.0)
+        source_point = (50.0, 0.0)               # top center of source
+        # offset = (0.5, 0.0); raw_pt = (250, 10); snap → top edge (dist=0)
         result = hybrid_endpoint_placement(
             self.SOURCE_BOX, source_point, target_box, self.OTHER_EP
         )
-        assert _point_on_box_edge(result, target_box, tol=1e-6), (
-            f"Branch A result {result} is not on edge of {target_box}"
-        )
+        assert result == (250.0, 10.0), f"Expected (250.0, 10.0), got {result}"
+
+    def test_branch_a_preserves_relative_offset_snaps_to_nearest_edge(self):
+        """Branch A: source_point on left edge → target left edge at same relative height."""
+        source_box = (0.0, 0.0, 100.0, 100.0)
+        source_point = (0.0, 50.0)   # left edge, mid-height → offset (0.0, 0.5)
+        target_box = (200.0, 200.0, 300.0, 300.0)  # same 100x100
+        other_endpoint = (300.0, 250.0)
+        # raw_pt = (200+0*100, 200+0.5*100) = (200, 250)
+        # snap: dist to left=0 → already on left edge
+        result = hybrid_endpoint_placement(source_box, source_point, target_box, other_endpoint)
+        assert result == (200.0, 250.0), f"Expected (200.0, 250.0), got {result}"
+
+    def test_branch_b_half_size_attaches_to_left_edge(self):
+        """Branch B: other_endpoint left of target → arrow enters LEFT edge."""
+        source_box = (0.0, 0.0, 100.0, 100.0)
+        source_point = (50.0, 50.0)
+        target_box = (200.0, 100.0, 240.0, 140.0)  # 40x40 → fails size check
+        other_endpoint = (10.0, 120.0)              # left of target center (220, 120)
+        # dx = 220 - 10 = 210 > 0 → LEFT edge: x = x0 - 1 = 199, y = 120
+        result = hybrid_endpoint_placement(source_box, source_point, target_box, other_endpoint)
+        assert result == (199.0, 120.0), f"Expected (199.0, 120.0), got {result}"
+
+    def test_branch_b_right_edge(self):
+        """Branch B: other_endpoint right of target → arrow enters RIGHT edge."""
+        source_box = (0.0, 0.0, 100.0, 100.0)
+        source_point = (50.0, 50.0)
+        target_box = (10.0, 10.0, 50.0, 50.0)   # 40x40 → fails size check
+        other_endpoint = (200.0, 30.0)           # right of target center (30, 30)
+        # dx = 30 - 200 = -170 < 0 → RIGHT edge: x = x1 + 1 = 51, y = 30
+        result = hybrid_endpoint_placement(source_box, source_point, target_box, other_endpoint)
+        assert result == (51.0, 30.0), f"Expected (51.0, 30.0), got {result}"
+
+    def test_branch_b_top_edge(self):
+        """Branch B: other_endpoint above target → arrow enters TOP edge."""
+        source_box = (0.0, 0.0, 100.0, 100.0)
+        source_point = (50.0, 50.0)
+        target_box = (200.0, 200.0, 240.0, 240.0)  # 40x40 → fails size check
+        other_endpoint = (220.0, 10.0)             # above target center (220, 220)
+        # dx=0, dy=220-10=210>0 → TOP edge: x=220, y=y0-1=199
+        result = hybrid_endpoint_placement(source_box, source_point, target_box, other_endpoint)
+        assert result == (220.0, 199.0), f"Expected (220.0, 199.0), got {result}"
+
+    def test_branch_b_bottom_edge(self):
+        """Branch B: other_endpoint below target → arrow enters BOTTOM edge."""
+        source_box = (0.0, 0.0, 100.0, 100.0)
+        source_point = (50.0, 50.0)
+        target_box = (200.0, 200.0, 240.0, 240.0)  # 40x40 → fails size check
+        other_endpoint = (220.0, 400.0)            # below target center (220, 220)
+        # dx=0, dy=220-400=-180<0 → BOTTOM edge: x=220, y=y1+1=241
+        result = hybrid_endpoint_placement(source_box, source_point, target_box, other_endpoint)
+        assert result == (220.0, 241.0), f"Expected (220.0, 241.0), got {result}"
 
 
 # ===========================================================================
