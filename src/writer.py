@@ -10,6 +10,7 @@ import re
 
 import fitz  # PyMuPDF
 
+from src.arrow_geometry import clamp_to_page, edge_midpoint_from_direction, hybrid_endpoint_placement
 from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, MatchRecord
 from src.profile_models import Profile
 
@@ -304,8 +305,6 @@ def _write_single_arrow(
     profile: Profile,
 ) -> bool:
     """Write a single resolved arrow as a Line annotation. Returns True if written."""
-    from src.arrow_geometry import hybrid_endpoint_placement, clamp_to_page
-
     # Skip unresolved
     if arm.head_match_method == "unresolved" or arm.head_target_rect is None:
         return False
@@ -343,7 +342,6 @@ def _write_single_arrow(
         )
     else:
         # No source rect for head → use edge_midpoint_from_direction (Branch B)
-        from src.arrow_geometry import edge_midpoint_from_direction
         head_pt = edge_midpoint_from_direction(
             other_endpoint=arrow.tail_vertex,
             target_box=head_target_rect,
