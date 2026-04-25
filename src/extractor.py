@@ -3,13 +3,15 @@
 Uses PyMuPDF (fitz) for annotation extraction and the configured rule engine
 for classification, form name extraction, and visit detection.
 """
+import hashlib
 import re
 import uuid
 from pathlib import Path
 
 import fitz  # PyMuPDF
 
-from src.models import AnnotationRecord, StyleInfo
+from src.arrow_geometry import head_tail_from_line_ends
+from src.models import AnnotationRecord, ArrowRecord, ArrowStyle, StyleInfo
 from src.pdf_utils import find_nearest_label, get_text_blocks, make_clean_page
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
@@ -386,3 +388,208 @@ def _extract_anchor_text(
         config.left_column_tolerance_px,
         exclude_patterns=exclude_patterns,
     )
+
+
+# ---------------------------------------------------------------------------
+# Arrow extraction helpers
+# ---------------------------------------------------------------------------
+
+def _nearest_annot_to_point(
+    point: tuple[float, float],
+    annotations: list[AnnotationRecord],
+    page_num: int,
+    radius: float,
+) -> AnnotationRecord | None:
+    """Find AnnotationRecord on page_num closest to point within radius.
+
+    Args:
+        point: (x, y) query point in PDF coordinates.
+        annotations: All annotation records (filtered internally by page).
+        page_num: 1-indexed page number to restrict the search.
+        radius: Maximum Euclidean distance (in points) to qualify.
+
+    Returns:
+        Closest AnnotationRecord, or None if none within radius.
+    """
+    best: AnnotationRecord | None = None
+    best_dist = radius
+    for rec in annotations:
+        if rec.page != page_num:
+            continue
+        x0, y0, x1, y1 = rec.rect
+        cx = max(x0, min(point[0], x1))
+        cy = max(y0, min(point[1], y1))
+        dist = ((point[0] - cx) ** 2 + (point[1] - cy) ** 2) ** 0.5
+        if dist < best_dist:
+            best_dist = dist
+            best = rec
+    return best
+
+
+def _nearest_text_block_to_point(
+    point: tuple[float, float],
+    blocks: list,
+    radius: float,
+) -> str:
+    """Return stripped text of the nearest text block center within radius, or ''.
+
+    Args:
+        point: (x, y) query point.
+        blocks: Raw output of page.get_text("blocks") — tuples of
+                (x0, y0, x1, y1, text, block_no, block_type).
+        radius: Maximum Euclidean distance to the block centre.
+
+    Returns:
+        Stripped text of the closest block, or '' when none qualifies.
+    """
+    best_text = ""
+    best_dist = radius
+    for block in blocks:
+        if block[6] != 0:  # skip image blocks
+            continue
+        cx = (block[0] + block[2]) / 2.0
+        cy = (block[1] + block[3]) / 2.0
+        dist = ((point[0] - cx) ** 2 + (point[1] - cy) ** 2) ** 0.5
+        if dist < best_dist:
+            best_dist = dist
+            best_text = block[4].strip()
+    return best_text
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def extract_arrows(
+    pdf_path: Path,
+    annotations: list[AnnotationRecord],
+    profile: Profile,
+    qc_issues: list[str] | None = None,
+) -> list[ArrowRecord]:
+    """Extract Line arrow annotations from source aCRF PDF.
+
+    Called after extract_annotations() so that tail snap can reference
+    already-extracted AnnotationRecord rects.
+
+    Args:
+        pdf_path: Path to the source aCRF PDF.
+        annotations: Already-extracted annotation records (from extract_annotations).
+        profile: Active profile (reads profile.arrows for thresholds).
+        qc_issues: Optional list to append QC warning strings to.
+
+    Returns:
+        List of ArrowRecord. Empty list if profile.arrows.enabled is False.
+    """
+    if not profile.arrows.enabled:
+        return []
+
+    if qc_issues is None:
+        qc_issues = []
+
+    arrow_cfg = profile.arrows
+    records: list[ArrowRecord] = []
+
+    doc = fitz.open(str(pdf_path))
+    try:
+        for page_index in range(doc.page_count):
+            page = doc[page_index]
+            page_num = page_index + 1  # 1-indexed (matches AnnotationRecord.page)
+            blocks = page.get_text("blocks")
+
+            for annot in page.annots():
+                if annot.type[0] != 3:  # only Line annotations
+                    continue
+
+                raw_vertices = annot.vertices or []
+                if len(raw_vertices) < 2:
+                    qc_issues.append(
+                        f"Page {page_num}: Line annotation has fewer than 2 vertices — skipped."
+                    )
+                    continue
+
+                vertices: list[tuple[float, float]] = [
+                    (v.x, v.y) if hasattr(v, "x") else (float(v[0]), float(v[1]))
+                    for v in raw_vertices
+                ]
+
+                raw_line_ends = annot.line_ends
+                line_ends: tuple[int, int] = (
+                    (int(raw_line_ends[0]), int(raw_line_ends[1]))
+                    if raw_line_ends
+                    else (0, 0)
+                )
+
+                result = head_tail_from_line_ends(vertices, line_ends)
+                if result is None:
+                    qc_issues.append(
+                        f"Page {page_num}: Arrow with line_ends={line_ends} is ambiguous "
+                        f"(both or neither end has arrowhead) — skipped."
+                    )
+                    continue
+
+                head_vertex, tail_vertex = result
+
+                arrow_id = hashlib.sha1(
+                    f"{page_index}:{vertices}".encode()
+                ).hexdigest()[:16]
+
+                # Tail snap: find nearest AnnotationRecord within radius
+                nearest_annot = _nearest_annot_to_point(
+                    tail_vertex,
+                    annotations,
+                    page_num,
+                    arrow_cfg.tail_snap_radius_pt,
+                )
+                if nearest_annot is None:
+                    tail_annotation_id = None
+                    qc_issues.append(
+                        f"Page {page_num}: Arrow {arrow_id} tail at {tail_vertex} "
+                        f"has no annotation within {arrow_cfg.tail_snap_radius_pt}pt."
+                    )
+                else:
+                    tail_annotation_id = nearest_annot.id
+
+                # Head snap: find nearest text block within radius
+                head_text = _nearest_text_block_to_point(
+                    head_vertex, blocks, arrow_cfg.head_text_search_radius_pt
+                )
+                if not head_text:
+                    qc_issues.append(
+                        f"Page {page_num}: Arrow {arrow_id} head at {head_vertex} "
+                        f"has no text block within {arrow_cfg.head_text_search_radius_pt}pt."
+                    )
+
+                # Read ArrowStyle
+                colors = annot.colors or {}
+                border = annot.border or {}
+                stroke = colors.get("stroke") or [0.0, 0.0, 0.0]
+                stroke_color = (float(stroke[0]), float(stroke[1]), float(stroke[2]))
+                width = float(border.get("width") or 1.0)
+                dashes = list(border.get("dashes") or [])
+                opacity = annot.opacity if annot.opacity is not None else 1.0
+                opacity = max(0.0, min(1.0, float(opacity)))
+
+                style = ArrowStyle(
+                    stroke_color=stroke_color,
+                    width=width,
+                    dashes=dashes,
+                    line_ends=line_ends,
+                    opacity=float(opacity),
+                )
+
+                records.append(
+                    ArrowRecord(
+                        arrow_id=arrow_id,
+                        source_page=page_index,
+                        tail_vertex=tail_vertex,
+                        head_vertex=head_vertex,
+                        tail_annotation_id=tail_annotation_id,
+                        head_text=head_text,
+                        head_search_hint=head_vertex,
+                        style=style,
+                    )
+                )
+    finally:
+        doc.close()
+
+    return records
