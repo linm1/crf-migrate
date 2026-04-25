@@ -57,9 +57,11 @@ motion/clean-sweep/out/
 
 # Design
 DESIGN.md
+INSTRUCTION.md
 
 # Bold font verification script output
 scripts/
 
 # memory layer
 graphify-out/
+.graphify_python
