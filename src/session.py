@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, FieldRecord, MatchRecord
 
 
 class Session:
@@ -66,6 +66,48 @@ class Session:
             )
         data = json.loads(path.read_text(encoding="utf-8"))
         return [MatchRecord.model_validate(d) for d in data]
+
+    def save_arrows(self, records: list[ArrowRecord]) -> Path:
+        """Serialize and write arrow records to arrows.json.
+
+        Arrow audit event types (fired by the calling phase, not here):
+          - arrow_extracted  : Phase 1, once per arrow
+          - arrow_resolved   : Phase 3, with method and confidence
+          - arrow_unresolved : Phase 3, with reason
+          - arrow_written    : Phase 4
+          - arrow_skipped    : Phase 4
+        """
+        path = self.workspace / "arrows.json"
+        data = [r.model_dump() for r in records]
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return path
+
+    def load_arrows(self) -> list[ArrowRecord]:
+        """Load and deserialize arrow records from arrows.json."""
+        path = self.workspace / "arrows.json"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"arrows.json not found in {self.workspace}"
+            )
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [ArrowRecord.model_validate(d) for d in data]
+
+    def save_arrow_matches(self, records: list[ArrowMatch]) -> Path:
+        """Serialize and write arrow match records to arrow_matches.json."""
+        path = self.workspace / "arrow_matches.json"
+        data = [r.model_dump() for r in records]
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return path
+
+    def load_arrow_matches(self) -> list[ArrowMatch]:
+        """Load and deserialize arrow match records from arrow_matches.json."""
+        path = self.workspace / "arrow_matches.json"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"arrow_matches.json not found in {self.workspace}"
+            )
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [ArrowMatch.model_validate(d) for d in data]
 
     def save_qc_report(self, report: dict) -> Path:
         """Serialize and write QC report to qc_report.json."""

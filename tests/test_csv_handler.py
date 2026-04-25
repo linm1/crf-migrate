@@ -5,7 +5,7 @@ import uuid
 import pytest
 from pathlib import Path
 
-from src.models import AnnotationRecord, StyleInfo
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, ArrowStyle, StyleInfo
 from src.csv_handler import export_annotations_csv, import_annotations_csv
 
 
@@ -193,3 +193,113 @@ def test_import_matches_csv_migrates_legacy_status(tmp_path):
     a2 = next(m for m in updated if m.annotation_id == "a2")
     assert a1.status == "re-pairing", f"Expected 're-pairing', got {a1.status!r}"
     assert a2.status == "approved", f"Expected 'approved', got {a2.status!r}"
+
+
+# ---------------------------------------------------------------------------
+# ArrowRecord and ArrowMatch CSV round-trip tests
+# ---------------------------------------------------------------------------
+
+def make_arrow_style(**kwargs) -> ArrowStyle:
+    defaults = {
+        "stroke_color": (0.0, 0.0, 1.0),
+        "width": 1.5,
+        "dashes": [],
+        "line_ends": (0, 2),
+        "opacity": 1.0,
+    }
+    defaults.update(kwargs)
+    return ArrowStyle(**defaults)
+
+
+def make_arrow_record(**kwargs) -> ArrowRecord:
+    defaults = {
+        "arrow_id": "arrow_001",
+        "source_page": 0,
+        "tail_vertex": (50.0, 100.0),
+        "head_vertex": (200.0, 150.0),
+        "tail_annotation_id": None,
+        "head_text": "BRTHDTC",
+        "head_search_hint": (200.0, 150.0),
+        "style": make_arrow_style(),
+    }
+    defaults.update(kwargs)
+    return ArrowRecord(**defaults)
+
+
+def make_arrow_match(**kwargs) -> ArrowMatch:
+    defaults = {
+        "arrow_id": "arrow_001",
+        "target_page": 2,
+        "target_field_id": "field_abc",
+        "head_target_rect": (10.0, 20.0, 110.0, 35.0),
+        "head_match_method": "fuzzy_in_field",
+        "head_confidence": 0.92,
+    }
+    defaults.update(kwargs)
+    return ArrowMatch(**defaults)
+
+
+class TestArrowRecordCSV:
+    def test_export_import_arrows_csv_roundtrip(self, tmp_path):
+        """Export 2 ArrowRecords to CSV and import back — all fields match."""
+        from src.csv_handler import export_arrows_csv, import_arrows_csv
+
+        records = [
+            make_arrow_record(arrow_id="a1", source_page=0, head_text="BRTHDTC"),
+            make_arrow_record(arrow_id="a2", source_page=1, head_text="DMDTC",
+                              tail_annotation_id="annot_xyz",
+                              tail_vertex=(10.0, 20.0),
+                              head_vertex=(300.0, 400.0)),
+        ]
+        path = tmp_path / "arrows.csv"
+        export_arrows_csv(records, path)
+        assert path.exists()
+
+        loaded = import_arrows_csv(path)
+        assert len(loaded) == 2
+        assert all(isinstance(r, ArrowRecord) for r in loaded)
+
+        assert loaded[0].arrow_id == "a1"
+        assert loaded[0].head_text == "BRTHDTC"
+        assert loaded[0].tail_annotation_id is None
+        assert loaded[0].tail_vertex == (50.0, 100.0)
+        assert loaded[0].style.stroke_color == (0.0, 0.0, 1.0)
+        assert loaded[0].style.dashes == []
+
+        assert loaded[1].arrow_id == "a2"
+        assert loaded[1].tail_annotation_id == "annot_xyz"
+        assert loaded[1].head_vertex == (300.0, 400.0)
+
+
+class TestArrowMatchCSV:
+    def test_export_import_arrow_matches_csv_roundtrip(self, tmp_path):
+        """Export 2 ArrowMatches (including None fields) to CSV and import back."""
+        from src.csv_handler import export_arrow_matches_csv, import_arrow_matches_csv
+
+        records = [
+            make_arrow_match(arrow_id="a1", target_page=3, target_field_id="f1",
+                             head_target_rect=(5.0, 10.0, 50.0, 20.0),
+                             head_confidence=0.88),
+            make_arrow_match(arrow_id="a2", target_page=None, target_field_id=None,
+                             head_target_rect=None,
+                             head_match_method="unresolved", head_confidence=0.0),
+        ]
+        path = tmp_path / "arrow_matches.csv"
+        export_arrow_matches_csv(records, path)
+        assert path.exists()
+
+        loaded = import_arrow_matches_csv(path)
+        assert len(loaded) == 2
+        assert all(isinstance(r, ArrowMatch) for r in loaded)
+
+        assert loaded[0].arrow_id == "a1"
+        assert loaded[0].target_page == 3
+        assert loaded[0].target_field_id == "f1"
+        assert loaded[0].head_target_rect == (5.0, 10.0, 50.0, 20.0)
+        assert loaded[0].head_confidence == 0.88
+
+        assert loaded[1].arrow_id == "a2"
+        assert loaded[1].target_page is None
+        assert loaded[1].target_field_id is None
+        assert loaded[1].head_target_rect is None
+        assert loaded[1].head_match_method == "unresolved"

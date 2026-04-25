@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, FieldRecord, MatchRecord
 
 
 # Columns that hold JSON-serialized nested structures
@@ -244,3 +244,93 @@ def import_matches_csv(
             updated.append(record)
     flagged = [r.annotation_id for r in existing if r.annotation_id not in id_to_row]
     return updated, flagged
+
+
+# ---------------------------------------------------------------------------
+# ArrowRecord CSV support
+# ---------------------------------------------------------------------------
+
+def _flatten_arrow_record(record: ArrowRecord) -> dict:
+    """Convert ArrowRecord to a flat dict suitable for CSV export."""
+    data = record.model_dump()
+    data["tail_vertex"] = json.dumps(data["tail_vertex"])
+    data["head_vertex"] = json.dumps(data["head_vertex"])
+    data["head_search_hint"] = json.dumps(data["head_search_hint"])
+    data["style"] = json.dumps(data["style"])
+    return data
+
+
+def _unflatten_arrow_row(row: dict) -> dict:
+    """Convert a flat CSV row back to a dict for ArrowRecord.model_validate."""
+    result = dict(row)
+    for key in ("tail_vertex", "head_vertex", "head_search_hint", "style"):
+        if key in result and isinstance(result[key], str):
+            result[key] = json.loads(result[key])
+    if "tail_annotation_id" in result:
+        val = result["tail_annotation_id"]
+        if val != val or val == "":  # NaN or empty string
+            result["tail_annotation_id"] = None
+    return result
+
+
+def export_arrows_csv(records: list[ArrowRecord], path: Path) -> None:
+    """Export a list of ArrowRecord to a CSV file at path."""
+    rows = [_flatten_arrow_record(r) for r in records]
+    pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8")
+
+
+def import_arrows_csv(path: Path) -> list[ArrowRecord]:
+    """Import arrow records from a CSV file (read-only, no merge)."""
+    df = pd.read_csv(path, encoding="utf-8", dtype=str).fillna("")
+    records = []
+    for _, row in df.iterrows():
+        row_dict = _unflatten_arrow_row(row.to_dict())
+        records.append(ArrowRecord.model_validate(row_dict))
+    return records
+
+
+# ---------------------------------------------------------------------------
+# ArrowMatch CSV support
+# ---------------------------------------------------------------------------
+
+def _flatten_arrow_match(record: ArrowMatch) -> dict:
+    """Convert ArrowMatch to a flat dict suitable for CSV export."""
+    data = record.model_dump()
+    data["head_target_rect"] = json.dumps(data["head_target_rect"])
+    return data
+
+
+def _unflatten_arrow_match_row(row: dict) -> dict:
+    """Convert a flat CSV row back to a dict for ArrowMatch.model_validate."""
+    result = dict(row)
+    if "head_target_rect" in result and isinstance(result["head_target_rect"], str):
+        val = result["head_target_rect"]
+        result["head_target_rect"] = json.loads(val) if val else None
+    if "target_page" in result:
+        tp = result["target_page"]
+        if tp != tp or tp == "":  # NaN or empty string
+            result["target_page"] = None
+        else:
+            result["target_page"] = int(float(tp))
+    if "target_field_id" in result:
+        val = result["target_field_id"]
+        if val != val or val == "":  # NaN or empty string
+            result["target_field_id"] = None
+    return result
+
+
+def export_arrow_matches_csv(records: list[ArrowMatch], path: Path) -> None:
+    """Export a list of ArrowMatch to a CSV file at path."""
+    rows = [_flatten_arrow_match(r) for r in records]
+    pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8")
+
+
+def import_arrow_matches_csv(path: Path) -> list[ArrowMatch]:
+    """Import arrow match records from a CSV file (read-only, no merge)."""
+    df = pd.read_csv(path, encoding="utf-8", dtype=str).fillna("")
+    records = []
+    for _, row in df.iterrows():
+        row_dict = _unflatten_arrow_match_row(row.to_dict())
+        records.append(ArrowMatch.model_validate(row_dict))
+    return records
+
