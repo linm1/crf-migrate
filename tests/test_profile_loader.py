@@ -270,3 +270,26 @@ class TestListProfiles:
         result = list_profiles(tmp_path)
         assert "alpha" in result
         assert "beta" in result
+
+
+class TestArrowsConfigLoader:
+    def test_cdisc_arrows_defaults(self):
+        """profile.arrows loads from cdisc_standard.yaml with expected default values."""
+        profile = load_profile(CDISC_PROFILE_PATH)
+        assert profile.arrows.enabled is True
+        assert profile.arrows.tail_snap_radius_pt == pytest.approx(12.0)
+        assert profile.arrows.head_text_search_radius_pt == pytest.approx(20.0)
+        assert profile.arrows.head_fuzzy_threshold == pytest.approx(0.85)
+        assert profile.arrows.size_similarity_tolerance == pytest.approx(0.20)
+
+    def test_arrows_invalid_threshold_raises(self, tmp_path):
+        """ArrowsConfig rejects head_fuzzy_threshold > 1.0."""
+        from src.profile_models import ArrowsConfig
+        with pytest.raises(ValidationError):
+            ArrowsConfig(head_fuzzy_threshold=1.5)
+
+    def test_arrows_negative_radius_raises(self, tmp_path):
+        """ArrowsConfig rejects negative tail_snap_radius_pt."""
+        from src.profile_models import ArrowsConfig
+        with pytest.raises(ValidationError):
+            ArrowsConfig(tail_snap_radius_pt=-1.0)

@@ -1,7 +1,7 @@
 """Pydantic v2 models for CRF-Migrate profile schema."""
 import re
 from typing import Any
-from pydantic import BaseModel, model_validator, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 class RuleCondition(BaseModel):
@@ -107,10 +107,10 @@ class ProfileMeta(BaseModel):
 
 class ArrowsConfig(BaseModel):
     enabled: bool = True
-    tail_snap_radius_pt: float = 12.0
-    head_text_search_radius_pt: float = 20.0
-    head_fuzzy_threshold: float = 0.85
-    size_similarity_tolerance: float = 0.20
+    tail_snap_radius_pt: float = Field(default=12.0, gt=0)
+    head_text_search_radius_pt: float = Field(default=20.0, gt=0)
+    head_fuzzy_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    size_similarity_tolerance: float = Field(default=0.20, ge=0.0, le=1.0)
 
 
 class Profile(BaseModel):

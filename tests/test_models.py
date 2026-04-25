@@ -1,8 +1,8 @@
-"""Tests for src/models.py -- AnnotationRecord, FieldRecord, MatchRecord."""
+"""Tests for src/models.py -- AnnotationRecord, FieldRecord, MatchRecord, arrow models."""
 import pytest
 import uuid
 from pydantic import ValidationError
-from src.models import AnnotationRecord, FieldRecord, MatchRecord, StyleInfo
+from src.models import AnnotationRecord, FieldRecord, MatchRecord, StyleInfo, ArrowStyle, ArrowRecord, ArrowMatch
 
 
 class TestStyleInfo:
@@ -189,3 +189,135 @@ class TestMatchRecord:
     def test_default_user_notes_empty(self):
         match = self._make_match()
         assert match.user_notes == ""
+
+
+class TestArrowStyle:
+    def _make_style(self, **kwargs) -> ArrowStyle:
+        defaults = {
+            "stroke_color": (0.0, 0.0, 0.0),
+            "width": 1.5,
+            "dashes": [],
+            "line_ends": (0, 2),
+            "opacity": 1.0,
+        }
+        defaults.update(kwargs)
+        return ArrowStyle(**defaults)
+
+    def test_round_trip(self):
+        """model_dump() → model_validate() round-trip preserves all fields."""
+        original = self._make_style(stroke_color=(1.0, 0.0, 0.5), width=2.0, dashes=[3.0, 1.5], opacity=0.8)
+        data = original.model_dump()
+        restored = ArrowStyle.model_validate(data)
+        assert restored.stroke_color == original.stroke_color
+        assert restored.width == original.width
+        assert restored.dashes == original.dashes
+        assert restored.line_ends == original.line_ends
+        assert restored.opacity == original.opacity
+
+    def test_opacity_default_is_one(self):
+        style = self._make_style()
+        assert style.opacity == 1.0
+
+    def test_opacity_below_zero_raises(self):
+        with pytest.raises(ValidationError):
+            self._make_style(opacity=-0.1)
+
+    def test_opacity_above_one_raises(self):
+        with pytest.raises(ValidationError):
+            self._make_style(opacity=1.01)
+
+    def test_width_zero_raises(self):
+        with pytest.raises(ValidationError):
+            self._make_style(width=0.0)
+
+    def test_width_negative_raises(self):
+        with pytest.raises(ValidationError):
+            self._make_style(width=-1.0)
+
+
+class TestArrowRecord:
+    def _make_record(self, **kwargs) -> ArrowRecord:
+        style = ArrowStyle(stroke_color=(0.0, 0.0, 0.0), width=1.0, dashes=[], line_ends=(0, 2), opacity=1.0)
+        defaults = {
+            "arrow_id": "abc123",
+            "source_page": 0,
+            "tail_vertex": (10.0, 20.0),
+            "head_vertex": (100.0, 200.0),
+            "tail_annotation_id": None,
+            "head_text": "BRTHDTC",
+            "head_search_hint": (100.0, 200.0),
+            "style": style,
+        }
+        defaults.update(kwargs)
+        return ArrowRecord(**defaults)
+
+    def test_round_trip_with_nested_style(self):
+        """Round-trip including nested ArrowStyle preserves all data."""
+        original = self._make_record(
+            arrow_id="deadbeef",
+            source_page=2,
+            tail_annotation_id="anno-001",
+            head_text="VISITNUM",
+        )
+        data = original.model_dump()
+        restored = ArrowRecord.model_validate(data)
+        assert restored.arrow_id == original.arrow_id
+        assert restored.source_page == original.source_page
+        assert restored.tail_annotation_id == original.tail_annotation_id
+        assert restored.head_text == original.head_text
+        assert restored.style.width == original.style.width
+
+    def test_source_page_is_zero_indexed(self):
+        """source_page=0 is valid (first page in PyMuPDF)."""
+        record = self._make_record(source_page=0)
+        assert record.source_page == 0
+
+
+class TestArrowMatch:
+    def _make_match(self, **kwargs) -> ArrowMatch:
+        defaults = {
+            "arrow_id": "abc123",
+            "target_page": 1,
+            "target_field_id": "field-001",
+            "head_target_rect": (10.0, 20.0, 110.0, 40.0),
+            "head_match_method": "fuzzy_in_field",
+            "head_confidence": 0.9,
+        }
+        defaults.update(kwargs)
+        return ArrowMatch(**defaults)
+
+    def test_round_trip_fuzzy_in_field(self):
+        original = self._make_match(head_match_method="fuzzy_in_field", head_confidence=0.92)
+        data = original.model_dump()
+        restored = ArrowMatch.model_validate(data)
+        assert restored.arrow_id == original.arrow_id
+        assert restored.head_match_method == "fuzzy_in_field"
+        assert restored.head_confidence == pytest.approx(0.92)
+
+    def test_round_trip_fuzzy_on_page(self):
+        original = self._make_match(head_match_method="fuzzy_on_page", head_confidence=0.75)
+        data = original.model_dump()
+        restored = ArrowMatch.model_validate(data)
+        assert restored.head_match_method == "fuzzy_on_page"
+
+    def test_round_trip_unresolved(self):
+        original = self._make_match(
+            head_match_method="unresolved",
+            head_confidence=0.0,
+            target_field_id=None,
+            head_target_rect=None,
+        )
+        data = original.model_dump()
+        restored = ArrowMatch.model_validate(data)
+        assert restored.head_match_method == "unresolved"
+        assert restored.head_confidence == 0.0
+        assert restored.target_field_id is None
+        assert restored.head_target_rect is None
+
+    def test_head_confidence_below_zero_raises(self):
+        with pytest.raises(ValidationError):
+            self._make_match(head_confidence=-0.01)
+
+    def test_head_confidence_above_one_raises(self):
+        with pytest.raises(ValidationError):
+            self._make_match(head_confidence=1.01)

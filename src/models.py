@@ -1,16 +1,18 @@
 """Pydantic v2 data models for CRF-Migrate.
 
-Defines the three core record types used as intermediate artifacts:
+Defines the core record types used as intermediate artifacts:
 - AnnotationRecord: extracted from source aCRF (Phase 1 output)
 - FieldRecord: extracted from target blank CRF (Phase 2 output)
 - MatchRecord: annotation-to-field match result (Phase 3 output)
+- ArrowStyle, ArrowRecord: extracted arrow annotations (Phase 1 output)
+- ArrowMatch: arrow resolution result (Phase 3 output)
 """
 from __future__ import annotations
 
 import re
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Bold/italic aliases known from PyMuPDF and common PDF font names
 _BOLD_PATTERN = re.compile(r"(?i)(bold|hebo|hebi|cobo|cobi|tibo|tibi)")
@@ -85,15 +87,15 @@ class MatchRecord(BaseModel):
 
 class ArrowStyle(BaseModel):
     stroke_color: tuple[float, float, float]   # RGB 0..1
-    width: float
+    width: float = Field(gt=0)
     dashes: list[float]                        # empty list = solid
     line_ends: tuple[int, int]                 # PyMuPDF line-end style codes
-    opacity: float                             # 0..1
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class ArrowRecord(BaseModel):
     arrow_id: str                              # stable hash of (source_page, vertices)
-    source_page: int                           # 0-indexed
+    source_page: int                           # 0-indexed (PyMuPDF page_index, not 1-indexed like AnnotationRecord.page)
     tail_vertex: tuple[float, float]           # head/tail disambiguated
     head_vertex: tuple[float, float]
     tail_annotation_id: str | None
@@ -108,4 +110,4 @@ class ArrowMatch(BaseModel):
     target_field_id: str | None                # from parent MatchRecord
     head_target_rect: tuple[float, float, float, float] | None
     head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "unresolved"]
-    head_confidence: float
+    head_confidence: float = Field(ge=0.0, le=1.0)
