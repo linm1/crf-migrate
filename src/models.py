@@ -81,3 +81,31 @@ class MatchRecord(BaseModel):
     status: Literal["pending", "approved", "re-pairing"] = "re-pairing"
     user_notes: str = ""
     placement_adjusted: bool = False  # True if target_rect was clamped or fallback-placed
+
+
+class ArrowStyle(BaseModel):
+    stroke_color: tuple[float, float, float]   # RGB 0..1
+    width: float
+    dashes: list[float]                        # empty list = solid
+    line_ends: tuple[int, int]                 # PyMuPDF line-end style codes
+    opacity: float                             # 0..1
+
+
+class ArrowRecord(BaseModel):
+    arrow_id: str                              # stable hash of (source_page, vertices)
+    source_page: int                           # 0-indexed
+    tail_vertex: tuple[float, float]           # head/tail disambiguated
+    head_vertex: tuple[float, float]
+    tail_annotation_id: str | None
+    head_text: str
+    head_search_hint: tuple[float, float]      # = head_vertex; tiebreaker on target side
+    style: ArrowStyle
+
+
+class ArrowMatch(BaseModel):
+    arrow_id: str
+    target_page: int | None                    # from parent MatchRecord
+    target_field_id: str | None                # from parent MatchRecord
+    head_target_rect: tuple[float, float, float, float] | None
+    head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "unresolved"]
+    head_confidence: float

@@ -105,6 +105,14 @@ class ProfileMeta(BaseModel):
     parent: str | None = None
 
 
+class ArrowsConfig(BaseModel):
+    enabled: bool = True
+    tail_snap_radius_pt: float = 12.0
+    head_text_search_radius_pt: float = 20.0
+    head_fuzzy_threshold: float = 0.85
+    size_similarity_tolerance: float = 0.20
+
+
 class Profile(BaseModel):
     meta: ProfileMeta
     domain_codes: list[str]
@@ -115,3 +123,4 @@ class Profile(BaseModel):
     annotation_filter: AnnotationFilter = AnnotationFilter()
     matching_config: MatchingConfig = MatchingConfig()
     style_defaults: StyleDefaults = StyleDefaults()
+    arrows: ArrowsConfig = ArrowsConfig()
