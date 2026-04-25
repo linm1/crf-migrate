@@ -7,9 +7,14 @@ Defines the three core record types used as intermediate artifacts:
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel
+
+# Bold/italic aliases known from PyMuPDF and common PDF font names
+_BOLD_PATTERN = re.compile(r"(?i)(bold|hebo|hebi|cobo|cobi|tibo|tibi)")
+_ITALIC_PATTERN = re.compile(r"(?i)(italic|oblique|heit|hebi|coit|cobi|tiit|tibi)")
 
 
 class StyleInfo(BaseModel):
@@ -22,6 +27,14 @@ class StyleInfo(BaseModel):
     fill_color: list[float] | None = None
     border_width: float = 1.0
     border_dashes: list[int] | None = None
+
+    @property
+    def is_bold(self) -> bool:
+        return bool(_BOLD_PATTERN.search(self.font))
+
+    @property
+    def is_italic(self) -> bool:
+        return bool(_ITALIC_PATTERN.search(self.font))
 
 
 class AnnotationRecord(BaseModel):

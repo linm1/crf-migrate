@@ -1,4 +1,6 @@
 """CRF-Migrate Streamlit application entry point."""
+import html
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -13,6 +15,7 @@ from ui.phase4_review import _inject_page_css as _inject_phase4_css
 from ui.profile_editor import _inject_page_css as _inject_pe_css
 from ui.phase4_review import render_phase4
 from ui.profile_editor import render_profile_editor
+from ui.style_helpers import build_centered_icon_button_css
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -20,6 +23,23 @@ from ui.profile_editor import render_profile_editor
 
 PROFILES_DIR = Path(__file__).parent / "profiles"
 SESSION_BASE = Path(__file__).parent / "sessions"
+
+# Keys cleared when switching sessions
+CLEARABLE_STATE_KEYS = [
+    "annotations", "fields", "matches", "qc_report",
+    "source_pdf_path", "target_pdf_path", "output_pdf_path",
+    "phases_complete", "current_page",
+    "p1_page", "p2_page", "p3_page",
+    "p3_filter_type", "p3_filter_status",
+    "sidebar_workspace",
+]
+
+_WORKSPACE_ICON_BUTTON_CSS = build_centered_icon_button_css(
+    key_prefixes=["ws_rename_btn_", "ws_del_btn_"],
+    size_px=24,
+    font_size_px=12,
+    gap_px=6,
+)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -158,6 +178,11 @@ st.markdown(
     div[data-testid="stVerticalBlock"] {
         box-shadow: none !important;
     }
+
+    /* Session row icon buttons (✎ ✕) — Phase 3 style centered icon treatment */
+    """
+    + _WORKSPACE_ICON_BUTTON_CSS
+    + """
     </style>
     """,
     unsafe_allow_html=True,
@@ -187,6 +212,16 @@ st.markdown(
         text-transform: uppercase !important;
         margin: 0 0 4px 0 !important;
         font-family: Aeonik, ui-sans-serif, sans-serif !important;
+    }
+    /* Sidebar picker current-value display */
+    .pe-sidebar-current {
+        font-size: 13px !important;
+        color: #e0e0e0 !important;
+        margin: 0 0 6px 0 !important;
+        font-family: Aeonik, ui-sans-serif, sans-serif !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     div[data-testid="stTabs"] button[role="tab"] {
         background: #FFFFFF !important;
@@ -389,55 +424,65 @@ _inject_pe_css()
 # ---------------------------------------------------------------------------
 
 
+_SAFE_SESSION_NAME = re.compile(r'^session_[\w\-]+$')
+
+
+def _valid_session_name(name: str) -> bool:
+    return bool(_SAFE_SESSION_NAME.match(name)) and len(name) <= 64
+
+
+def _load_session_into_state(sess: Session) -> None:
+    """Load all artifacts from sess into st.session_state."""
+    st.session_state["session"] = sess
+    ws = sess.workspace
+
+    try:
+        st.session_state["annotations"] = sess.load_annotations()
+    except FileNotFoundError:
+        st.session_state["annotations"] = []
+
+    try:
+        st.session_state["fields"] = sess.load_fields()
+    except FileNotFoundError:
+        st.session_state["fields"] = []
+
+    try:
+        st.session_state["matches"] = sess.load_matches()
+    except FileNotFoundError:
+        st.session_state["matches"] = []
+
+    try:
+        st.session_state["qc_report"] = sess.load_qc_report()
+    except FileNotFoundError:
+        st.session_state["qc_report"] = None
+
+    for key, fname in [
+        ("source_pdf_path", "source_acrf.pdf"),
+        ("target_pdf_path", "target_crf.pdf"),
+        ("output_pdf_path", "output_acrf.pdf"),
+    ]:
+        p = ws / fname
+        st.session_state[key] = p if p.exists() else None
+
+    st.session_state["phases_complete"] = {
+        1: (ws / "annotations.json").exists(),
+        2: (ws / "fields.json").exists(),
+        3: (ws / "matches.json").exists(),
+        4: (ws / "output_acrf.pdf").exists(),
+    }
+
+
 def _init_session_state() -> None:
     """Initialize all session state keys exactly once per browser session."""
     if "session" not in st.session_state:
         SESSION_BASE.mkdir(parents=True, exist_ok=True)
-        sess = Session(SESSION_BASE)
-        st.session_state["session"] = sess
+        sess = Session.latest(SESSION_BASE)
+        if sess is None:
+            sess = Session(SESSION_BASE)
+        _load_session_into_state(sess)
 
-        # Restore workspace artifacts if present
-        ws = sess.workspace
-        try:
-            st.session_state["annotations"] = sess.load_annotations()
-        except FileNotFoundError:
-            st.session_state.setdefault("annotations", [])
-
-        try:
-            st.session_state["fields"] = sess.load_fields()
-        except FileNotFoundError:
-            st.session_state.setdefault("fields", [])
-
-        try:
-            st.session_state["matches"] = sess.load_matches()
-        except FileNotFoundError:
-            st.session_state.setdefault("matches", [])
-
-        try:
-            st.session_state["qc_report"] = sess.load_qc_report()
-        except FileNotFoundError:
-            st.session_state.setdefault("qc_report", None)
-
-        # Restore PDF paths
-        source_pdf = ws / "source_acrf.pdf"
-        if source_pdf.exists():
-            st.session_state["source_pdf_path"] = source_pdf
-        target_pdf = ws / "target_crf.pdf"
-        if target_pdf.exists():
-            st.session_state["target_pdf_path"] = target_pdf
-        output_pdf = ws / "output_acrf.pdf"
-        if output_pdf.exists():
-            st.session_state["output_pdf_path"] = output_pdf
-
-    # Phase completion state
-    st.session_state.setdefault(
-        "phases_complete", {1: False, 2: False, 3: False, 4: False}
-    )
-
-    # Default page
     st.session_state.setdefault("current_page", "Profile Editor")
 
-    # Load default profile if none loaded
     if "profile" not in st.session_state:
         profiles = list_profiles(PROFILES_DIR)
         if profiles:
@@ -500,32 +545,131 @@ def _render_sidebar() -> None:
             current_profile = st.session_state.get("profile_name", profiles[0])
             if current_profile not in profiles:
                 current_profile = profiles[0]
+                st.session_state["profile_name"] = profiles[0]
             st.markdown(
                 '<p class="pe-sidebar-label">ACTIVE PROFILE</p>',
                 unsafe_allow_html=True,
             )
-            selected = st.selectbox(
-                "Profile",
-                profiles,
-                index=profiles.index(current_profile),
-                key="sidebar_profile",
+            st.markdown(
+                f'<p class="pe-sidebar-current">{html.escape(current_profile)}</p>',
+                unsafe_allow_html=True,
             )
-            if selected != st.session_state.get("profile_name"):
-                try:
-                    profile_path = PROFILES_DIR / f"{selected}.yaml"
-                    profile = load_profile(profile_path, PROFILES_DIR)
-                    st.session_state["profile"] = profile
-                    st.session_state["profile_name"] = selected
-                    st.session_state["rule_engine"] = RuleEngine(profile)
-                    st.session_state.pop("draft_profile_data", None)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to load profile: {e}")
+            with st.popover("Change", use_container_width=True):
+                for p in profiles:
+                    if st.button(
+                        p,
+                        key=f"prof_pick_{p}",
+                        use_container_width=True,
+                        type="primary" if p == current_profile else "secondary",
+                    ):
+                        if p != current_profile:
+                            try:
+                                profile_path = PROFILES_DIR / f"{p}.yaml"
+                                profile = load_profile(profile_path, PROFILES_DIR)
+                                st.session_state["profile"] = profile
+                                st.session_state["profile_name"] = p
+                                st.session_state["rule_engine"] = RuleEngine(profile)
+                                st.session_state.pop("draft_profile_data", None)
+                            except Exception as e:
+                                st.error(f"Failed to load profile: {e}")
+                        st.rerun()
 
         st.divider()
-        ws = st.session_state.get("session")
-        if ws:
-            st.caption(f"Workspace: {ws.workspace.name}")
+        st.markdown(
+            '<p class="pe-sidebar-label">WORKSPACE</p>',
+            unsafe_allow_html=True,
+        )
+        all_sessions = Session.list_sessions(SESSION_BASE)
+        current_sess = st.session_state.get("session")
+        current_name = current_sess.workspace.name if current_sess else None
+
+        if all_sessions:
+            _raw_name = current_name or all_sessions[0]
+            display_name = _raw_name.removeprefix("session_")
+            st.markdown(
+                f'<p class="pe-sidebar-current">{html.escape(display_name)}</p>',
+                unsafe_allow_html=True,
+            )
+            with st.popover("Change", use_container_width=True):
+                if st.button("+ New Session", key="ws_new_session", use_container_width=True, type="primary"):
+                    for k in CLEARABLE_STATE_KEYS:
+                        st.session_state.pop(k, None)
+                    SESSION_BASE.mkdir(parents=True, exist_ok=True)
+                    new_sess = Session(SESSION_BASE)
+                    _load_session_into_state(new_sess)
+                    st.session_state["current_page"] = "Profile Editor"
+                    st.rerun()
+                st.divider()
+                for ws in all_sessions:
+                    rename_key = f"ws_rename_{ws}"
+                    del_key = f"ws_delete_confirm_{ws}"
+
+                    if st.session_state.get(rename_key):
+                        # Rename mode — show only the human-editable suffix; session_ is auto-prepended on save
+                        _PREFIX = "session_"
+                        suffix_default = ws[len(_PREFIX):] if ws.startswith(_PREFIX) else ws
+                        new_suffix = st.text_input(
+                            "New name", value=suffix_default,
+                            key=f"ws_rename_input_{ws}",
+                            label_visibility="collapsed",
+                            placeholder="e.g. trial_v2",
+                        )
+                        c1, c2 = st.columns(2)
+                        if c1.button("Save", key=f"ws_rename_save_{ws}", use_container_width=True, type="primary"):
+                            new_name = _PREFIX + new_suffix.strip()
+                            if _valid_session_name(new_name) and (new_name == ws or new_name not in all_sessions):
+                                old_path = SESSION_BASE / ws
+                                new_path = Session.rename(old_path, new_name)
+                                if ws == current_name:
+                                    _load_session_into_state(Session.open(new_path))
+                                st.session_state.pop(rename_key, None)
+                                st.rerun()
+                            else:
+                                st.error("Invalid or duplicate name.")
+                        if c2.button("Cancel", key=f"ws_rename_cancel_{ws}", use_container_width=True):
+                            st.session_state.pop(rename_key, None)
+                            st.rerun()
+
+                    elif st.session_state.get(del_key):
+                        # Delete confirm mode
+                        st.warning(f"Delete **{ws.removeprefix('session_')}**?", icon="⚠️")
+                        c1, c2 = st.columns(2)
+                        if c1.button("Delete", key=f"ws_del_confirm_{ws}", use_container_width=True, type="primary"):
+                            workspace_path = SESSION_BASE / ws
+                            remaining = [s for s in all_sessions if s != ws]
+                            if ws == current_name:
+                                for k in CLEARABLE_STATE_KEYS:
+                                    st.session_state.pop(k, None)
+                                if remaining:
+                                    _load_session_into_state(Session.open(SESSION_BASE / remaining[0]))
+                                else:
+                                    new_sess = Session(SESSION_BASE)
+                                    _load_session_into_state(new_sess)
+                                st.session_state.setdefault("current_page", "Profile Editor")
+                            Session.delete(workspace_path)
+                            st.session_state.pop(del_key, None)
+                            st.rerun()
+                        if c2.button("Cancel", key=f"ws_del_cancel_{ws}", use_container_width=True):
+                            st.session_state.pop(del_key, None)
+                            st.rerun()
+
+                    else:
+                        # Normal mode — session name + edit/delete icons
+                        c1, c2, c3 = st.columns([6, 0.5, 0.5])
+                        if c1.button(ws.removeprefix("session_"), key=f"ws_pick_{ws}", use_container_width=True,
+                                     type="primary" if ws == current_name else "secondary"):
+                            if ws != current_name:
+                                for k in CLEARABLE_STATE_KEYS:
+                                    st.session_state.pop(k, None)
+                                _load_session_into_state(Session.open(SESSION_BASE / ws))
+                                st.session_state.setdefault("current_page", "Profile Editor")
+                            st.rerun()
+                        if c2.button("✎", key=f"ws_rename_btn_{ws}", use_container_width=True):
+                            st.session_state[rename_key] = True
+                            st.rerun()
+                        if c3.button("✕", key=f"ws_del_btn_{ws}", use_container_width=True):
+                            st.session_state[del_key] = True
+                            st.rerun()
 
 
 # ---------------------------------------------------------------------------

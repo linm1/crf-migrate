@@ -150,8 +150,15 @@ def _process_page(
     # --- Derive form_name from the topmost-leftmost record on this page ---
     # Using already-extracted field positions is more reliable than running
     # extract_form_name() on raw text blocks before fields exist.
-    top_left = min(records, key=lambda r: (r.rect[1], r.rect[0]))
-    form_name = top_left.label
+    # Skip records whose label matches an exclude pattern so that boilerplate
+    # text (e.g. "CDISC", "Page 1 of 109") is never used as the form name.
+    form_name_excludes = rule_engine.form_name_exclude_patterns
+    sorted_records = sorted(records, key=lambda r: (r.rect[1], r.rect[0]))
+    form_name = ""
+    for r in sorted_records:
+        if not any(pat.search(r.label) for pat in form_name_excludes):
+            form_name = r.label
+            break
 
     return [r.model_copy(update={"form_name": form_name}) for r in records]
 

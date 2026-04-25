@@ -1017,6 +1017,8 @@ class TestAnchorTextLeftColumnAlgorithm:
 
     def _make_profile_with_anchor_config(self, **kwargs) -> "Profile":
         from src.profile_models import AnchorTextConfig
+        # exclude_patterns now lives in form_name_rules, not anchor_text_config
+        exclude_patterns = kwargs.pop("exclude_patterns", [])
         return Profile(
             meta=ProfileMeta(name="Test"),
             domain_codes=["DM"],
@@ -1026,6 +1028,7 @@ class TestAnchorTextLeftColumnAlgorithm:
                     category="sdtm_mapping",
                 )
             ],
+            form_name_rules=FormNameConfig(exclude_patterns=exclude_patterns),
             anchor_text_config=AnchorTextConfig(**kwargs),
         )
 
@@ -1392,13 +1395,13 @@ class TestFormNameTopLeftBlock:
 
 
 class TestSharedExcludePatterns:
-    def test_form_name_and_anchor_excludes_are_separate_lists(self):
-        """_form_name_excludes and _anchor_excludes must be independent objects."""
+    def test_form_name_and_anchor_excludes_are_same_object(self):
+        """_form_name_excludes and _anchor_excludes must be the same object (unified list)."""
         from src.profile_loader import load_profile
         from pathlib import Path
         profile = load_profile(Path("profiles/cdisc_standard.yaml"))
         engine = RuleEngine(profile)
-        assert engine._form_name_excludes is not engine._anchor_excludes
+        assert engine._form_name_excludes is engine._anchor_excludes
 
     def test_form_name_excludes_uses_form_name_patterns(self):
         """_form_name_excludes is compiled from form_name_rules.exclude_patterns."""
@@ -1410,16 +1413,6 @@ class TestSharedExcludePatterns:
         for raw in profile.form_name_rules.exclude_patterns:
             assert raw in form_name_pattern_strings
 
-    def test_anchor_excludes_uses_anchor_patterns(self):
-        """_anchor_excludes is compiled from anchor_text_config.exclude_patterns."""
-        from src.profile_loader import load_profile
-        from pathlib import Path
-        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
-        engine = RuleEngine(profile)
-        anchor_pattern_strings = {p.pattern for p in engine._anchor_excludes}
-        for raw in profile.anchor_text_config.exclude_patterns:
-            assert raw in anchor_pattern_strings
-
     def test_anchor_exclude_patterns_property_returns_anchor_excludes(self):
         """anchor_exclude_patterns property returns _anchor_excludes."""
         from src.profile_loader import load_profile
@@ -1427,3 +1420,27 @@ class TestSharedExcludePatterns:
         profile = load_profile(Path("profiles/cdisc_standard.yaml"))
         engine = RuleEngine(profile)
         assert engine.anchor_exclude_patterns is engine._anchor_excludes
+
+    def test_form_name_exclude_patterns_property_returns_form_name_excludes(self):
+        """form_name_exclude_patterns property returns _form_name_excludes."""
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        assert engine.form_name_exclude_patterns is engine._form_name_excludes
+
+    def test_form_name_and_anchor_exclude_patterns_are_same_object(self):
+        """form_name_exclude_patterns and anchor_exclude_patterns return the same object."""
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        assert engine.form_name_exclude_patterns is engine.anchor_exclude_patterns
+
+    def test_form_name_exclude_patterns_is_form_name_excludes(self):
+        """form_name_exclude_patterns property returns the same object as _form_name_excludes."""
+        from src.profile_loader import load_profile
+        from pathlib import Path
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+        assert engine.form_name_exclude_patterns is engine._form_name_excludes

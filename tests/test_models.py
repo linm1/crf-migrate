@@ -22,6 +22,38 @@ class TestStyleInfo:
         assert style.font_size == 12.0
 
 
+class TestStyleInfoFontFlags:
+    def test_bold_italic_from_arial_bold_italic(self):
+        s = StyleInfo(font="Arial,BoldItalic")
+        assert s.is_bold is True
+        assert s.is_italic is True
+
+    def test_bold_italic_from_arial_bold_italic_mt(self):
+        s = StyleInfo(font="Arial-BoldItalicMT")
+        assert s.is_bold is True
+        assert s.is_italic is True
+
+    def test_plain_helvetica(self):
+        s = StyleInfo(font="Helvetica")
+        assert s.is_bold is False
+        assert s.is_italic is False
+
+    def test_bold_only(self):
+        s = StyleInfo(font="Helvetica-Bold")
+        assert s.is_bold is True
+        assert s.is_italic is False
+
+    def test_italic_only(self):
+        s = StyleInfo(font="Helvetica-Oblique")
+        assert s.is_bold is False
+        assert s.is_italic is True
+
+    def test_hebo_alias(self):
+        s = StyleInfo(font="hebo")
+        assert s.is_bold is True
+        assert s.is_italic is False
+
+
 class TestAnnotationRecord:
     def _make_record(self, **kwargs) -> AnnotationRecord:
         defaults = {

@@ -142,3 +142,133 @@ class TestCopyProfile:
         session.copy_profile(src_profile)
         content = (session.workspace / "active_profile.yaml").read_text()
         assert "name: Test" in content
+
+
+class TestSessionOpen:
+    def test_open_attaches_to_existing_workspace(self, tmp_path):
+        """Session.open() attaches to an existing directory without creating anything new."""
+        existing = tmp_path / "session_20260101_120000"
+        existing.mkdir()
+        before = list(tmp_path.iterdir())
+        sess = Session.open(existing)
+        after = list(tmp_path.iterdir())
+        assert sess.workspace == existing
+        assert before == after  # no new directories created
+
+    def test_open_does_not_require_annotations(self, tmp_path):
+        """Session.open() works on an empty directory."""
+        existing = tmp_path / "session_20260101_120000"
+        existing.mkdir()
+        sess = Session.open(existing)
+        assert sess.workspace == existing
+
+
+class TestListSessions:
+    def test_returns_session_dirs_newest_first(self, tmp_path):
+        """list_sessions returns session_* dirs sorted newest-first."""
+        (tmp_path / "session_20260101_090000").mkdir()
+        (tmp_path / "session_20260301_120000").mkdir()
+        (tmp_path / "session_20260201_060000").mkdir()
+        result = Session.list_sessions(tmp_path)
+        assert result == [
+            "session_20260301_120000",
+            "session_20260201_060000",
+            "session_20260101_090000",
+        ]
+
+    def test_ignores_non_session_dirs(self, tmp_path):
+        """list_sessions ignores non-directory entries and dirs not starting with 'session_'."""
+        (tmp_path / "session_20260101_090000").mkdir()
+        (tmp_path / "some_other_dir").mkdir()
+        (tmp_path / "temp_work").mkdir()
+        # A file that looks like a session directory name — must be excluded
+        (tmp_path / "session_20260201_000000").write_text("not a dir")
+        result = Session.list_sessions(tmp_path)
+        assert result == ["session_20260101_090000"]
+
+    def test_returns_empty_when_base_dir_is_empty(self, tmp_path):
+        """list_sessions returns [] when base_dir exists but contains no session dirs."""
+        result = Session.list_sessions(tmp_path)
+        assert result == []
+
+    def test_returns_empty_when_base_missing(self, tmp_path):
+        """list_sessions returns [] when base_dir does not exist."""
+        missing = tmp_path / "nonexistent"
+        result = Session.list_sessions(missing)
+        assert result == []
+
+
+class TestLatestSession:
+    def test_returns_most_recent_with_annotations(self, tmp_path):
+        """latest() returns the newest session that has annotations.json."""
+        old = tmp_path / "session_20260101_090000"
+        old.mkdir()
+        (old / "annotations.json").write_text("[]")
+
+        newer = tmp_path / "session_20260301_120000"
+        newer.mkdir()
+        (newer / "annotations.json").write_text("[]")
+
+        sess = Session.latest(tmp_path)
+        assert sess is not None
+        assert sess.workspace == newer
+
+    def test_skips_sessions_without_annotations(self, tmp_path):
+        """latest() skips empty session dirs and returns the newest that has annotations.json."""
+        empty = tmp_path / "session_20260401_080000"
+        empty.mkdir()  # no annotations.json
+
+        with_work = tmp_path / "session_20260301_120000"
+        with_work.mkdir()
+        (with_work / "annotations.json").write_text("[]")
+
+        sess = Session.latest(tmp_path)
+        assert sess is not None
+        assert sess.workspace == with_work
+
+    def test_returns_none_when_no_qualified_session(self, tmp_path):
+        """latest() returns None when no session has annotations.json."""
+        (tmp_path / "session_20260101_090000").mkdir()  # empty
+        (tmp_path / "session_20260201_060000").mkdir()  # empty
+        sess = Session.latest(tmp_path)
+        assert sess is None
+
+
+class TestRenameDelete:
+    def test_rename_changes_directory_name(self, tmp_path):
+        """Renamed workspace exists at the new path and old path is gone."""
+        session = Session(tmp_path)
+        old_path = session.workspace
+        new_path = Session.rename(old_path, "session_renamed_001")
+        assert new_path.exists()
+        assert not old_path.exists()
+        assert new_path.name == "session_renamed_001"
+
+    def test_rename_preserves_artifacts(self, tmp_path):
+        """Files inside the workspace survive renaming."""
+        session = Session(tmp_path)
+        (session.workspace / "annotations.json").write_text("[]")
+        new_path = Session.rename(session.workspace, "session_renamed_artifacts")
+        assert (new_path / "annotations.json").exists()
+
+    def test_rename_session_remains_discoverable(self, tmp_path):
+        """A session renamed with a session_ prefix is still found by list_sessions."""
+        session = Session(tmp_path)
+        Session.rename(session.workspace, "session_renamed_disc")
+        sessions = Session.list_sessions(tmp_path)
+        assert "session_renamed_disc" in sessions
+
+    def test_delete_removes_directory(self, tmp_path):
+        """Deleted workspace directory no longer exists."""
+        session = Session(tmp_path)
+        workspace_path = session.workspace
+        Session.delete(workspace_path)
+        assert not workspace_path.exists()
+
+    def test_delete_removes_contents(self, tmp_path):
+        """Delete removes workspace directory and all its contents."""
+        session = Session(tmp_path)
+        (session.workspace / "annotations.json").write_text("[]")
+        workspace_path = session.workspace
+        Session.delete(workspace_path)
+        assert not workspace_path.exists()

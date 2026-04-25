@@ -16,6 +16,15 @@ from src.rule_engine import RuleEngine, TextBlock
 
 # FreeText annotation subtype value in PyMuPDF
 _FREETEXT_SUBTYPE = "FreeText"
+_DEVICE_RGB_PATTERN = re.compile(r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg")
+_RC_RGB_COLOR_PATTERN = re.compile(
+    r"rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)",
+    re.IGNORECASE,
+)
+_RC_COLOR_DECL_PATTERN = re.compile(
+    r"(?<![-\w])color\s*:\s*(#[0-9a-fA-F]{3}\b|#[0-9a-fA-F]{6}\b|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\))",
+    re.IGNORECASE,
+)
 
 
 def extract_annotations(
@@ -174,12 +183,84 @@ def _safe_rotation(annot: fitz.Annot) -> int:
         return 0
 
 
+def _parse_device_rgb(raw: str) -> list[float] | None:
+    """Extract a PDF DeviceRGB color (``r g b rg``) from a content string."""
+    color_match = _DEVICE_RGB_PATTERN.search(raw)
+    if color_match:
+        return [float(color_match.group(i)) for i in range(1, 4)]
+    return None
+
+
+_AP_STROKE_RGB_PATTERN = re.compile(
+    r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b"
+)
+
+
+def _parse_ap_border_color(doc: fitz.Document, annot: fitz.Annot) -> list[float] | None:
+    """Extract border stroke color from the AP stream (R G B RG operator).
+
+    PDF graphics operators execute in order; the LAST ``RG`` before paint is the
+    active stroke color, so we take the last match rather than the first.
+    """
+    try:
+        ap_ref = doc.xref_get_key(annot.xref, "AP/N")
+        if not ap_ref or ap_ref[1] == "null":
+            return None
+        n_num = int(ap_ref[1].split()[0])
+        stream = doc.xref_stream(n_num)
+        if not stream:
+            return None
+        text = stream.decode("latin-1", errors="replace")
+        matches = _AP_STROKE_RGB_PATTERN.findall(text)
+        if matches:
+            r, g, b = matches[-1]
+            values = [float(r), float(g), float(b)]
+            if all(0.0 <= v <= 1.0 for v in values):
+                return values
+    except Exception:
+        pass
+    return None
+
+
+def _parse_css_color_value(raw_value: str) -> list[float] | None:
+    """Parse a CSS color value into normalized RGB floats."""
+    value = raw_value.strip()
+
+    if value.startswith("#"):
+        hex_value = value[1:]
+        if len(hex_value) == 3:
+            hex_value = "".join(ch * 2 for ch in hex_value)
+        return [int(hex_value[index:index + 2], 16) / 255.0 for index in (0, 2, 4)]
+
+    rgb_match = _RC_RGB_COLOR_PATTERN.fullmatch(value)
+    if rgb_match:
+        return [
+            max(0, min(int(rgb_match.group(i)), 255)) / 255.0
+            for i in range(1, 4)
+        ]
+
+    return None
+
+
+def _parse_richtext_color(raw_rc: str) -> list[float] | None:
+    """Extract a CSS text color from a FreeText RC XHTML payload."""
+    text_color: list[float] | None = None
+    for match in _RC_COLOR_DECL_PATTERN.finditer(raw_rc):
+        parsed = _parse_css_color_value(match.group(1))
+        if parsed is not None:
+            text_color = parsed
+    return text_color
+
+
 def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     """Extract font and color styling from annotation DA string with profile defaults.
 
     For FreeText annotations in PyMuPDF:
     - The DA (default appearance) string lives in the xref as key "DA", not in
       annot.info["da"] (which is always empty). We read it from the xref directly.
+        - Rich-text FreeText annotations can store the visible text color in the "RC"
+            XHTML payload while leaving DA at a stale fallback color. Prefer RC color
+            when present, then fall back to DA.
     - The box background/fill color is stored in the PDF "C" key and exposed by
       PyMuPDF as annot.colors["stroke"]. annot.colors["fill"] is always empty for
       FreeText annotations and should not be used.
@@ -204,16 +285,27 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     if not da or da == "null":
         da = ""
 
+    rc = ""
+    try:
+        _, rc = annot.parent.parent.xref_get_key(annot.xref, "RC")
+    except Exception:
+        pass
+    if not rc or rc == "null":
+        rc = ""
+
     # Parse font name and size: "/FontName Size Tf"
     font_match = re.search(r"/(\S+)\s+(\d+(?:\.\d+)?)\s+Tf", da)
     if font_match:
         font = font_match.group(1)
         font_size = float(font_match.group(2))
 
-    # Parse text color from DeviceRGB operator: "r g b rg"
-    color_match = re.search(r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg", da)
-    if color_match:
-        text_color = [float(color_match.group(i)) for i in range(1, 4)]
+    rc_text_color = _parse_richtext_color(rc)
+    if rc_text_color is not None:
+        text_color = rc_text_color
+    else:
+        da_text_color = _parse_device_rgb(da)
+        if da_text_color is not None:
+            text_color = da_text_color
 
     # Fill/background color: for FreeText, PyMuPDF exposes this under
     # annot.colors["stroke"] (PDF "C" key). annot.colors["fill"] is always empty.
@@ -235,11 +327,16 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     except Exception:
         pass
 
+    # Extract real border color from AP stream; fall back to black only if absent
+    doc = annot.parent.parent
+    ap_border_color = _parse_ap_border_color(doc, annot)
+    border_color = ap_border_color if ap_border_color is not None else [0.0, 0.0, 0.0]
+
     return StyleInfo(
         font=font,
         font_size=font_size,
         text_color=text_color,
-        border_color=[0.0, 0.0, 0.0],  # guideline: always black
+        border_color=border_color,
         fill_color=fill_color,
         border_width=border_width,
         border_dashes=border_dashes,
@@ -280,7 +377,7 @@ def _extract_anchor_text(
     config = profile.anchor_text_config
     if exclude_patterns is None:
         exclude_patterns = [
-            re.compile(p, re.IGNORECASE) for p in config.exclude_patterns
+            re.compile(p, re.IGNORECASE) for p in profile.form_name_rules.exclude_patterns
         ]
     marker_rect = [annot_rect.x0, annot_rect.y0, annot_rect.x1, annot_rect.y1]
     return find_nearest_label(

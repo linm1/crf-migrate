@@ -32,110 +32,110 @@ classification_rules:
     contains: null
     starts_with: null
     regex: null
-    subject_is: null
     domain_in: null
+    multi_line: null
     max_length: 0
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: null
   category: _exclude
 - conditions:
     contains: null
     starts_with: null
     regex: null
-    subject_is: Sticky Note
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: Sticky Note
     fallback: null
   category: _exclude
 - conditions:
     contains: null
     starts_with: null
     regex: null
-    subject_is: Typewritten Text
     domain_in: null
+    multi_line: null
     max_length: 0
     min_length: null
-    multi_line: null
+    subject_is: Typewritten Text
     fallback: null
   category: _exclude
 - conditions:
     contains: '[NOT SUBMITTED]'
     starts_with: null
     regex: null
-    subject_is: null
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: null
   category: not_submitted
 - conditions:
     contains: null
     starts_with: null
-    regex: ^([A-Z]{2,4}) \(([A-Za-z0-9 ,'-]+)\)$
-    subject_is: null
+    regex: ^(ID|[A-Z]{2,4})\s*=\s*([\u4e00-\u9fff，。、；：！？“”‘’（）\s]+)$
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: null
   category: domain_label
 - conditions:
     contains: null
     starts_with: null
     regex: \bSee\s+(page|pg\.?)\s*\d+|\bRefer\s+to\b
-    subject_is: null
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: null
   category: sdtm_mapping
 - conditions:
     contains: null
     starts_with: null
     regex: null
-    subject_is: null
     domain_in: null
+    multi_line: true
     max_length: null
     min_length: null
-    multi_line: true
+    subject_is: null
     fallback: null
   category: note
 - conditions:
     contains: null
     starts_with: 'Note:'
     regex: null
-    subject_is: null
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: null
   category: note
 - conditions:
     contains: RELREC
     starts_with: null
     regex: null
-    subject_is: null
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: null
   category: note
 - conditions:
     contains: null
     starts_with: null
     regex: null
-    subject_is: null
     domain_in: null
+    multi_line: null
     max_length: null
     min_length: null
-    multi_line: null
+    subject_is: null
     fallback: true
   category: sdtm_mapping
 form_name_rules:
@@ -151,6 +151,8 @@ form_name_rules:
   - ^\[\d{6}
   - \b\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\b
   - \b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b
+  - ^iTaimeiEDC
+  - ^[\u4e00-\u9fff]\s+Blank Pages$
   top_region_fraction: 0.35
   label_prefix: null
 visit_rules:
@@ -182,8 +184,9 @@ matching_config:
   position_fallback_confidence: 0.5
   visit_boost: 5.0
 style_defaults:
+  use_source_style: true
   font: Arial,BoldItalic
-  font_size: 12.0
+  font_size: 10.0
   domain_label_font_size: 12.0
   text_color:
   - 0.0

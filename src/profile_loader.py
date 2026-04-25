@@ -68,5 +68,10 @@ def load_profile(path: Path, profiles_dir: Path | None = None) -> Profile:
         profiles_dir = path.parent
 
     raw = _load_raw(path)
+    return validate_profile_data(raw, profiles_dir)
+
+
+def validate_profile_data(raw: dict, profiles_dir: Path) -> Profile:
+    """Resolve inheritance for raw YAML data and validate it as a Profile."""
     resolved = _resolve_inheritance(raw, profiles_dir)
     return Profile.model_validate(resolved)

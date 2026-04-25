@@ -18,8 +18,10 @@ from ui.components import (
     invalidate_phases,
     render_confidence_badge,
     render_match_type_badge,
+    render_page_navigator_windowed,
 )
 from ui.loader import clear_loader, loader_html
+from ui.style_helpers import build_centered_icon_button_css
 
 _DEFAULT_VISIT_BOOST: float = 5.0
 _DEFAULT_CROSS_FORM_THRESHOLD: float = 0.5
@@ -45,6 +47,42 @@ _MATCH_TYPE_BADGE_COLORS: dict[str, tuple[str, str, str]] = {
 }
 
 _MATCH_TYPE_ORDER = ["exact", "fuzzy", "position_only", "unmatched", "manual"]
+
+
+# Re-pair open icon button helper CSS
+_P3_REPAIR_ICON_CSS = build_centered_icon_button_css(
+    key_prefixes=["p3_repairopen_"],
+    size_px=28,
+    font_size_px=13,
+)
+
+
+def _restore_filter_state(
+    key: str,
+    available_options: list[str],
+    fallback_values: list[str],
+) -> list[str]:
+    """Restore a multiselect from session state and drop unavailable values."""
+    if key not in st.session_state:
+        values = fallback_values
+    else:
+        values = st.session_state.get(key, [])
+
+    restored = [value for value in values if value in available_options]
+    st.session_state[key] = restored
+    return restored
+
+
+def _build_page_groups(filtered: list[MatchRecord]) -> list[int]:
+    """Return sorted target_page values for the filtered match list.
+
+    Matched pages (target_page >= 1) come first in ascending order.
+    Unmatched (target_page == 0) is appended last if any exist.
+    Returns an empty list when filtered is empty.
+    """
+    matched_pages = sorted({m.target_page for m in filtered if m.target_page >= 1})
+    has_unmatched = any(m.target_page == 0 for m in filtered)
+    return matched_pages + ([0] if has_unmatched else [])
 
 
 def _compute_predicted_confidence(
@@ -234,25 +272,16 @@ def _inject_page_css() -> None:
             border-color: #383838 !important;
         }
         /* ── ↺ re-pair open button on approved/re-pairing rows ── */
+        """
+        + _P3_REPAIR_ICON_CSS
+        + """
         [class*="st-key-p3_repairopen_"] button {
-            height: 28px !important;
-            padding: 0 !important;
-            line-height: 1 !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
             border-radius: 2px !important;
             border: 2px solid #383838 !important;
             background: #f4efea !important;
             color: #818181 !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
+            font-weight: 700 !important;
             transition: background-color 0.15s, color 0.15s !important;
-        }
-        [class*="st-key-p3_repairopen_"] button p {
-            line-height: 1 !important;
-            margin: 0 !important;
-            padding: 0 !important;
         }
         [class*="st-key-p3_repairopen_"] button:hover {
             background-color: #383838 !important;
@@ -288,6 +317,9 @@ def _inject_page_css() -> None:
             font-weight: 700 !important;
             padding: 4px 10px !important;
             line-height: 1 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
         /* ── Field pick card button — unselected ── */
@@ -623,12 +655,16 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
     all_types = sorted({m.match_type for m in matches})
     all_statuses = sorted({m.status for m in matches})
 
+    _DEFAULT_TYPES = [t for t in ["fuzzy", "position_only", "unmatched"] if t in all_types]
+    _restore_filter_state("p3_filter_type", all_types, _DEFAULT_TYPES)
+    _restore_filter_state("p3_filter_status", all_statuses, [])
+
     t_col, s_col, ba_col = st.columns([3, 3, 2])
     with t_col:
-        sel_types = st.multiselect("Match Type \u25be", all_types, default=all_types,
+        sel_types = st.multiselect("Match Type \u25be", all_types,
                                    key="p3_filter_type", label_visibility="visible")
     with s_col:
-        sel_statuses = st.multiselect("Status \u25be", all_statuses, default=all_statuses,
+        sel_statuses = st.multiselect("Status \u25be", all_statuses,
                                       key="p3_filter_status", label_visibility="visible")
     with ba_col:
         pending_exact = [m for m in matches if m.match_type == "exact" and m.status == "pending"]
@@ -641,11 +677,16 @@ def _render_filters(matches: list[MatchRecord], session: Session) -> list[MatchR
                 invalidate_phases([4])
                 st.rerun()
 
-    filtered = [
-        m for m in matches
-        if m.match_type in sel_types
-        and m.status in sel_statuses
-    ]
+    # Each active filter acts as a constraint; empty filter = no constraint on that axis.
+    # Both empty → show nothing.
+    if not sel_types and not sel_statuses:
+        filtered = []
+    else:
+        filtered = [
+            m for m in matches
+            if (not sel_types or m.match_type in sel_types)
+            and (not sel_statuses or m.status in sel_statuses)
+        ]
     st.caption(f"Showing {len(filtered)} of {len(matches)} matches")
     return filtered
 
@@ -673,6 +714,13 @@ def _render_match_rows(
     updated_matches = list(all_matches)
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
     drawer_id: str | None = st.session_state.get("_p3_drawer_id")
+
+    # Page navigator — group filtered matches by target_page
+    page_groups = _build_page_groups(filtered)
+    if len(page_groups) > 1:
+        selected_page = render_page_navigator_windowed(len(page_groups), key="p3_match_nav")
+        current_page_val = page_groups[selected_page - 1]
+        filtered = [m for m in filtered if m.target_page == current_page_val]
 
     # Decide layout: columns([2,1]) when drawer open, container() when closed
     if drawer_id and any(m.annotation_id == drawer_id for m in filtered):

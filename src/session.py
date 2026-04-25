@@ -99,3 +99,49 @@ class Session:
     def copy_profile(self, profile_path: Path) -> None:
         """Copy the active profile YAML into the workspace for reproducibility."""
         shutil.copy2(profile_path, self.workspace / "active_profile.yaml")
+
+    @classmethod
+    def open(cls, workspace: Path) -> "Session":
+        """Attach to an existing workspace directory without creating a new one."""
+        instance = cls.__new__(cls)
+        instance.workspace = workspace
+        return instance
+
+    @classmethod
+    def list_sessions(cls, base_dir: Path) -> list[str]:
+        """Return all session_* directory names under base_dir, newest-first."""
+        if not base_dir.is_dir():
+            return []
+        return sorted(
+            [d.name for d in base_dir.iterdir() if d.is_dir() and d.name.startswith("session_")],
+            reverse=True,
+        )
+
+    @classmethod
+    def latest(cls, base_dir: Path) -> "Session | None":
+        """Return the most recent session that contains annotations.json, or None."""
+        for name in cls.list_sessions(base_dir):
+            candidate = base_dir / name
+            if (candidate / "annotations.json").exists():
+                return cls.open(candidate)
+        return None
+
+    @classmethod
+    def rename(cls, workspace: Path, new_name: str) -> Path:
+        """Rename a session directory; returns new Path.
+
+        ``new_name`` must start with ``session_`` to remain discoverable by
+        ``list_sessions()``.  Caller is responsible for validation.
+        """
+        new_path = workspace.parent / new_name
+        workspace.rename(new_path)
+        return new_path
+
+    @classmethod
+    def delete(cls, workspace: Path) -> None:
+        """Permanently remove a session workspace directory.
+
+        ``workspace`` must be a vetted session workspace path obtained from
+        ``Session.open()`` or ``Session.list_sessions()``.  This is irreversible.
+        """
+        shutil.rmtree(workspace)

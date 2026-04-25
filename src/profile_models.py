@@ -70,7 +70,6 @@ class VisitRule(BaseModel):
 class AnchorTextConfig(BaseModel):
     radius_px: float = 100.0
     prefer_direction: list[str] = ["left", "above"]
-    exclude_patterns: list[str] = []
     left_column_tolerance_px: float = 50.0
 
 
@@ -95,6 +94,7 @@ class StyleDefaults(BaseModel):
     text_color: list[float] = [0.0, 0.0, 0.0]
     border_color: list[float] = [0.0, 0.0, 0.0]
     fill_color: list[float] | None = None
+    use_source_style: bool = True
 
 
 class ProfileMeta(BaseModel):
