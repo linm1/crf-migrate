@@ -594,6 +594,7 @@ def apply_manual_match(
     annotation_id: str,
     field_id: str,
     target_rect: list[float],
+    target_page: int,
 ) -> list[MatchRecord]:
     """Return a new list with the specified annotation updated to a manual match.
 
@@ -611,7 +612,9 @@ def apply_manual_match(
             "field_id": field_id,
             "match_type": "manual",
             "target_rect": target_rect,
+            "target_page": target_page,
             "status": "approved",
+            "placement_adjusted": False,
         }
     )
     return updated

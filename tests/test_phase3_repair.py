@@ -166,7 +166,7 @@ def test_confirm_sequence_sets_manual_and_confidence():
     all_fields = [old_field, new_field]
 
     new_rect = compute_target_rect(annot, new_field, all_fields)
-    new_list = apply_manual_match([match], annot.id, new_field.id, new_rect)
+    new_list = apply_manual_match([match], annot.id, new_field.id, new_rect, new_field.page)
 
     assert len(new_list) == 1
     result = new_list[0]

@@ -140,7 +140,7 @@ classification_rules:
   category: sdtm_mapping
 form_name_rules:
   strategy: largest_bold_text
-  min_font_size: 6.5
+  min_font_size: 3.0
   exclude_patterns:
   - ^CDISC$
   - ^Study\b

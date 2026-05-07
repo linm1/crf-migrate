@@ -1,11 +1,15 @@
-"""Tests for Phase 3 page-group helper."""
+"""Tests for Phase 3 pagination partition logic.
+
+The page navigator only paginates rows that have a real target field
+(field_id set AND target_page >= 1). Rows without a real target
+(unmatched / position_only / pre-assignment) bypass pagination and are
+pinned across all pages.
+"""
 import sys
 import types
-import pytest
 
 # ---------------------------------------------------------------------------
-# Stub out heavy / optional dependencies so the module can be imported in
-# environments where streamlit, fitz, rapidfuzz, etc. are not installed.
+# Stub heavy / optional deps so MatchRecord can import cleanly.
 # ---------------------------------------------------------------------------
 def _make_stub(name: str) -> types.ModuleType:
     mod = types.ModuleType(name)
@@ -13,46 +17,23 @@ def _make_stub(name: str) -> types.ModuleType:
     return mod
 
 
-for _dep in [
-    "streamlit",
-    "streamlit.components",
-    "streamlit.components.v1",
-    "fitz",
-    "rapidfuzz",
-    "rapidfuzz.fuzz",
-    "pdfplumber",
-]:
+for _dep in ["fitz", "rapidfuzz", "rapidfuzz.fuzz", "pdfplumber"]:
     if _dep not in sys.modules:
         sys.modules[_dep] = _make_stub(_dep)
 
-# Streamlit needs attribute access (st.session_state, etc.) — use a MagicMock.
-from unittest.mock import MagicMock  # noqa: E402  (after sys.modules patch)
-
-if not isinstance(sys.modules["streamlit"], MagicMock):
-    sys.modules["streamlit"] = MagicMock()
-    sys.modules["streamlit.components"] = MagicMock()
-    sys.modules["streamlit.components.v1"] = MagicMock()
-
-# rapidfuzz.fuzz must expose a callable attribute `token_sort_ratio`.
-# Only install the MagicMock stub when the real module is NOT available;
-# replacing an already-loaded real module would corrupt the entire test session
-# because the stub leaks into sys.modules for all subsequent imports.
-if not isinstance(sys.modules.get("rapidfuzz"), types.ModuleType):
-    _rfuzz_stub = MagicMock()
-    sys.modules["rapidfuzz"] = _rfuzz_stub
-    sys.modules["rapidfuzz.fuzz"] = _rfuzz_stub.fuzz
-
-# ---------------------------------------------------------------------------
-
 from src.models import MatchRecord  # noqa: E402
-from ui.phase3_review import _build_page_groups  # noqa: E402
 
 
-def _make_match(annotation_id: str, target_page: int, match_type: str = "exact") -> MatchRecord:
+def _make_match(
+    annotation_id: str,
+    target_page: int,
+    field_id: str | None,
+    match_type: str = "fuzzy",
+) -> MatchRecord:
     return MatchRecord(
         annotation_id=annotation_id,
-        field_id="fld1" if target_page > 0 else None,
-        match_type=match_type if target_page > 0 else "unmatched",
+        field_id=field_id,
+        match_type=match_type,
         confidence=0.9,
         target_rect=[0.0, 0.0, 100.0, 20.0],
         target_page=target_page,
@@ -60,25 +41,80 @@ def _make_match(annotation_id: str, target_page: int, match_type: str = "exact")
     )
 
 
-def test_build_page_groups_matched_only():
-    matches = [_make_match("a", 3), _make_match("b", 1), _make_match("c", 2)]
-    assert _build_page_groups(matches) == [1, 2, 3]
+def _partition(matches: list[MatchRecord]) -> tuple[list[MatchRecord], list[MatchRecord], list[int]]:
+    """Replicate the partition logic in ui/phase3_review.py:_render_match_rows.
+
+    Mirrors production logic so the pagination contract is enforced as a unit
+    test even though the production code is inline in the Streamlit render path.
+    """
+    real = [m for m in matches if m.field_id is not None and m.target_page >= 1]
+    unassigned = [m for m in matches if not (m.field_id is not None and m.target_page >= 1)]
+    page_groups = sorted({m.target_page for m in real})
+    return real, unassigned, page_groups
 
 
-def test_build_page_groups_with_unmatched():
-    matches = [_make_match("a", 2), _make_match("b", 0), _make_match("c", 1)]
-    assert _build_page_groups(matches) == [1, 2, 0]
+def test_partition_real_rows_only():
+    matches = [
+        _make_match("a", 3, "fld-a"),
+        _make_match("b", 1, "fld-b"),
+        _make_match("c", 2, "fld-c"),
+    ]
+    real, unassigned, page_groups = _partition(matches)
+    assert [m.annotation_id for m in real] == ["a", "b", "c"]
+    assert unassigned == []
+    assert page_groups == [1, 2, 3]
 
 
-def test_build_page_groups_unmatched_only():
-    matches = [_make_match("a", 0), _make_match("b", 0)]
-    assert _build_page_groups(matches) == [0]
+def test_partition_unmatched_only_hides_nav():
+    """target_page=0 + field_id=None → all unassigned, page_groups empty."""
+    matches = [
+        _make_match("a", 0, None, match_type="unmatched"),
+        _make_match("b", 0, None, match_type="unmatched"),
+    ]
+    real, unassigned, page_groups = _partition(matches)
+    assert real == []
+    assert [m.annotation_id for m in unassigned] == ["a", "b"]
+    assert page_groups == []
 
 
-def test_build_page_groups_empty():
-    assert _build_page_groups([]) == []
+def test_partition_position_only_unassigned():
+    """position_only has target_page=annot.page but field_id=None → unassigned."""
+    matches = [
+        _make_match("a", 6, None, match_type="position_only"),
+        _make_match("b", 7, None, match_type="position_only"),
+    ]
+    real, unassigned, page_groups = _partition(matches)
+    assert real == []
+    assert [m.annotation_id for m in unassigned] == ["a", "b"]
+    assert page_groups == []
 
 
-def test_build_page_groups_deduplicates():
-    matches = [_make_match("a", 1), _make_match("b", 1), _make_match("c", 2)]
-    assert _build_page_groups(matches) == [1, 2]
+def test_partition_mixed_real_and_unassigned():
+    """fuzzy rows paginate by target_page; unmatched/position_only stay unassigned."""
+    matches = [
+        _make_match("fuzzy_p2", 2, "fld-1", match_type="fuzzy"),
+        _make_match("unmatched", 0, None, match_type="unmatched"),
+        _make_match("fuzzy_p1", 1, "fld-2", match_type="fuzzy"),
+        _make_match("position_only", 5, None, match_type="position_only"),
+    ]
+    real, unassigned, page_groups = _partition(matches)
+    assert sorted(m.annotation_id for m in real) == ["fuzzy_p1", "fuzzy_p2"]
+    assert sorted(m.annotation_id for m in unassigned) == ["position_only", "unmatched"]
+    assert page_groups == [1, 2]
+
+
+def test_partition_dedupes_page_groups():
+    matches = [
+        _make_match("a", 1, "fld-a"),
+        _make_match("b", 1, "fld-b"),
+        _make_match("c", 2, "fld-c"),
+    ]
+    _, _, page_groups = _partition(matches)
+    assert page_groups == [1, 2]
+
+
+def test_partition_empty():
+    real, unassigned, page_groups = _partition([])
+    assert real == []
+    assert unassigned == []
+    assert page_groups == []

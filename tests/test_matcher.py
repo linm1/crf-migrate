@@ -445,10 +445,11 @@ class TestApplyManualMatch:
             SOURCE_DIMS, TARGET_DIMS,
         )
         new_rect = [1.0, 2.0, 3.0, 4.0]
-        updated = apply_manual_match(matches, "annot-001", "field-NEW", new_rect)
+        updated = apply_manual_match(matches, "annot-001", "field-NEW", new_rect, 4)
         assert updated[0].field_id == "field-NEW"
         assert updated[0].match_type == "manual"
         assert updated[0].target_rect == new_rect
+        assert updated[0].target_page == 4
         assert updated[0].status == "approved"
 
     def test_returns_new_list_original_unchanged(self, dm_annotation, dm_field, default_profile):
@@ -458,7 +459,7 @@ class TestApplyManualMatch:
             SOURCE_DIMS, TARGET_DIMS,
         )
         original_field_id = matches[0].field_id
-        apply_manual_match(matches, "annot-001", "field-NEW", [0.0, 0.0, 1.0, 1.0])
+        apply_manual_match(matches, "annot-001", "field-NEW", [0.0, 0.0, 1.0, 1.0], 1)
         assert matches[0].field_id == original_field_id
 
     def test_raises_value_error_if_not_found(self, dm_annotation, dm_field, default_profile):
@@ -468,7 +469,37 @@ class TestApplyManualMatch:
             SOURCE_DIMS, TARGET_DIMS,
         )
         with pytest.raises(ValueError, match="not found"):
-            apply_manual_match(matches, "nonexistent-id", "f1", [0.0, 0.0, 1.0, 1.0])
+            apply_manual_match(matches, "nonexistent-id", "f1", [0.0, 0.0, 1.0, 1.0], 1)
+
+    def test_updates_target_page_to_field_page(self):
+        """apply_manual_match overwrites stale target_page with the new field's page."""
+        stale = MatchRecord(
+            annotation_id="a1",
+            field_id="f_old",
+            match_type="position_only",
+            confidence=0.5,
+            target_rect=[0.0, 0.0, 10.0, 10.0],
+            target_page=6,
+            status="re-pairing",
+            placement_adjusted=False,
+        )
+        updated = apply_manual_match([stale], "a1", "f_new", [1.0, 2.0, 3.0, 4.0], 7)
+        assert updated[0].target_page == 7
+
+    def test_resets_placement_adjusted(self):
+        """apply_manual_match resets placement_adjusted — rect is freshly recomputed."""
+        stale = MatchRecord(
+            annotation_id="a1",
+            field_id="f_old",
+            match_type="position_only",
+            confidence=0.5,
+            target_rect=[0.0, 0.0, 10.0, 10.0],
+            target_page=6,
+            status="re-pairing",
+            placement_adjusted=True,
+        )
+        updated = apply_manual_match([stale], "a1", "f_new", [1.0, 2.0, 3.0, 4.0], 7)
+        assert updated[0].placement_adjusted is False
 
 
 # ---------------------------------------------------------------------------

@@ -73,18 +73,6 @@ def _restore_filter_state(
     return restored
 
 
-def _build_page_groups(filtered: list[MatchRecord]) -> list[int]:
-    """Return sorted target_page values for the filtered match list.
-
-    Matched pages (target_page >= 1) come first in ascending order.
-    Unmatched (target_page == 0) is appended last if any exist.
-    Returns an empty list when filtered is empty.
-    """
-    matched_pages = sorted({m.target_page for m in filtered if m.target_page >= 1})
-    has_unmatched = any(m.target_page == 0 for m in filtered)
-    return matched_pages + ([0] if has_unmatched else [])
-
-
 def _compute_predicted_confidence(
     annot: AnnotationRecord,
     field: FieldRecord,
@@ -715,12 +703,19 @@ def _render_match_rows(
     match_index = {m.annotation_id: i for i, m in enumerate(all_matches)}
     drawer_id: str | None = st.session_state.get("_p3_drawer_id")
 
-    # Page navigator — group filtered matches by target_page
-    page_groups = _build_page_groups(filtered)
+    # Page navigator — only meaningful for rows with a real target field.
+    # Rows without a paired field (position_only / unmatched / pre-assignment)
+    # have target_page set to source page or 0; grouping them by target_page
+    # would lie about target geometry. Hide the nav when no real-target rows
+    # exist, and pin unassigned rows to the top across all pages otherwise.
+    real_rows = [m for m in filtered if m.field_id is not None and m.target_page >= 1]
+    unassigned_rows = [m for m in filtered if not (m.field_id is not None and m.target_page >= 1)]
+    page_groups = sorted({m.target_page for m in real_rows})
     if len(page_groups) > 1:
         selected_page = render_page_navigator_windowed(len(page_groups), key="p3_match_nav")
         current_page_val = page_groups[selected_page - 1]
-        filtered = [m for m in filtered if m.target_page == current_page_val]
+        real_rows = [m for m in real_rows if m.target_page == current_page_val]
+    filtered = unassigned_rows + real_rows
 
     # Decide layout: columns([2,1]) when drawer open, container() when closed
     if drawer_id and any(m.annotation_id == drawer_id for m in filtered):
@@ -997,7 +992,11 @@ def _render_drawer_panel(
                 new_rect = compute_target_rect(annot, chosen_field, list(field_by_id.values()))
                 predicted = _compute_predicted_confidence(annot, chosen_field, visit_boost)
                 new_list = apply_manual_match(
-                    list(updated_matches), m.annotation_id, chosen_field.id, new_rect
+                    list(updated_matches),
+                    m.annotation_id,
+                    chosen_field.id,
+                    new_rect,
+                    chosen_field.page,
                 )
                 idx = match_index.get(m.annotation_id)
                 if idx is not None:
