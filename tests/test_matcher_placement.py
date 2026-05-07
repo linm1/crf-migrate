@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from src.matcher import _apply_placement_guard
+from src.matcher import _apply_placement_guard, _check_dim_guard, _exact_pass
 from src.models import AnnotationRecord, FieldRecord, MatchRecord
 from src.writer import build_qc_report
 
@@ -15,6 +15,7 @@ def _make_field(
     page_width: float = 600.0,
     page_height: float = 800.0,
     form_name: str = "TestForm",
+    field_type: str = "text_field",
 ) -> FieldRecord:
     return FieldRecord(
         id=str(uuid.uuid4()),
@@ -22,7 +23,7 @@ def _make_field(
         label=label,
         form_name=form_name,
         rect=rect,
-        field_type="text_field",
+        field_type=field_type,
         page_width=page_width,
         page_height=page_height,
     )
@@ -116,6 +117,87 @@ def test_in_bounds_no_adjustment() -> None:
 
     assert was_adjusted is False
     assert final_rect == [200.0, 200.0, 260.0, 220.0]
+
+
+def _make_annot(
+    anchor_text: str,
+    rect: list[float],
+    form_name: str = "TestForm",
+    anchor_rect: list[float] | None = None,
+) -> AnnotationRecord:
+    return AnnotationRecord(
+        id=str(uuid.uuid4()),
+        page=1,
+        content="TEST",
+        domain="AE",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=rect,
+        anchor_text=anchor_text,
+        anchor_rect=anchor_rect,
+        form_name=form_name,
+    )
+
+
+def test_oob_fallback_preserves_source_dimensions() -> None:
+    """OOB fallback must preserve source annotation w×h, not use peer field dimensions."""
+    # Source annotation: wide text box 110×18
+    annot_rect = [386.73, 184.99, 497.25, 203.39]  # w=110.52, h=18.40
+    # Peer field at leftmost position: small checkbox 14×7
+    peer = _make_field("Question", rect=[78.40, 191.01, 92.11, 198.32], field_type="checkbox")
+    matched_field = _make_field("Question", rect=[507.09, 185.99, 520.80, 193.30], field_type="checkbox")
+    all_fields = [matched_field, peer]
+
+    # OOB target_rect (anchor offset pushed x0 to 815, past page_width=612)
+    oob_rect = [815.0, 179.97, 925.52, 198.37]
+
+    final_rect, was_adjusted = _apply_placement_guard(oob_rect, matched_field, all_fields, annot_rect=annot_rect)
+
+    assert was_adjusted is True
+    dst_w = final_rect[2] - final_rect[0]
+    dst_h = final_rect[3] - final_rect[1]
+    assert abs(dst_w - 110.52) < 1.0, f"width {dst_w:.2f} should be ≈110.52"
+    assert abs(dst_h - 18.40) < 1.0, f"height {dst_h:.2f} should be ≈18.40"
+    assert final_rect[0] == peer.rect[0]  # origin is peer's x0
+
+
+def test_exact_pass_prefers_non_checkbox_field() -> None:
+    """When same (form, label) has both checkbox and text_field, text_field is selected."""
+    annot = _make_annot(
+        anchor_text="Ready for entry?",
+        rect=[386.73, 184.99, 497.25, 203.39],
+        anchor_rect=[78.40, 191.01, 359.93, 198.33],
+    )
+    checkbox_field = _make_field(
+        "Ready for entry?", rect=[507.09, 185.99, 520.80, 193.30], field_type="checkbox"
+    )
+    text_field = _make_field(
+        "Ready for entry?", rect=[78.40, 185.99, 359.93, 203.39], field_type="text_field"
+    )
+    all_fields = [checkbox_field, text_field]
+    unmatched = {annot.id}
+
+    results = _exact_pass([annot], all_fields, unmatched, exact_threshold=1.0)
+
+    assert len(results) == 1
+    matched_field_id = results[0].field_id
+    assert matched_field_id == text_field.id, "should prefer text_field over checkbox"
+
+
+def test_check_dim_guard_flags_large_deviation() -> None:
+    """_check_dim_guard returns True when final rect is >2× or <0.5× source dimensions."""
+    annot_rect = [0.0, 0.0, 100.0, 20.0]   # w=100, h=20
+
+    # 3× wider → flag
+    assert _check_dim_guard([0.0, 0.0, 300.0, 20.0], annot_rect) is True
+    # 0.3× width (less than 0.5×) → flag
+    assert _check_dim_guard([0.0, 0.0, 30.0, 20.0], annot_rect) is True
+    # 3× taller → flag
+    assert _check_dim_guard([0.0, 0.0, 100.0, 60.0], annot_rect) is True
+    # 1.5× wider → within threshold → no flag
+    assert _check_dim_guard([0.0, 0.0, 150.0, 20.0], annot_rect) is False
+    # exact match → no flag
+    assert _check_dim_guard([0.0, 0.0, 100.0, 20.0], annot_rect) is False
 
 
 def test_qc_report_includes_adjusted_ids() -> None:

@@ -105,12 +105,14 @@ def _apply_placement_guard(
     target_rect: list[float],
     matched_field: "FieldRecord",
     all_fields: list["FieldRecord"],
+    annot_rect: list[float] | None = None,
 ) -> tuple[list[float], bool]:
     """Apply OOB fallback then clamp, returning (final_rect, was_adjusted).
 
     If target_rect is out-of-bounds:
       1. Find all fields on the same page with the same label (case-insensitive).
-      2. Use the leftmost one (smallest rect[0]) as the target rect directly.
+      2. Use the leftmost one (smallest rect[0]) as the fallback origin.
+      3. If annot_rect is provided, preserve the source annotation's w×h.
     Then always apply _clamp_to_page as a final safety net.
     """
     page_w = matched_field.page_width
@@ -126,11 +128,34 @@ def _apply_placement_guard(
         ]
         if peers:
             leftmost = min(peers, key=lambda f: f.rect[0])
-            target_rect = list(leftmost.rect)
+            fb = list(leftmost.rect)
+            if annot_rect is not None:
+                w = abs(annot_rect[2] - annot_rect[0])
+                h = abs(annot_rect[3] - annot_rect[1])
+                target_rect = [fb[0], fb[1], fb[0] + w, fb[1] + h]
+            else:
+                target_rect = fb
             adjusted = True
 
     clamped, clamp_fired = _clamp_to_page(target_rect, page_w, page_h)
     return clamped, adjusted or clamp_fired
+
+
+def _check_dim_guard(
+    final_rect: list[float],
+    annot_rect: list[float],
+    threshold: float = 2.0,
+) -> bool:
+    """Return True if final rect dimensions deviate more than threshold× from source."""
+    src_w = abs(annot_rect[2] - annot_rect[0])
+    src_h = abs(annot_rect[3] - annot_rect[1])
+    dst_w = abs(final_rect[2] - final_rect[0])
+    dst_h = abs(final_rect[3] - final_rect[1])
+    if src_w > 0 and (dst_w / src_w > threshold or dst_w / src_w < 1.0 / threshold):
+        return True
+    if src_h > 0 and (dst_h / src_h > threshold or dst_h / src_h < 1.0 / threshold):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +293,7 @@ def _exact_pass(
         key = (_norm(field.form_name), _norm(field.label))
         field_groups.setdefault(key, []).append(field)
     for key in field_groups:
-        field_groups[key].sort(key=lambda f: (f.page, f.rect[1]))
+        field_groups[key].sort(key=lambda f: (f.page, f.rect[1], 0 if f.field_type != "checkbox" else 1))
         # Remove duplicate rows: drop any field whose (page, y0) is within 5px of its predecessor
         deduped: list[FieldRecord] = []
         for f in field_groups[key]:
@@ -283,13 +308,16 @@ def _exact_pass(
     tgt_pg_rank = _build_page_rank_map(fields, lambda f: _norm(f.form_name))
 
     def _emit_match(annot: AnnotationRecord, field: FieldRecord) -> MatchRecord:
+        annot_rect = list(annot.rect)
         final_rect, placement_adjusted = _apply_placement_guard(
-            _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+            _apply_anchor_offset(annot_rect, annot.anchor_rect, list(field.rect))
             if annot.anchor_rect
             else list(field.rect),
             field,
             fields,
+            annot_rect=annot_rect,
         )
+        placement_adjusted = placement_adjusted or _check_dim_guard(final_rect, annot_rect)
         return MatchRecord(
             annotation_id=annot.id,
             field_id=field.id,
@@ -415,12 +443,14 @@ def _fuzzy_same_form_pass(
         pairs = _bipartite_assign(grp_annots, grp_fields, _score, threshold_pct)
         for ai, fi, score in pairs:
             annot, field = grp_annots[ai], grp_fields[fi]
+            annot_rect = list(annot.rect)
             raw_rect = (
-                _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+                _apply_anchor_offset(annot_rect, annot.anchor_rect, list(field.rect))
                 if annot.anchor_rect
                 else list(field.rect)
             )
-            final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields)
+            final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields, annot_rect=annot_rect)
+            placement_adjusted = placement_adjusted or _check_dim_guard(final_rect, annot_rect)
             results.append(MatchRecord(
                 annotation_id=annot.id,
                 field_id=field.id,
@@ -457,12 +487,14 @@ def _fuzzy_cross_form_pass(
     results: list[MatchRecord] = []
     for ai, fi, score in pairs:
         annot, field = eligible_annots[ai], eligible_fields[fi]
+        annot_rect = list(annot.rect)
         raw_rect = (
-            _apply_anchor_offset(list(annot.rect), annot.anchor_rect, list(field.rect))
+            _apply_anchor_offset(annot_rect, annot.anchor_rect, list(field.rect))
             if annot.anchor_rect
             else list(field.rect)
         )
-        final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields)
+        final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields, annot_rect=annot_rect)
+        placement_adjusted = placement_adjusted or _check_dim_guard(final_rect, annot_rect)
         results.append(MatchRecord(
             annotation_id=annot.id,
             field_id=field.id,

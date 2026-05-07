@@ -827,6 +827,7 @@ def _render_annotation_detail(
         st.markdown(f"**{annot.content}**")
         st.caption(f"{annot.domain} in {annot.form_name}")
         st.caption(f"{annot.form_name} · p.{annot.page}")
+        st.caption(annot.anchor_text or annot.content[:40])
 
 
 def _render_field_row(
@@ -957,9 +958,6 @@ def _render_drawer_panel(
             f'<div style="background:#383838;padding:10px 14px;padding-right:48px;">'
             f'<div style="color:#FFFFFF;font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:14px;font-weight:700;">'
             f'Re-pair Field</div>'
-            f'<div style="color:#818181;font-family:\'Aeonik Mono\', ui-monospace, monospace;font-size:11px;">'
-            f'{_html.escape(annot.anchor_text or annot.content[:40])} · {_html.escape(m.match_type)} · conf {m.confidence:.2f}'
-            f'</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
