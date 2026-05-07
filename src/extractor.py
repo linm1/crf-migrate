@@ -597,10 +597,12 @@ def extract_arrows(
                 border = annot.border or {}
                 stroke = colors.get("stroke") or [0.0, 0.0, 0.0]
                 stroke_color = (float(stroke[0]), float(stroke[1]), float(stroke[2]))
-                width = float(border.get("width") or 1.0)
+                _w = border.get("width")
+                width = float(_w) if _w is not None and float(_w) > 0 else 1.0
                 dashes = list(border.get("dashes") or [])
-                opacity = annot.opacity if annot.opacity is not None else 1.0
-                opacity = max(0.0, min(1.0, float(opacity)))
+                # annot.opacity is -1 when no /CA key present (PyMuPDF sentinel = fully opaque)
+                raw_opacity = annot.opacity
+                opacity = 1.0 if (raw_opacity is None or raw_opacity < 0) else max(0.0, min(1.0, float(raw_opacity)))
 
                 style = ArrowStyle(
                     stroke_color=stroke_color,

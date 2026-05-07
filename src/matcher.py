@@ -15,9 +15,10 @@ import warnings
 from collections import defaultdict
 from pathlib import Path
 
-import fitz
 import numpy as np
 from rapidfuzz import fuzz
+
+import fitz as _fitz
 
 from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, FieldRecord, MatchRecord
 from src.profile_models import Profile
@@ -657,15 +658,22 @@ def resolve_arrows(
     target_pdf_path: Path,
     profile: Profile,
 ) -> list[ArrowMatch]:
-    """Resolve arrows to target-PDF text blocks after annotation matching.
+    """Resolve each arrow's head to a text block in the target CRF via fuzzy matching.
 
-    For each ArrowRecord, find the target text block that best matches
-    the arrow's head_text, using two cascading passes:
-      Pass A (fuzzy_in_field): search text blocks within the matched field rect
-      Pass B (fuzzy_on_page): search all text blocks on the target page
+    For each ArrowRecord:
+      1. Look up the parent annotation's MatchRecord to get target_page.
+      2. Open the target PDF and read text blocks for that page.
+      3. Pass A (fuzzy_in_field): fuzzy-match head_text against blocks that
+         intersect the inflated placed-annotation rect (±30 pt on each side).
+         Uses rapidfuzz.fuzz.token_sort_ratio. Threshold = profile.arrows.head_fuzzy_threshold.
+      4. Pass B (proximity_field): 2-D proximity match against FieldRecords on the target page.
+         Selects the field minimising h_dist + v_dist, where each component is the minimum
+         distance from the arrowhead coordinate to the near/far edge of the field rect.
+         Falls back to fuzzy_on_page when no fields exist on the target page.
+      5. Unresolved when no block meets the threshold (fuzzy_on_page fallback only).
 
-    Returns an ArrowMatch for each input arrow. Unresolvable arrows get
-    method="unresolved".
+    head_target_rect is the bounding box of the matched text block (not a FieldRecord).
+    target_field_id is preserved from the parent MatchRecord (the annotation's target field).
     """
     def _unresolved(arrow_id: str) -> ArrowMatch:
         return ArrowMatch(
@@ -677,92 +685,124 @@ def resolve_arrows(
             head_confidence=0.0,
         )
 
+    threshold = profile.arrows.head_fuzzy_threshold * 100  # rapidfuzz uses 0–100 scale
+
     annot_id_to_match: dict[str, MatchRecord] = {
-        m.annotation_id: m for m in matches
+        m.annotation_id: m for m in matches if m.field_id is not None
     }
-    field_id_to_field: dict[str, FieldRecord] = {f.id: f for f in fields}
-    threshold = profile.arrows.head_fuzzy_threshold
 
+    # Pre-load target PDF text blocks, keyed by 1-indexed page number
     page_blocks_cache: dict[int, list] = {}
-    doc = fitz.open(str(target_pdf_path))
-
-    results: list[ArrowMatch] = []
+    doc = _fitz.open(str(target_pdf_path))
     try:
-        for arrow in arrows:
-            # Step 1 — check parent match
-            if arrow.tail_annotation_id is None:
-                results.append(_unresolved(arrow.arrow_id))
-                continue
-
-            parent_match = annot_id_to_match.get(arrow.tail_annotation_id)
-            if parent_match is None or parent_match.field_id is None:
-                results.append(_unresolved(arrow.arrow_id))
-                continue
-
-            # Step 2 — look up parent match's field
-            target_field = field_id_to_field.get(parent_match.field_id)
-            if target_field is None:
-                results.append(_unresolved(arrow.arrow_id))
-                continue
-
-            target_page = parent_match.target_page  # 1-indexed
-
-            # Step 3 — get text blocks from target PDF (cached per page)
-            if target_page not in page_blocks_cache:
-                page = doc[target_page - 1]  # convert 1-indexed to 0-indexed
-                raw_blocks = page.get_text("blocks")
-                page_blocks_cache[target_page] = [b for b in raw_blocks if b[6] == 0]
-
-            all_blocks = page_blocks_cache[target_page]
-
-            # Pass A — fuzzy_in_field
-            fr = target_field.rect
-            ix0, iy0, ix1, iy1 = fr[0] - 4, fr[1] - 4, fr[2] + 4, fr[3] + 4
-            in_field_blocks = [
-                b for b in all_blocks
-                if b[0] < ix1 and b[2] > ix0 and b[1] < iy1 and b[3] > iy0
+        for page_index in range(doc.page_count):
+            page_num = page_index + 1
+            page = doc[page_index]
+            page_blocks_cache[page_num] = [
+                b for b in page.get_text("blocks") if b[6] == 0  # text blocks only
             ]
-
-            best_block = None
-            best_score = -1.0
-            for b in in_field_blocks:
-                score = fuzz.token_sort_ratio(arrow.head_text, b[4].strip()) / 100.0
-                if score > best_score:
-                    best_score = score
-                    best_block = b
-
-            if best_block is not None and best_score >= threshold:
-                results.append(ArrowMatch(
-                    arrow_id=arrow.arrow_id,
-                    target_page=target_page,
-                    target_field_id=parent_match.field_id,
-                    head_target_rect=(best_block[0], best_block[1], best_block[2], best_block[3]),
-                    head_match_method="fuzzy_in_field",
-                    head_confidence=best_score,
-                ))
-                continue
-
-            # Pass B — fuzzy_on_page
-            best_block = None
-            best_score = -1.0
-            for b in all_blocks:
-                score = fuzz.token_sort_ratio(arrow.head_text, b[4].strip()) / 100.0
-                if score > best_score:
-                    best_score = score
-                    best_block = b
-
-            if best_block is not None and best_score >= threshold:
-                results.append(ArrowMatch(
-                    arrow_id=arrow.arrow_id,
-                    target_page=target_page,
-                    target_field_id=parent_match.field_id,
-                    head_target_rect=(best_block[0], best_block[1], best_block[2], best_block[3]),
-                    head_match_method="fuzzy_on_page",
-                    head_confidence=best_score,
-                ))
-            else:
-                results.append(_unresolved(arrow.arrow_id))
     finally:
         doc.close()
 
+    results: list[ArrowMatch] = []
+    for arrow in arrows:
+        if arrow.tail_annotation_id is None:
+            results.append(_unresolved(arrow.arrow_id))
+            continue
+
+        parent_match = annot_id_to_match.get(arrow.tail_annotation_id)
+        if parent_match is None:
+            results.append(_unresolved(arrow.arrow_id))
+            continue
+
+        target_page = parent_match.target_page
+        blocks = page_blocks_cache.get(target_page, [])
+        if not blocks:
+            results.append(_unresolved(arrow.arrow_id))
+            continue
+
+        query = arrow.head_text.strip()
+        if not query:
+            results.append(_unresolved(arrow.arrow_id))
+            continue
+
+        # Pass A: fuzzy match in blocks intersecting the inflated placed-annotation rect
+        best_score_a = 0.0
+        best_block_a = None
+        if parent_match.target_rect:
+            infl = 30.0
+            px0 = parent_match.target_rect[0] - infl
+            py0 = parent_match.target_rect[1] - infl
+            px1 = parent_match.target_rect[2] + infl
+            py1 = parent_match.target_rect[3] + infl
+            for block in blocks:
+                bx0, by0, bx1, by1 = block[0], block[1], block[2], block[3]
+                if bx1 < px0 or bx0 > px1 or by1 < py0 or by0 > py1:
+                    continue  # does not intersect inflated rect
+                score = fuzz.token_sort_ratio(query, block[4].strip())
+                if score > best_score_a:
+                    best_score_a = score
+                    best_block_a = block
+
+        if best_block_a is not None and best_score_a >= threshold:
+            fr = best_block_a
+            results.append(ArrowMatch(
+                arrow_id=arrow.arrow_id,
+                target_page=target_page,
+                target_field_id=parent_match.field_id,
+                head_target_rect=(fr[0], fr[1], fr[2], fr[3]),
+                head_match_method="fuzzy_in_field",
+                head_confidence=best_score_a / 100.0,
+            ))
+            continue
+
+        # Pass B: 2-D proximity match against fields on the target page.
+        # Horizontal dist = min(|hx - field.x0|, |hx - field.x1|)
+        # Vertical dist   = min(|hy - field.y0|, |hy - field.y1|)
+        # Select the field with the smallest sum of both distances.
+        hx, hy = arrow.head_vertex
+        # head_vertex is 0-indexed (PyMuPDF), target_page is 1-indexed — same coordinate
+        # space; no page-index conversion needed for the rect comparison.
+        page_fields = [f for f in fields if f.page == target_page]
+        if page_fields:
+            def _proximity(f: FieldRecord) -> float:
+                x0, y0, x1, y1 = f.rect
+                h_dist = min(abs(hx - x0), abs(hx - x1))
+                v_dist = min(abs(hy - y0), abs(hy - y1))
+                return h_dist + v_dist
+
+            best_field = min(page_fields, key=_proximity)
+            fr = best_field.rect
+            results.append(ArrowMatch(
+                arrow_id=arrow.arrow_id,
+                target_page=target_page,
+                target_field_id=parent_match.field_id,
+                head_target_rect=(fr[0], fr[1], fr[2], fr[3]),
+                head_match_method="proximity_field",
+                head_confidence=1.0,
+            ))
+        else:
+            # Fallback: fuzzy match across all text blocks on the page
+            best_score_b = 0.0
+            best_block_b = None
+            for block in blocks:
+                score = fuzz.token_sort_ratio(query, block[4].strip())
+                if score > best_score_b:
+                    best_score_b = score
+                    best_block_b = block
+
+            if best_block_b is not None and best_score_b >= threshold:
+                fr = best_block_b
+                results.append(ArrowMatch(
+                    arrow_id=arrow.arrow_id,
+                    target_page=target_page,
+                    target_field_id=parent_match.field_id,
+                    head_target_rect=(fr[0], fr[1], fr[2], fr[3]),
+                    head_match_method="fuzzy_on_page",
+                    head_confidence=best_score_b / 100.0,
+                ))
+            else:
+                results.append(_unresolved(arrow.arrow_id))
+
     return results
+

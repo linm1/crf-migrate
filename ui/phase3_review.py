@@ -519,7 +519,13 @@ def _render_action_card(
                         source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
                         target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
                         _result["matches"] = match_annotations(annotations, fields, profile, source_dims, target_dims)
-                        arrows: list[ArrowRecord] = st.session_state.get("arrows", [])
+                        arrows: list[ArrowRecord] = st.session_state.get("arrows") or []
+                        if not arrows and session:
+                            try:
+                                arrows = session.load_arrows()
+                                st.session_state["arrows"] = arrows
+                            except FileNotFoundError:
+                                arrows = []
                         if arrows and target_pdf_path:
                             _result["arrow_matches"] = resolve_arrows(
                                 arrows, _result["matches"], fields, target_pdf_path, profile

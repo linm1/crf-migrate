@@ -110,5 +110,5 @@ class ArrowMatch(BaseModel):
     target_page: int | None                    # from parent MatchRecord
     target_field_id: str | None                # from parent MatchRecord
     head_target_rect: tuple[float, float, float, float] | None
-    head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "unresolved"]
+    head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "proximity_field", "unresolved"]
     head_confidence: float = Field(ge=0.0, le=1.0)

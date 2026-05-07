@@ -120,14 +120,26 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
 
             def _work() -> None:
                 try:
+                    arrow_matches = st.session_state.get("arrow_matches") or []
+                    arrows = st.session_state.get("arrows") or []
+                    if session and not arrow_matches:
+                        try:
+                            arrow_matches = session.load_arrow_matches()
+                        except FileNotFoundError:
+                            arrow_matches = []
+                    if session and not arrows:
+                        try:
+                            arrows = session.load_arrows()
+                        except FileNotFoundError:
+                            arrows = []
                     _result["qc_report"] = write_annotations(
                         target_pdf_path,
                         out_path,
                         matches,
                         annotations,
                         profile,
-                        arrow_matches=st.session_state.get("arrow_matches", []),
-                        arrows=st.session_state.get("arrows", []),
+                        arrow_matches=arrow_matches,
+                        arrows=arrows,
                     )
                 except Exception as exc:
                     _result["error"] = exc

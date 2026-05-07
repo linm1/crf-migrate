@@ -278,7 +278,7 @@ class TestArrowsConfigLoader:
         profile = load_profile(CDISC_PROFILE_PATH)
         assert profile.arrows.enabled is True
         assert profile.arrows.tail_snap_radius_pt == pytest.approx(12.0)
-        assert profile.arrows.head_text_search_radius_pt == pytest.approx(20.0)
+        assert profile.arrows.head_text_search_radius_pt == pytest.approx(60.0)
         assert profile.arrows.head_fuzzy_threshold == pytest.approx(0.85)
         assert profile.arrows.size_similarity_tolerance == pytest.approx(0.20)
 

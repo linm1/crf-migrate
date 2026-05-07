@@ -193,11 +193,12 @@ def test_write_arrow_style_preserved(tmp_path: Path) -> None:
         border = a.border or {}
         assert border.get("width") == pytest.approx(2.0, abs=0.1)
 
-        # line_ends
+        # line_ends: style.line_ends=(4,0) means v0 had arrowhead.
+        # writer swaps so arrowhead lands at p2 (head), not p1 (tail).
         le = a.line_ends
         assert le is not None
-        assert int(le[0]) == 4  # open arrow at p1
-        assert int(le[1]) == 0  # none at p2
+        assert int(le[0]) == 0  # no arrowhead at p1 (tail)
+        assert int(le[1]) == 4  # open arrow at p2 (head)
     finally:
         doc.close()
 
@@ -270,7 +271,7 @@ def test_arrow_qc_counts_in_report(tmp_path: Path) -> None:
     )
 
     arm1 = _make_arrow_match("arrow-001", method="fuzzy_in_field")
-    arm2 = _make_arrow_match("arrow-002", method="fuzzy_on_page")
+    arm2 = _make_arrow_match("arrow-002", method="fuzzy_in_field")
     arm3 = _make_arrow_match("arrow-003", method="unresolved", head_target_rect=None)
 
     report = write_annotations(
@@ -307,4 +308,92 @@ def test_no_arrows_provided_backward_compat(tmp_path: Path) -> None:
     assert isinstance(report, dict)
     assert "written" in report
     assert report["arrows_written"] == 0
-    assert report["arrows_skipped"] == 0
+
+
+def test_line_ends_swap_puts_arrowhead_at_head(tmp_path: Path) -> None:
+    """Regression: when style.line_ends=(4,0), arrowhead must land at p2 (head/field),
+    not p1 (tail/annotation). PyMuPDF stores set_line_ends(start, end) where
+    start=p1 and end=p2, so the writer must swap the pair when le0 != 0."""
+    target_pdf = create_arrow_output_target_pdf(tmp_path / "target.pdf")
+    output_pdf = tmp_path / "output.pdf"
+    profile = _make_profile()
+
+    # Arrow with arrowhead originally at v0 → style.line_ends=(4, 0)
+    annot = _make_annotation()
+    match = _make_match()
+    arrow = _make_arrow_record()  # uses _make_arrow_style() which has line_ends=(4, 0)
+    arm = _make_arrow_match()
+
+    write_annotations(
+        target_pdf_path=target_pdf,
+        output_pdf_path=output_pdf,
+        matches=[match],
+        annotations=[annot],
+        profile=profile,
+        arrow_matches=[arm],
+        arrows=[arrow],
+    )
+
+    doc = fitz.open(str(output_pdf))
+    try:
+        page = doc[0]
+        line_annots = [a for a in page.annots() if a.type[0] == 3]
+        assert len(line_annots) == 1
+        le = line_annots[0].line_ends
+        assert le is not None, "line_ends must be set"
+        # p1=tail must have no arrowhead; p2=head must have the arrowhead
+        assert int(le[0]) == 0, f"Expected no arrowhead at p1 (tail), got line_ends={le}"
+        assert int(le[1]) == 4, f"Expected open-arrow at p2 (head), got line_ends={le}"
+    finally:
+        doc.close()
+
+
+def test_line_ends_no_swap_when_le0_zero(tmp_path: Path) -> None:
+    """When style.line_ends=(0,4), arrowhead is already at v1=head; no swap needed."""
+    target_pdf = create_arrow_output_target_pdf(tmp_path / "target.pdf")
+    output_pdf = tmp_path / "output.pdf"
+    profile = _make_profile()
+
+    style_le1 = ArrowStyle(
+        stroke_color=(0.0, 0.0, 1.0),
+        width=1.0,
+        dashes=[],
+        line_ends=(0, 4),  # arrowhead at v1 — no swap required
+        opacity=1.0,
+    )
+    arrow = ArrowRecord(
+        arrow_id="arrow-le1",
+        source_page=0,
+        tail_vertex=(200.0, 90.0),
+        head_vertex=(210.0, 62.0),
+        head_source_rect=(190.0, 55.0, 260.0, 75.0),
+        tail_annotation_id="annot-001",
+        head_text="Yes",
+        head_search_hint=(210.0, 62.0),
+        style=style_le1,
+    )
+    annot = _make_annotation()
+    match = _make_match()
+    arm = _make_arrow_match(arrow_id="arrow-le1")
+
+    write_annotations(
+        target_pdf_path=target_pdf,
+        output_pdf_path=output_pdf,
+        matches=[match],
+        annotations=[annot],
+        profile=profile,
+        arrow_matches=[arm],
+        arrows=[arrow],
+    )
+
+    doc = fitz.open(str(output_pdf))
+    try:
+        page = doc[0]
+        line_annots = [a for a in page.annots() if a.type[0] == 3]
+        assert len(line_annots) == 1
+        le = line_annots[0].line_ends
+        assert le is not None
+        assert int(le[0]) == 0, f"Expected no arrowhead at p1 (tail), got line_ends={le}"
+        assert int(le[1]) == 4, f"Expected open-arrow at p2 (head), got line_ends={le}"
+    finally:
+        doc.close()

@@ -365,8 +365,13 @@ def _write_single_arrow(
     style = arrow.style
     a.set_colors(stroke=list(style.stroke_color))
     a.set_border(width=style.width, dashes=list(style.dashes))
-    # line_ends: (start, end) where start=p1 (tail), end=p2 (head)
-    a.set_line_ends(style.line_ends[0], style.line_ends[1])
+    # line_ends are stored in original PyMuPDF vertex order (v0, v1).
+    # head_tail_from_line_ends may have swapped vertices so that p1=tail, p2=head.
+    # We must apply the arrowhead style to p2 (head) and tail style to p1 (tail).
+    # When le0 != 0: v0 was head (now p2), v1 was tail (now p1) → swap the pair.
+    le0, le1 = style.line_ends
+    tail_le, head_le = (le1, le0) if le0 != 0 else (le0, le1)
+    a.set_line_ends(tail_le, head_le)
     a.update(opacity=style.opacity)
 
     return True
