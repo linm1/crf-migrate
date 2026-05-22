@@ -421,6 +421,252 @@ class TestExtractAnnotations:
         assert len(records) == 1
         assert records[0].style.text_color == pytest.approx([1.0, 0.0, 0.0], abs=0.02)
 
+    def test_rc_typography_bold_span_overrides_da_font(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """RC span font-weight:bold and font-family override DA placeholder /Helv 12 Tf."""
+        import fitz
+
+        rc_xml = (
+            '<?xml version="1.0"?>'
+            '<body xmlns="http://www.w3.org/1999/xhtml"'
+            ' style="font-size:12.00pt;font-family:\'Times New Roman\'">'
+            '<p><span style="font-weight:bold;font-style:normal;font-family:\'Arial\'">'
+            "FT (Functional Tests)"
+            "</span></p></body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "FT (Functional Tests)",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="FT (Functional Tests)", subject="FT")
+        annot.update()
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        # DA size (14pt) differs from RC size (12pt) — proves RC wins over DA
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Helv 14 Tf)")
+
+        pdf_path = tmp_path / "rc_bold_span.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        style = records[0].style
+        assert style.font == "Arial,Bold", f"Expected Arial,Bold, got {style.font!r}"
+        assert style.font_size == pytest.approx(12.0)
+
+    def test_rc_typography_normal_weight_no_bold_suffix(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """RC span with font-weight:normal produces font token without Bold suffix."""
+        import fitz
+
+        rc_xml = (
+            '<?xml version="1.0"?>'
+            '<body xmlns="http://www.w3.org/1999/xhtml">'
+            '<p><span style="font-weight:normal;font-family:\'Arial\';font-size:10.00pt">'
+            "FTCAT = 10-METER WALK/RUN"
+            "</span></p></body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "FTCAT = 10-METER WALK/RUN",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="FTCAT = 10-METER WALK/RUN", subject="FT")
+        annot.update()
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Helv 12 Tf)")
+
+        pdf_path = tmp_path / "rc_normal_weight.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        style = records[0].style
+        assert style.font == "Arial", f"Expected Arial, got {style.font!r}"
+        assert style.font_size == pytest.approx(10.0)
+
+    def test_rc_typography_body_size_span_family_cascade(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """RC body provides font-size; span overrides font-family — both applied."""
+        import fitz
+
+        rc_xml = (
+            '<?xml version="1.0"?>'
+            '<body xmlns="http://www.w3.org/1999/xhtml"'
+            ' style="font-size:10.00pt;font-family:\'Helvetica\'">'
+            '<p><span style="font-family:\'Arial\'">'
+            "DM (Demographics)"
+            "</span></p></body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "DM (Demographics)",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="DM (Demographics)", subject="DM")
+        annot.update()
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Helv 12 Tf)")
+
+        pdf_path = tmp_path / "rc_body_size_span_family.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        style = records[0].style
+        # span overrides body for family → Arial; body size → 10pt
+        assert style.font == "Arial", f"Expected Arial, got {style.font!r}"
+        assert style.font_size == pytest.approx(10.0)
+
+    def test_rc_typography_absent_rc_falls_back_to_da(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """When no RC is set, font name and size come from DA (existing behavior)."""
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "DM (Demographics)",
+            fontsize=14,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="DM (Demographics)", subject="DM")
+        annot.update()
+        # No RC set — DA is the only source
+
+        pdf_path = tmp_path / "rc_absent_da_fallback.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        style = records[0].style
+        assert style.font_size == pytest.approx(14.0)
+
+    def test_rc_typography_italic_span(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """RC span with font-style:italic produces font token with Italic suffix."""
+        import fitz
+
+        rc_xml = (
+            '<?xml version="1.0"?>'
+            '<body xmlns="http://www.w3.org/1999/xhtml">'
+            '<p><span style="font-style:italic;font-family:\'Arial\';font-size:10.00pt">'
+            "See page 5"
+            "</span></p></body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "See page 5",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="See page 5", subject="")
+        annot.update()
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Helv 12 Tf)")
+
+        pdf_path = tmp_path / "rc_italic_span.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        style = records[0].style
+        assert style.font == "Arial,Italic", f"Expected Arial,Italic, got {style.font!r}"
+        assert style.font_size == pytest.approx(10.0)
+
+    def test_rc_typography_bold_italic_combined(
+        self,
+        tmp_path,
+        cdisc_profile,
+        cdisc_engine,
+    ):
+        """RC span with both font-weight:bold and font-style:italic produces BoldItalic token."""
+        import fitz
+
+        rc_xml = (
+            '<?xml version="1.0"?>'
+            '<body xmlns="http://www.w3.org/1999/xhtml">'
+            '<p><span style="font-weight:bold;font-style:italic;font-family:\'Arial\';font-size:10.00pt">'
+            "Note: See page 5"
+            "</span></p></body>"
+        )
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        annot = page.add_freetext_annot(
+            fitz.Rect(50, 50, 300, 80),
+            "Note: See page 5",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        annot.set_info(content="Note: See page 5", subject="")
+        annot.update()
+        doc.xref_set_key(annot.xref, "RC", fitz.get_pdf_str(rc_xml))
+        doc.xref_set_key(annot.xref, "DA", "(0 0 0 rg /Helv 12 Tf)")
+
+        pdf_path = tmp_path / "rc_bold_italic.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+        assert len(records) == 1
+        style = records[0].style
+        assert style.font == "Arial,BoldItalic", f"Expected Arial,BoldItalic, got {style.font!r}"
+        assert style.font_size == pytest.approx(10.0)
+
 
 class TestGetTextBlocksAnnotFiltering:
     """Verify that _make_clean_page + _get_text_blocks cleanly separates SDTM annotation

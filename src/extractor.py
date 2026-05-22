@@ -25,6 +25,11 @@ _RC_COLOR_DECL_PATTERN = re.compile(
     r"(?<![-\w])color\s*:\s*(#[0-9a-fA-F]{3}\b|#[0-9a-fA-F]{6}\b|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\))",
     re.IGNORECASE,
 )
+_RC_STYLE_ATTR_PATTERN = re.compile(r'style\s*=\s*"([^"]*)"', re.IGNORECASE)
+_RC_FONT_FAMILY_DECL_PATTERN = re.compile(r"font-family\s*:\s*([^;]+)", re.IGNORECASE)
+_RC_FONT_SIZE_DECL_PATTERN = re.compile(r"font-size\s*:\s*(\d+(?:\.\d+)?)pt", re.IGNORECASE)
+_RC_FONT_WEIGHT_DECL_PATTERN = re.compile(r"font-weight\s*:\s*([^;\s]+)", re.IGNORECASE)
+_RC_FONT_STYLE_DECL_PATTERN = re.compile(r"font-style\s*:\s*([^;\s]+)", re.IGNORECASE)
 
 
 def extract_annotations(
@@ -252,6 +257,55 @@ def _parse_richtext_color(raw_rc: str) -> list[float] | None:
     return text_color
 
 
+def _parse_richtext_typography(raw_rc: str) -> tuple[str | None, float | None, bool, bool]:
+    """Return (font_family, font_size_pt, is_bold, is_italic) from RC XHTML CSS.
+
+    Reads cascading CSS from <body style="..."> and <span style="..."> elements
+    in document order. The LAST declaration wins (CSS cascade, matches existing
+    _parse_richtext_color contract).
+
+    Returns (None, None, False, False) when no recognisable typography exists.
+    """
+    font_family: str | None = None
+    font_size: float | None = None
+    is_bold: bool = False
+    is_italic: bool = False
+
+    for style_match in _RC_STYLE_ATTR_PATTERN.finditer(raw_rc):
+        style_text = style_match.group(1)
+
+        family_match = _RC_FONT_FAMILY_DECL_PATTERN.search(style_text)
+        if family_match:
+            raw_families = family_match.group(1)
+            first_family = raw_families.split(",")[0].strip().strip("'\"")
+            if first_family:
+                font_family = first_family
+
+        size_match = _RC_FONT_SIZE_DECL_PATTERN.search(style_text)
+        if size_match:
+            font_size = float(size_match.group(1))
+
+        weight_match = _RC_FONT_WEIGHT_DECL_PATTERN.search(style_text)
+        if weight_match:
+            weight_val = weight_match.group(1).lower()
+            if weight_val in ("bold", "bolder"):
+                is_bold = True
+            elif weight_val in ("normal", "lighter"):
+                is_bold = False
+            else:
+                try:
+                    is_bold = int(weight_val) >= 600
+                except ValueError:
+                    is_bold = False
+
+        fstyle_match = _RC_FONT_STYLE_DECL_PATTERN.search(style_text)
+        if fstyle_match:
+            fstyle_val = fstyle_match.group(1).lower()
+            is_italic = fstyle_val in ("italic", "oblique")
+
+    return font_family, font_size, is_bold, is_italic
+
+
 def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
     """Extract font and color styling from annotation DA string with profile defaults.
 
@@ -306,6 +360,17 @@ def _parse_style(annot: fitz.Annot, profile: Profile) -> StyleInfo:
         da_text_color = _parse_device_rgb(da)
         if da_text_color is not None:
             text_color = da_text_color
+
+    rc_family, rc_size, rc_bold, rc_italic = _parse_richtext_typography(rc)
+    if rc_family is not None:
+        suffix_parts = []
+        if rc_bold:
+            suffix_parts.append("Bold")
+        if rc_italic:
+            suffix_parts.append("Italic")
+        font = f"{rc_family},{''.join(suffix_parts)}" if suffix_parts else rc_family
+    if rc_size is not None:
+        font_size = rc_size
 
     # Fill/background color: for FreeText, PyMuPDF exposes this under
     # annot.colors["stroke"] (PDF "C" key). annot.colors["fill"] is always empty.

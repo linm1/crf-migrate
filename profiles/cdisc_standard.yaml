@@ -151,6 +151,7 @@ form_name_rules:
   - ^\[\d{6}
   - \b\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\b
   - \b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b
+  - ^\[?(?:[A-Za-z]+-?\d+|\d+)[-_][A-Za-z]+\d+\]?(?=\W|$)
   top_region_fraction: 0.35
   label_prefix: null
 visit_rules:
@@ -184,7 +185,7 @@ matching_config:
 style_defaults:
   font: Arial,BoldItalic
   font_size: 12.0
-  domain_label_font_size: 12.0
+  domain_label_font_size: 10.0
   text_color:
   - 0.0
   - 0.0
@@ -194,3 +195,4 @@ style_defaults:
   - 0.0
   - 0.0
   fill_color: null
+  use_source_style: true
