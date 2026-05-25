@@ -235,7 +235,8 @@ def _dedup_annotations(records: list[AnnotationRecord]) -> list[AnnotationRecord
         warnings.warn(
             "Duplicate annotations at "
             f"page={key[0]}, rect=({key[1]}, {key[2]}, {key[3]}, {key[4]}); "
-            f"keeping id={winner.id!r} with content={winner.content!r}.",
+            f"group_size={len(group)}; keeping category={winner.category!r} "
+            f"with content={winner.content!r}.",
             UserWarning,
             stacklevel=2,
         )
