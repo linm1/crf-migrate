@@ -5,6 +5,7 @@ for classification, form name extraction, and visit detection.
 """
 import re
 import uuid
+import warnings
 from pathlib import Path
 
 import fitz  # PyMuPDF
@@ -30,6 +31,12 @@ _RC_FONT_FAMILY_DECL_PATTERN = re.compile(r"font-family\s*:\s*([^;]+)", re.IGNOR
 _RC_FONT_SIZE_DECL_PATTERN = re.compile(r"font-size\s*:\s*(\d+(?:\.\d+)?)pt", re.IGNORECASE)
 _RC_FONT_WEIGHT_DECL_PATTERN = re.compile(r"font-weight\s*:\s*([^;\s]+)", re.IGNORECASE)
 _RC_FONT_STYLE_DECL_PATTERN = re.compile(r"font-style\s*:\s*([^;\s]+)", re.IGNORECASE)
+_DEDUP_CATEGORY_PRIORITY: tuple[str, ...] = (
+    "sdtm_mapping",
+    "domain_label",
+    "cross_reference",
+    "note",
+)
 
 
 def extract_annotations(
@@ -54,7 +61,7 @@ def extract_annotations(
             records.extend(page_records)
     finally:
         doc.close()
-    return records
+    return _dedup_annotations(records)
 
 
 def get_page_text_blocks(pdf_path: Path, page_num: int) -> list[TextBlock]:
@@ -186,6 +193,51 @@ def _safe_rotation(annot: fitz.Annot) -> int:
         return int(rot) if rot is not None else 0
     except Exception:
         return 0
+
+
+def _dedup_annotations(records: list[AnnotationRecord]) -> list[AnnotationRecord]:
+    """Remove annotations with identical page and rounded rect coordinates."""
+    from collections import defaultdict
+
+    def _rect_key(record: AnnotationRecord) -> tuple[int, float, float, float, float]:
+        return (
+            record.page,
+            round(record.rect[0], 2),
+            round(record.rect[1], 2),
+            round(record.rect[2], 2),
+            round(record.rect[3], 2),
+        )
+
+    def _category_rank(category: str) -> int:
+        try:
+            return _DEDUP_CATEGORY_PRIORITY.index(category)
+        except ValueError:
+            return len(_DEDUP_CATEGORY_PRIORITY)
+
+    def _winner_key(record: AnnotationRecord) -> tuple[int, int, str]:
+        return (-len(record.content), _category_rank(record.category), record.id)
+
+    groups: dict[tuple[int, float, float, float, float], list[AnnotationRecord]] = defaultdict(list)
+    for record in records:
+        groups[_rect_key(record)].append(record)
+
+    winning_ids: set[str] = set()
+    for key, group in groups.items():
+        if len(group) == 1:
+            winning_ids.add(group[0].id)
+            continue
+
+        winner = min(group, key=_winner_key)
+        winning_ids.add(winner.id)
+        warnings.warn(
+            "Duplicate annotations at "
+            f"page={key[0]}, rect=({key[1]}, {key[2]}, {key[3]}, {key[4]}); "
+            f"keeping id={winner.id!r} with content={winner.content!r}.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return [record for record in records if record.id in winning_ids]
 
 
 def _parse_device_rgb(raw: str) -> list[float] | None:
