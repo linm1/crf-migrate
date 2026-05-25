@@ -143,6 +143,13 @@ class TestExtractAnnotations:
             warnings.simplefilter("always")
             records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
 
+        duplicate_user_warnings = [
+            warning
+            for warning in caught_warnings
+            if issubclass(warning.category, UserWarning)
+            and "duplicate" in str(warning.message).lower()
+        ]
+
         matching_records = [
             record
             for record in records
@@ -152,7 +159,7 @@ class TestExtractAnnotations:
 
         assert len(matching_records) == 1
         assert matching_records[0].content == "BRTHDTC"
-        assert any("duplicate" in str(warning.message).lower() for warning in caught_warnings)
+        assert duplicate_user_warnings
 
     def test_form_name_populated(self, sample_acrf_path, cdisc_profile, cdisc_engine):
         """form_name is a string on every record (may be empty if extraction rules don't match)."""
