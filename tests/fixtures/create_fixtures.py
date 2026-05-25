@@ -43,6 +43,7 @@ def create_sample_acrf() -> Path:
 
     # Page 1 annotations: DM domain
     add_freetext(page1, [150, 90, 350, 110], "BRTHDTC", subject="DM")
+    add_freetext(page1, [150, 90, 350, 110], "DM", subject="DM")
     add_freetext(page1, [150, 120, 350, 140], "SEX", subject="DM")
     add_freetext(page1, [150, 150, 350, 170], "RACE", subject="DM")
     add_freetext(page1, [50, 40, 150, 60], "DM (Demographics)", subject="DM")
