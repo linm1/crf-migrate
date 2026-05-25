@@ -1,9 +1,61 @@
 """Shared PDF text extraction utilities used by extractor.py and field_parser.py."""
 import re
+from pathlib import Path
 
 import fitz  # PyMuPDF
 
 from src.rule_engine import TextBlock
+
+
+def build_form_clusters_from_toc(
+    pdf_path: Path,
+) -> dict[str, list[list[int]]]:
+    """Return {norm_form_name: [[page,...], ...]} using PDF outline bookmarks.
+
+    Each top-level outline entry whose title repeats for the same form name
+    marks the start of a separate visit cluster. Pages between consecutive
+    entries (across all titles) belong to the cluster started by the most
+    recent entry. The final cluster extends to the last document page.
+
+    Why: a target CRF may have multiple visit instances of the same form
+    occupying contiguous pages (e.g. scheduled + unscheduled visits of
+    "Neurological Exam" both on pages 188-203). Page contiguity alone cannot
+    split them; the PDF TOC encodes the visit boundary as a repeated bookmark.
+
+    Returns an empty dict when the PDF has no usable outline or cannot be
+    opened. Callers fall back to contiguity-based clustering in that case.
+    """
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return {}
+    try:
+        toc = doc.get_toc(simple=True)
+        page_count = doc.page_count
+    finally:
+        doc.close()
+
+    entries = [
+        (title.strip().lower(), int(page))
+        for level, title, page in toc
+        if isinstance(page, int) and page >= 1 and title and title.strip()
+    ]
+    if not entries:
+        return {}
+
+    entries.sort(key=lambda t: t[1])
+
+    spans: list[tuple[str, int, int]] = []
+    for idx, (title, start) in enumerate(entries):
+        end = entries[idx + 1][1] - 1 if idx + 1 < len(entries) else page_count
+        if end < start:
+            continue
+        spans.append((title, start, end))
+
+    result: dict[str, list[list[int]]] = {}
+    for title, start, end in spans:
+        result.setdefault(title, []).append(list(range(start, end + 1)))
+    return result
 
 
 def find_nearest_label(

@@ -1479,3 +1479,166 @@ class TestExactPassRepeatingPageRank:
         assert matched.get("c2a") == "fp2", "page-2 cluster must map to fp2"
         assert matched.get("c2b") == "fp2", "sibling c2b must share fp2 with c2a"
         assert matched.get("c2c") == "fp2", "sibling c2c must share fp2 with c2a"
+
+
+# ---------------------------------------------------------------------------
+# TestVisitClusterAlignment
+# Cluster-aware rank: repeating forms (one cluster per visit) are aligned at
+# the visit level, not just at the full-form page-rank level.
+# ---------------------------------------------------------------------------
+
+class TestVisitClusterAlignment:
+    """Visit-cluster page alignment for repeating forms with unequal page counts."""
+
+    def test_visit_cluster_aligns_repeating_form_across_unequal_page_counts(self):
+        """ION373-CS1 reproduction: source NE form has 2 visit-clusters of 2 pages
+        (src 186,187 = visit-1; src 194,195 = visit-2). Target NE form has 2
+        visit-clusters of 8 pages each (tgt 188..195 = visit-1; tgt 196..203 = visit-2).
+
+        A label that exists in BOTH target clusters ('General') must route:
+          src 186 -> cluster-1 target (never cluster-2)
+          src 194 -> cluster-2 target (never cluster-1)
+
+        A label that exists ONLY in the unscheduled cluster ('Reason Unscheduled')
+        must route src 194 -> cluster-2 via label-rank fallback.
+        """
+        # Source: 2 visit-clusters of 2 pages
+        # Visit-1: pages 186, 187
+        # Visit-2: pages 194, 195 (non-contiguous with visit-1 => separate cluster)
+        a_gen_v1 = _make_annot("a_gen_v1", "General", "NE", page=186, y=100.0)
+        a_gen_v2 = _make_annot("a_gen_v2", "General", "NE", page=194, y=100.0)
+        a_reason = _make_annot("a_reason", "Reason Unscheduled", "NE", page=194, y=200.0)
+
+        # Target: 2 visit-clusters of 8 pages
+        # Visit-1: pages 188..195; Visit-2: pages 196..203
+        # "General" appears in both clusters
+        f_gen_v1 = _make_field("f_gen_v1", "General", "NE", page=190, y=100.0)
+        f_gen_v2 = _make_field("f_gen_v2", "General", "NE", page=198, y=100.0)
+        # "Reason Unscheduled" only in cluster-2
+        f_reason = _make_field("f_reason", "Reason Unscheduled", "NE", page=196, y=200.0)
+
+        # Filler pages so page-rank map includes all pages in each cluster
+        filler_src = [
+            _make_annot(f"fs{p}", "Other", "NE", page=p)
+            for p in [187, 195]
+        ]
+        filler_tgt = [
+            _make_field(f"ft{p}", "Other", "NE", page=p)
+            for p in [188, 189, 191, 192, 193, 194, 195, 197, 199, 200, 201, 202, 203]
+        ]
+
+        profile = _make_profile_default()
+        src_dims = {p: (595.0, 842.0) for p in [186, 187, 194, 195]}
+        tgt_dims = {p: (595.0, 842.0) for p in range(188, 204)}
+
+        all_annots = [a_gen_v1, a_gen_v2, a_reason] + filler_src
+        all_fields = [f_gen_v1, f_gen_v2, f_reason] + filler_tgt
+
+        matches = match_annotations(all_annots, all_fields, profile, src_dims, tgt_dims)
+        by_annot = {m.annotation_id: m for m in matches}
+
+        # src 186 "General" -> cluster-1 target (p188..195); f_gen_v1 is on p190
+        assert by_annot["a_gen_v1"].field_id == "f_gen_v1", (
+            "src-p186 (cluster-1) 'General' must land on cluster-1 target (p190), "
+            f"got field_id={by_annot['a_gen_v1'].field_id!r} page={by_annot['a_gen_v1'].target_page}"
+        )
+        assert by_annot["a_gen_v1"].target_page in range(188, 196), (
+            f"src-p186 must not cross into cluster-2 (tgt p196..203), got {by_annot['a_gen_v1'].target_page}"
+        )
+
+        # src 194 "General" -> cluster-2 target (p196..203); f_gen_v2 is on p198
+        assert by_annot["a_gen_v2"].field_id == "f_gen_v2", (
+            "src-p194 (cluster-2) 'General' must land on cluster-2 target (p198), "
+            f"got field_id={by_annot['a_gen_v2'].field_id!r} page={by_annot['a_gen_v2'].target_page}"
+        )
+        assert by_annot["a_gen_v2"].target_page in range(196, 204), (
+            f"src-p194 must not cross into cluster-1 (tgt p188..195), got {by_annot['a_gen_v2'].target_page}"
+        )
+
+        # src 194 "Reason Unscheduled" -> cluster-2 via label-rank fallback
+        assert by_annot["a_reason"].field_id == "f_reason", (
+            f"'Reason Unscheduled' only in cluster-2; expected f_reason, got {by_annot['a_reason'].field_id!r}"
+        )
+        assert by_annot["a_reason"].target_page in range(196, 204), (
+            f"'Reason Unscheduled' must land in cluster-2 (tgt p196..203), got {by_annot['a_reason'].target_page}"
+        )
+
+    def test_visit_cluster_single_source_visit_to_multi_target_visit(self):
+        """Collapse case: source has 1 visit-cluster (2 contiguous pages),
+        target has 2 visit-clusters. All source annotations must land in
+        target cluster-1, never in cluster-2.
+        """
+        # Source: 1 cluster (pages 1, 2 contiguous)
+        a1 = _make_annot("a1", "Label A", "FORM", page=1, y=100.0)
+        a2 = _make_annot("a2", "Label A", "FORM", page=2, y=100.0)
+
+        # Target: 2 clusters (pages 10, 11 = cluster-1; pages 20, 21 = cluster-2)
+        f_c1 = _make_field("f_c1", "Label A", "FORM", page=10, y=100.0)
+        f_c2 = _make_field("f_c2_p1", "Label A", "FORM", page=11, y=100.0)
+        f_c3 = _make_field("f_c3", "Label A", "FORM", page=20, y=100.0)
+        f_c4 = _make_field("f_c4", "Label A", "FORM", page=21, y=100.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0), 2: (595.0, 842.0)}
+        tgt_dims = {10: (595.0, 842.0), 11: (595.0, 842.0), 20: (595.0, 842.0), 21: (595.0, 842.0)}
+
+        matches = match_annotations([a1, a2], [f_c1, f_c2, f_c3, f_c4], profile, src_dims, tgt_dims)
+        by_annot = {m.annotation_id: m for m in matches}
+
+        # src has 1 cluster -> all annotations go to cluster-1 of target (pages 10, 11)
+        assert by_annot["a1"].target_page in (10, 11), (
+            f"src-p1 (single cluster) must land in tgt cluster-1 (p10 or p11), got {by_annot['a1'].target_page}"
+        )
+        assert by_annot["a2"].target_page in (10, 11), (
+            f"src-p2 (single cluster) must land in tgt cluster-1 (p10 or p11), got {by_annot['a2'].target_page}"
+        )
+        # Must NOT land in cluster-2 (pages 20, 21)
+        assert by_annot["a1"].target_page not in (20, 21), (
+            f"src-p1 must not cross into cluster-2, got {by_annot['a1'].target_page}"
+        )
+        assert by_annot["a2"].target_page not in (20, 21), (
+            f"src-p2 must not cross into cluster-2, got {by_annot['a2'].target_page}"
+        )
+
+    def test_visit_cluster_degenerate_single_cluster_matches_current_behavior(self):
+        """Sanity: a form with one contiguous cluster (no repeating visits) produces
+        the same matches as the pre-cluster label-rank fallback behavior.
+
+        Mirrors test_label_relative_rank_fallback_when_form_page_counts_differ:
+        source 6 contiguous pages, target 18 contiguous pages, label only on
+        pages 3+4 (src) and 103+112 (tgt). Should still produce exact matches
+        via label-rank fallback with cluster index always == 1.
+        """
+        src_pages_all = [1, 2, 3, 4, 5, 6]
+        tgt_pages_all = list(range(101, 119))
+
+        filler_annots = [
+            _make_annot(f"filler_a{p}", "Other Label", "Big Form", page=p)
+            for p in src_pages_all if p not in (3, 4)
+        ]
+        a1 = _make_annot("a1", "Repeating Label", "Big Form", page=3, y=100.0)
+        a2 = _make_annot("a2", "Repeating Label", "Big Form", page=4, y=100.0)
+
+        filler_fields = [
+            _make_field(f"filler_f{p}", "Other Label", "Big Form", page=p)
+            for p in tgt_pages_all if p not in (103, 112)
+        ]
+        f1 = _make_field("f1", "Repeating Label", "Big Form", page=103, y=100.0)
+        f2 = _make_field("f2", "Repeating Label", "Big Form", page=112, y=100.0)
+
+        profile = _make_profile_default()
+        src_dims = {p: (595.0, 842.0) for p in src_pages_all}
+        tgt_dims = {p: (595.0, 842.0) for p in tgt_pages_all}
+
+        matches = match_annotations(
+            filler_annots + [a1, a2],
+            filler_fields + [f1, f2],
+            profile,
+            src_dims,
+            tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1", "single-cluster: label-rank-1 must hit label-rank-1 field"
+        assert by_annot["a2"].field_id == "f2", "single-cluster: label-rank-2 must hit label-rank-2 field"
+        assert by_annot["a1"].match_type == "exact"
+        assert by_annot["a2"].match_type == "exact"

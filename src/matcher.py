@@ -49,6 +49,76 @@ def _build_page_rank_map(records: list, key_fn) -> dict:
     }
 
 
+def _build_form_clusters(records: list, key_fn) -> dict[str, list[list[int]]]:
+    """Return {norm_form_name: list_of_clusters} where each cluster is a sorted
+    list of contiguous page numbers belonging to that form.
+
+    A page joins the current cluster when its number is exactly last_page + 1;
+    otherwise a new cluster starts. Strict adjacency captures the structural
+    signal that non-contiguous pages belong to different visits.
+    """
+    form_pages: dict[str, list[int]] = {}
+    for r in records:
+        nf = key_fn(r)
+        if nf not in form_pages:
+            form_pages[nf] = []
+        if r.page not in form_pages[nf]:
+            form_pages[nf].append(r.page)
+
+    result: dict[str, list[list[int]]] = {}
+    for nf, pages in form_pages.items():
+        sorted_pages = sorted(pages)
+        clusters: list[list[int]] = []
+        for pg in sorted_pages:
+            if clusters and pg == clusters[-1][-1] + 1:
+                clusters[-1].append(pg)
+            else:
+                clusters.append([pg])
+        result[nf] = clusters
+    return result
+
+
+def _merge_form_clusters(
+    derived: dict[str, list[list[int]]],
+    override: dict[str, list[list[int]]] | None,
+) -> dict[str, list[list[int]]]:
+    """Apply TOC-derived overrides on top of contiguity-derived clusters.
+
+    For each form in override, intersect the override page ranges with the
+    pages already present in derived[form] to produce the same-form cluster
+    list restricted to pages that actually carry records. Empty override
+    clusters are dropped. Forms absent from override keep their derived
+    clustering unchanged.
+    """
+    if not override:
+        return derived
+    merged = dict(derived)
+    for nf, ov_clusters in override.items():
+        derived_pages = {pg for cl in derived.get(nf, []) for pg in cl}
+        if not derived_pages:
+            continue
+        new_clusters: list[list[int]] = []
+        for cl in ov_clusters:
+            filtered = sorted(p for p in cl if p in derived_pages)
+            if filtered:
+                new_clusters.append(filtered)
+        if new_clusters:
+            merged[nf] = new_clusters
+    return merged
+
+
+def _cluster_rank(page: int, clusters: list[list[int]]) -> tuple[int, int]:
+    """Return (cluster_idx, page_in_cluster_idx) both 1-based for the given page.
+
+    Returns (0, 0) if page is not found in any cluster.
+    """
+    for ci, cluster in enumerate(clusters):
+        for pi, pg in enumerate(cluster):
+            if pg == page:
+                return (ci + 1, pi + 1)
+    return (0, 0)
+
+
 def _apply_anchor_offset(
     annot_rect: list[float],
     anchor_rect: list[float],
@@ -258,6 +328,8 @@ def _exact_pass(
     fields: list[FieldRecord],
     unmatched_annot_ids: set[str],
     exact_threshold: float,
+    src_clusters: dict[str, list[list[int]]] | None = None,
+    tgt_clusters: dict[str, list[list[int]]] | None = None,
 ) -> list[MatchRecord]:
     """Pass 1: exact form_name + anchor_text == field label (case-insensitive).
 
@@ -268,6 +340,10 @@ def _exact_pass(
     target field), extras are pinned to the last field. Otherwise surplus
     annotations fall through to later passes. Mutates `unmatched_annot_ids`
     in place.
+
+    When src_clusters/tgt_clusters are provided the multi-page branch buckets
+    by (cluster_idx, page_in_cluster_idx) so that repeating forms (one cluster
+    per visit) are aligned at the visit level, not just at the full-form level.
     """
     results: list[MatchRecord] = []
 
@@ -301,11 +377,14 @@ def _exact_pass(
                 deduped.append(f)
         field_groups[key] = deduped
 
-    # Global form-page rank maps (used to align multi-page groups by rank, not by list index).
-    # Computed once from the full annotation/field lists so that each form's page ranks
-    # reflect all labels on that form, not just the current (norm_form, norm_label) group.
-    src_pg_rank = _build_page_rank_map(annotations, lambda a: _norm(a.form_name))
-    tgt_pg_rank = _build_page_rank_map(fields, lambda f: _norm(f.form_name))
+    # Fallback to full-form rank maps when cluster maps are not provided (e.g. direct
+    # calls from tests that predate the cluster API).
+    _src_clusters = src_clusters if src_clusters is not None else _build_form_clusters(
+        annotations, lambda a: _norm(a.form_name)
+    )
+    _tgt_clusters = tgt_clusters if tgt_clusters is not None else _build_form_clusters(
+        fields, lambda f: _norm(f.form_name)
+    )
 
     def _emit_match(annot: AnnotationRecord, field: FieldRecord) -> MatchRecord:
         annot_rect = list(annot.rect)
@@ -350,12 +429,28 @@ def _exact_pass(
             prev_y = annot.rect[1]
         return rows
 
+    def _resolve_tgt_cluster_idx(
+        src_ci: int,
+        n_src_clusters: int,
+        n_tgt_clusters: int,
+    ) -> int:
+        """Map a source cluster index (1-based) to a target cluster index (1-based).
+
+        Handles mismatched cluster counts per plan §5:
+        - src=1, tgt>1: all source goes to first target cluster.
+        - src>1, tgt=1: all source clusters collapse onto the lone target cluster.
+        - both>1 unequal: pair by index, clip excess to last target cluster.
+        """
+        if n_src_clusters == 1 or n_tgt_clusters == 1:
+            return min(src_ci, n_tgt_clusters)
+        # Both > 1: pair by index, clip excess source to last target cluster.
+        return min(src_ci, n_tgt_clusters)
+
     # Pair Nth source row -> Nth target field.
     # When annotations span a single source page the original "extras pin to last field"
     # behavior is preserved.  When annotations span multiple source pages they are first
-    # bucketed by form-page rank so that source rank N is always paired against target
-    # rank N (not against the first N fields in the sorted list, which may be on an
-    # entirely different page).
+    # bucketed by (cluster_idx, page_in_cluster_idx) so that source visit cluster N is
+    # always paired against target visit cluster N.
     for (norm_form, norm_label), sorted_annots in annot_groups.items():
         sorted_fields = field_groups.get((norm_form, norm_label))
         if not sorted_fields:
@@ -364,46 +459,143 @@ def _exact_pass(
         src_pages = {a.page for a in sorted_annots}
 
         if len(src_pages) == 1:
-            # ── Single-page: original behaviour with updated 5 px sibling threshold ──
+            # ── Single-page: restrict candidate fields to the same visit cluster ──
+            # Without this restriction a label that exists in multiple target visit
+            # clusters always resolves to the first occurrence in document order
+            # (cluster 1), even when the annotation belongs to a later source visit.
+            form_src_clusters = _src_clusters.get(norm_form, [])
+            form_tgt_clusters = _tgt_clusters.get(norm_form, [])
+            src_pg = next(iter(src_pages))
+            n_src = len(form_src_clusters) if form_src_clusters else 1
+            n_tgt = len(form_tgt_clusters) if form_tgt_clusters else 1
+            src_ci = _cluster_rank(src_pg, form_src_clusters)[0] if form_src_clusters else 1
+            tgt_ci = (
+                min(src_ci, n_tgt)
+                if (n_src == 1 or n_tgt == 1)
+                else min(src_ci, n_tgt)
+            )
+            if form_tgt_clusters and 1 <= tgt_ci <= len(form_tgt_clusters):
+                cluster_pages = set(form_tgt_clusters[tgt_ci - 1])
+                cluster_fields = [f for f in sorted_fields if f.page in cluster_pages]
+                candidate_fields = cluster_fields or sorted_fields
+            else:
+                candidate_fields = sorted_fields
             annot_row = _assign_row_indices(sorted_annots)
             for annot, ridx in zip(sorted_annots, annot_row):
-                field = sorted_fields[min(ridx, len(sorted_fields) - 1)]
+                field = candidate_fields[min(ridx, len(candidate_fields) - 1)]
                 results.append(_emit_match(annot, field))
                 unmatched_annot_ids.discard(annot.id)
         else:
-            # ── Multi-page: bucket by form-page rank, pair within each bucket ──
-            form_src_ranks = src_pg_rank.get(norm_form, {})
-            form_tgt_ranks = tgt_pg_rank.get(norm_form, {})
+            # ── Multi-page: bucket by (cluster_idx, page_in_cluster_idx) ──
+            form_src_clusters = _src_clusters.get(norm_form, [])
+            form_tgt_clusters = _tgt_clusters.get(norm_form, [])
 
-            annots_by_rank: dict[int, list[AnnotationRecord]] = defaultdict(list)
+            n_src = len(form_src_clusters) if form_src_clusters else 1
+            n_tgt = len(form_tgt_clusters) if form_tgt_clusters else 1
+
+            annots_by_crank: dict[tuple[int, int], list[AnnotationRecord]] = defaultdict(list)
             for a in sorted_annots:
-                annots_by_rank[form_src_ranks.get(a.page, 0)].append(a)
+                crank = _cluster_rank(a.page, form_src_clusters) if form_src_clusters else (1, 0)
+                annots_by_crank[crank].append(a)
 
-            fields_by_rank: dict[int, list[FieldRecord]] = defaultdict(list)
+            fields_by_crank: dict[tuple[int, int], list[FieldRecord]] = defaultdict(list)
             for f in sorted_fields:
-                fields_by_rank[form_tgt_ranks.get(f.page, 0)].append(f)
+                crank = _cluster_rank(f.page, form_tgt_clusters) if form_tgt_clusters else (1, 0)
+                fields_by_crank[crank].append(f)
 
-            # Label-relative rank maps: rank among pages that carry *this label*,
-            # used as fallback when full-form ranks don't align (e.g. source 6 pages,
-            # target 18 pages — the label's source rank 3 has no target rank-3 bucket).
-            label_src_rank = {pg: i + 1 for i, pg in enumerate(sorted({a.page for a in sorted_annots}))}
-            label_tgt_rank = {pg: i + 1 for i, pg in enumerate(sorted({f.page for f in sorted_fields}))}
-            fields_by_lrank: dict[int, list[FieldRecord]] = defaultdict(list)
+            # Pre-compute per-cluster label-rank maps for the label-rank fallback.
+            # For each cluster pair (src_ci → tgt_ci), rank pages that carry this label
+            # within that cluster. label-rank-K in src → label-rank-K in tgt.
+            src_cluster_label_ranks: dict[int, dict[int, int]] = {}  # src_ci → {page: label_rank}
+            tgt_cluster_label_ranks: dict[int, dict[int, int]] = {}  # tgt_ci → {page: label_rank}
+            tgt_fields_by_cluster_lrank: dict[int, dict[int, list[FieldRecord]]] = {}  # tgt_ci → {lrank: fields}
+
+            for a in sorted_annots:
+                ci = _cluster_rank(a.page, form_src_clusters)[0] if form_src_clusters else 1
+                src_cluster_label_ranks.setdefault(ci, {})
             for f in sorted_fields:
-                fields_by_lrank[label_tgt_rank[f.page]].append(f)
+                ci = _cluster_rank(f.page, form_tgt_clusters)[0] if form_tgt_clusters else 1
+                tgt_cluster_label_ranks.setdefault(ci, {})
 
-            for rank, rank_annots in sorted(annots_by_rank.items()):
-                rank_fields = fields_by_rank.get(rank)
+            for src_ci_key in src_cluster_label_ranks:
+                pages_in_src_ci = sorted({
+                    a.page for a in sorted_annots
+                    if (_cluster_rank(a.page, form_src_clusters)[0] if form_src_clusters else 1) == src_ci_key
+                })
+                src_cluster_label_ranks[src_ci_key] = {pg: i + 1 for i, pg in enumerate(pages_in_src_ci)}
+
+            for tgt_ci_key in tgt_cluster_label_ranks:
+                pages_in_tgt_ci = sorted({
+                    f.page for f in sorted_fields
+                    if (_cluster_rank(f.page, form_tgt_clusters)[0] if form_tgt_clusters else 1) == tgt_ci_key
+                })
+                tgt_cluster_label_ranks[tgt_ci_key] = {pg: i + 1 for i, pg in enumerate(pages_in_tgt_ci)}
+                lrank_map: dict[int, list[FieldRecord]] = defaultdict(list)
+                for f in sorted_fields:
+                    fci = _cluster_rank(f.page, form_tgt_clusters)[0] if form_tgt_clusters else 1
+                    if fci == tgt_ci_key:
+                        lr = tgt_cluster_label_ranks[tgt_ci_key].get(f.page)
+                        if lr is not None:
+                            lrank_map[lr].append(f)
+                tgt_fields_by_cluster_lrank[tgt_ci_key] = dict(lrank_map)
+
+            def _ordered_pi_candidates(p_idx: int, n_pages: int) -> list[int]:
+                """1-based page_in_cluster indices in nearest-first order."""
+                candidates: list[int] = []
+                lo, hi = p_idx, p_idx
+                while lo >= 1 or hi <= n_pages:
+                    if lo >= 1:
+                        candidates.append(lo)
+                    if hi != lo and hi <= n_pages:
+                        candidates.append(hi)
+                    lo -= 1
+                    hi += 1
+                return candidates
+
+            # Track which tgt crank positions have already been claimed within this
+            # (norm_form, norm_label) group so we never double-assign.
+            consumed_tgt_cranks: set[tuple[int, int]] = set()
+
+            for (src_ci, src_pi), crank_annots in sorted(annots_by_crank.items()):
+                tgt_ci = _resolve_tgt_cluster_idx(src_ci, n_src, n_tgt)
+                tgt_cluster_pages = (
+                    form_tgt_clusters[tgt_ci - 1]
+                    if form_tgt_clusters and tgt_ci >= 1 and tgt_ci <= len(form_tgt_clusters)
+                    else []
+                )
+                n_tgt_cluster_pages = len(tgt_cluster_pages)
+
+                rank_fields: list[FieldRecord] | None = None
+
+                # 1. Exact + nearest-page within cluster (tracks consumed positions to
+                #    prevent double-assignment when label counts differ between src and tgt).
+                for candidate_pi in _ordered_pi_candidates(src_pi, n_tgt_cluster_pages):
+                    tgt_crank = (tgt_ci, candidate_pi)
+                    if tgt_crank in consumed_tgt_cranks:
+                        continue
+                    bucket = fields_by_crank.get(tgt_crank)
+                    if bucket:
+                        rank_fields = bucket
+                        consumed_tgt_cranks.add(tgt_crank)
+                        break
+
                 if not rank_fields:
-                    # Full-form rank miss — try label-relative rank fallback.
-                    lrank = label_src_rank.get(rank_annots[0].page)
-                    rank_fields = fields_by_lrank.get(lrank)
+                    # 2. Per-cluster label-rank fallback: used when the label exists in the
+                    #    target cluster at a page position that cannot be reached by nearest-page
+                    #    walking (e.g. source 6 pages, target 18 pages — same label on p3/p4 of
+                    #    source must map to p103/p112 of target by label-rank, not by page-index).
+                    src_pg = crank_annots[0].page
+                    lrank = (src_cluster_label_ranks.get(src_ci) or {}).get(src_pg)
+                    if lrank is not None and tgt_ci in tgt_fields_by_cluster_lrank:
+                        rank_fields = tgt_fields_by_cluster_lrank[tgt_ci].get(lrank)
+
                 if not rank_fields:
                     # Genuinely unmatched; fall through to later passes.
                     continue
-                # Row-index pre-pass within this single-page bucket.
-                annot_row = _assign_row_indices(rank_annots)
-                for annot, ridx in zip(rank_annots, annot_row):
+
+                # Row-index pre-pass within this bucket.
+                annot_row = _assign_row_indices(crank_annots)
+                for annot, ridx in zip(crank_annots, annot_row):
                     field = rank_fields[min(ridx, len(rank_fields) - 1)]
                     results.append(_emit_match(annot, field))
                     unmatched_annot_ids.discard(annot.id)
@@ -419,12 +611,16 @@ def _fuzzy_same_form_pass(
     visit_boost: float,
     src_rank_map: dict,
     tgt_rank_map: dict,
+    src_clusters: dict[str, list[list[int]]] | None = None,
+    tgt_clusters: dict[str, list[list[int]]] | None = None,
 ) -> list[MatchRecord]:
     """Pass 2: bipartite fuzzy match within the same form_name and page rank.
 
-    Groups by (norm_form_name, page_rank) so annotations from page N of a form
-    only compete against fields from the corresponding page of the target form.
-    Annotations whose src_rank has no matching tgt_rank fall through to Pass 3.
+    Groups by (norm_form_name, cluster_idx, page_in_cluster_idx) when cluster maps
+    are provided so annotations from visit-cluster N of a form only compete against
+    fields from the corresponding visit-cluster. Falls back to (form, page_rank) when
+    cluster maps are absent. Annotations whose src_rank has no matching tgt bucket
+    fall through to Pass 3.
     """
     eligible_annots = [
         a for a in annotations
@@ -432,49 +628,127 @@ def _fuzzy_same_form_pass(
     ]
     results: list[MatchRecord] = []
 
-    # Group by (norm_form_name, page_rank)
-    form_rank_keys = {
-        (_norm(a.form_name), src_rank_map.get(_norm(a.form_name), {}).get(a.page, 0))
-        for a in eligible_annots
-    }
+    _src_clusters = src_clusters or {}
+    _tgt_clusters = tgt_clusters or {}
 
-    for (form, src_rank) in form_rank_keys:
-        grp_annots = [
-            a for a in eligible_annots
-            if _norm(a.form_name) == form
-            and src_rank_map.get(_norm(a.form_name), {}).get(a.page, 0) == src_rank
-        ]
-        grp_fields = [
-            f for f in fields
-            if _norm(f.form_name) == form
-            and tgt_rank_map.get(_norm(f.form_name), {}).get(f.page, 0) == src_rank
-        ]
+    if _src_clusters and _tgt_clusters:
+        # Cluster-aware grouping: group by (norm_form, tgt_ci) so all annotations
+        # from source cluster src_ci compete together against all fields in the
+        # corresponding target cluster tgt_ci. Bipartite assignment handles optimal
+        # pairing within the cluster without double-assignment.
+        def _src_ci(a: AnnotationRecord) -> int:
+            form_clusters = _src_clusters.get(_norm(a.form_name), [])
+            return _cluster_rank(a.page, form_clusters)[0] if form_clusters else 1
 
-        def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
-            return _adjusted_score(a, f, _b)
+        def _resolve_tgt_ci_fuzzy(src_ci: int, form: str) -> int:
+            n_src = len(_src_clusters.get(form, []))
+            n_tgt = len(_tgt_clusters.get(form, []))
+            if not n_src or not n_tgt:
+                return src_ci
+            if n_src == 1 or n_tgt == 1:
+                return min(src_ci, max(n_tgt, 1))
+            return min(src_ci, n_tgt)
 
-        pairs = _bipartite_assign(grp_annots, grp_fields, _score, threshold_pct)
-        for ai, fi, score in pairs:
-            annot, field = grp_annots[ai], grp_fields[fi]
-            annot_rect = list(annot.rect)
-            raw_rect = (
-                _apply_anchor_offset(annot_rect, annot.anchor_rect, list(field.rect))
-                if annot.anchor_rect
-                else list(field.rect)
+        group_keys: set[tuple[str, int]] = set()
+        for a in eligible_annots:
+            form = _norm(a.form_name)
+            group_keys.add((form, _src_ci(a)))
+
+        for (form, src_ci) in group_keys:
+            grp_annots = [
+                a for a in eligible_annots
+                if _norm(a.form_name) == form and _src_ci(a) == src_ci
+            ]
+
+            tgt_ci = _resolve_tgt_ci_fuzzy(src_ci, form)
+            form_tgt_clusters = _tgt_clusters.get(form, [])
+            tgt_cluster_pages = (
+                set(form_tgt_clusters[tgt_ci - 1])
+                if form_tgt_clusters and tgt_ci >= 1 and tgt_ci <= len(form_tgt_clusters)
+                else None
             )
-            final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields, annot_rect=annot_rect)
-            placement_adjusted = placement_adjusted or _check_dim_guard(final_rect, annot_rect)
-            results.append(MatchRecord(
-                annotation_id=annot.id,
-                field_id=field.id,
-                match_type="fuzzy",
-                confidence=min(score / 100.0, 1.0),
-                target_rect=final_rect,
-                target_page=field.page,
-                placement_adjusted=placement_adjusted,
-                status="re-pairing",
-            ))
-            unmatched_annot_ids.discard(annot.id)
+
+            grp_fields = [
+                f for f in fields
+                if _norm(f.form_name) == form
+                and (
+                    tgt_cluster_pages is None
+                    or f.page in tgt_cluster_pages
+                )
+            ]
+
+            if not grp_annots or not grp_fields:
+                continue
+
+            def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
+                return _adjusted_score(a, f, _b)
+
+            pairs = _bipartite_assign(grp_annots, grp_fields, _score, threshold_pct)
+            for ai, fi, score in pairs:
+                annot, field = grp_annots[ai], grp_fields[fi]
+                annot_rect = list(annot.rect)
+                raw_rect = (
+                    _apply_anchor_offset(annot_rect, annot.anchor_rect, list(field.rect))
+                    if annot.anchor_rect
+                    else list(field.rect)
+                )
+                final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields, annot_rect=annot_rect)
+                placement_adjusted = placement_adjusted or _check_dim_guard(final_rect, annot_rect)
+                results.append(MatchRecord(
+                    annotation_id=annot.id,
+                    field_id=field.id,
+                    match_type="fuzzy",
+                    confidence=min(score / 100.0, 1.0),
+                    target_rect=final_rect,
+                    target_page=field.page,
+                    placement_adjusted=placement_adjusted,
+                    status="re-pairing",
+                ))
+                unmatched_annot_ids.discard(annot.id)
+    else:
+        # Legacy path: group by (norm_form_name, page_rank)
+        form_rank_keys = {
+            (_norm(a.form_name), src_rank_map.get(_norm(a.form_name), {}).get(a.page, 0))
+            for a in eligible_annots
+        }
+
+        for (form, src_rank) in form_rank_keys:
+            grp_annots = [
+                a for a in eligible_annots
+                if _norm(a.form_name) == form
+                and src_rank_map.get(_norm(a.form_name), {}).get(a.page, 0) == src_rank
+            ]
+            grp_fields = [
+                f for f in fields
+                if _norm(f.form_name) == form
+                and tgt_rank_map.get(_norm(f.form_name), {}).get(f.page, 0) == src_rank
+            ]
+
+            def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
+                return _adjusted_score(a, f, _b)
+
+            pairs = _bipartite_assign(grp_annots, grp_fields, _score, threshold_pct)
+            for ai, fi, score in pairs:
+                annot, field = grp_annots[ai], grp_fields[fi]
+                annot_rect = list(annot.rect)
+                raw_rect = (
+                    _apply_anchor_offset(annot_rect, annot.anchor_rect, list(field.rect))
+                    if annot.anchor_rect
+                    else list(field.rect)
+                )
+                final_rect, placement_adjusted = _apply_placement_guard(raw_rect, field, fields, annot_rect=annot_rect)
+                placement_adjusted = placement_adjusted or _check_dim_guard(final_rect, annot_rect)
+                results.append(MatchRecord(
+                    annotation_id=annot.id,
+                    field_id=field.id,
+                    match_type="fuzzy",
+                    confidence=min(score / 100.0, 1.0),
+                    target_rect=final_rect,
+                    target_page=field.page,
+                    placement_adjusted=placement_adjusted,
+                    status="re-pairing",
+                ))
+                unmatched_annot_ids.discard(annot.id)
 
     return results
 
@@ -596,10 +870,18 @@ def match_annotations(
     profile: Profile,
     source_page_dims: dict[int, tuple[float, float]],
     target_page_dims: dict[int, tuple[float, float]],
+    source_form_clusters: dict[str, list[list[int]]] | None = None,
+    target_form_clusters: dict[str, list[list[int]]] | None = None,
 ) -> list[MatchRecord]:
     """Match source annotations to target fields via 4 cascading passes.
 
     Returns a list of MatchRecord sorted by original annotation order.
+
+    source_form_clusters / target_form_clusters override the default
+    contiguity-derived visit clustering. Pass TOC-derived clusters (via
+    pdf_utils.build_form_clusters_from_toc) when the form's pages are
+    contiguous in the PDF but represent multiple visits (only the bookmark
+    boundary distinguishes them). Restricted to forms present in records.
     """
     if not annotations:
         return []
@@ -611,14 +893,24 @@ def match_annotations(
 
     src_rank_map = _build_page_rank_map(annotations, lambda r: _norm(r.form_name))
     tgt_rank_map = _build_page_rank_map(fields, lambda r: _norm(r.form_name))
+    src_clusters = _merge_form_clusters(
+        _build_form_clusters(annotations, lambda r: _norm(r.form_name)),
+        source_form_clusters,
+    )
+    tgt_clusters = _merge_form_clusters(
+        _build_form_clusters(fields, lambda r: _norm(r.form_name)),
+        target_form_clusters,
+    )
 
     results += _exact_pass(
         annotations, fields, unmatched_annot_ids, config.exact_threshold,
+        src_clusters=src_clusters, tgt_clusters=tgt_clusters,
     )
     results += _fuzzy_same_form_pass(
         annotations, fields, unmatched_annot_ids,
         config.fuzzy_same_form_threshold * 100, visit_boost,
         src_rank_map, tgt_rank_map,
+        src_clusters=src_clusters, tgt_clusters=tgt_clusters,
     )
     results += _fuzzy_cross_form_pass(
         annotations, fields, unmatched_annot_ids,

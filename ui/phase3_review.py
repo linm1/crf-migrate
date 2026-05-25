@@ -12,6 +12,7 @@ from rapidfuzz import fuzz as _fuzz
 from src.csv_handler import export_matches_csv, import_matches_csv
 from src.matcher import apply_manual_match, batch_approve_exact, compute_target_rect, match_annotations
 from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from src.pdf_utils import build_form_clusters_from_toc
 from src.session import Session
 from ui.components import (
     get_page_dims_from_pdf,
@@ -506,7 +507,13 @@ def _render_action_card(
                     try:
                         source_dims = get_page_dims_from_pdf(source_pdf_path) if source_pdf_path else {}
                         target_dims = get_page_dims_from_pdf(target_pdf_path) if target_pdf_path else {}
-                        _result["matches"] = match_annotations(annotations, fields, profile, source_dims, target_dims)
+                        src_clusters = build_form_clusters_from_toc(source_pdf_path) if source_pdf_path else {}
+                        tgt_clusters = build_form_clusters_from_toc(target_pdf_path) if target_pdf_path else {}
+                        _result["matches"] = match_annotations(
+                            annotations, fields, profile, source_dims, target_dims,
+                            source_form_clusters=src_clusters,
+                            target_form_clusters=tgt_clusters,
+                        )
                     except Exception as exc:
                         _result["error"] = exc
 
