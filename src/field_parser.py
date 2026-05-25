@@ -32,8 +32,40 @@ _CHECKBOX_RE = re.compile(
     re.IGNORECASE,
 )
 _TEXT_FIELD_RE = re.compile(r"_{3,}")
+_INLINE_PROMPT_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_INLINE_LABEL_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 # Maximum vertical distance (px) for Pass B label search — approx 2.5 lines at 12pt
 _MAX_LABEL_VERT_PX = 30.0
+# Minimum top-edge delta (px) to treat a lower candidate as a helper row.
+_HELPER_ROW_TOP_DELTA_PX = 4.0  # ~4pt at 72dpi — separates same-row jitter (<=1px) from a true helper row
+
+
+def _text_field_has_inline_label(text: str) -> bool:
+    """Return True when a text-field marker already carries its own prompt text.
+
+    Only the first underscore run is examined; forms with a leading blank (e.g. '_____ _____ something') return False.
+    """
+    match = _TEXT_FIELD_RE.search(text)
+    if match is None:
+        return False
+    prompt_prefix = text[:match.start()]
+    prompt_suffix = text[match.end():]
+    prefix_words = _INLINE_PROMPT_WORD_RE.findall(prompt_prefix)
+    suffix_words = _INLINE_PROMPT_WORD_RE.findall(prompt_suffix)
+    return bool(prefix_words and suffix_words) or len(prefix_words) >= 2
+
+
+def _label_is_inline_stub(label: str, marker_text: str) -> bool:
+    """Return True when a nearby label is only a stub of the inline marker text."""
+    match = _TEXT_FIELD_RE.search(marker_text)
+    if match is None:
+        return False
+    marker_prefix = marker_text[:match.start()]
+    normalized_label = _INLINE_LABEL_NORMALIZE_RE.sub(" ", label.lower()).strip()
+    normalized_prefix = _INLINE_LABEL_NORMALIZE_RE.sub(" ", marker_prefix.lower()).strip()
+    if not normalized_label or not normalized_prefix:
+        return False
+    return normalized_prefix.startswith(normalized_label) and normalized_prefix != normalized_label
 
 
 def extract_fields(
@@ -223,16 +255,30 @@ def _resolve_marker_labels(
     """
     records: list[FieldRecord] = []
     for block, field_type in marker_blocks:
-        label, _ = find_nearest_label(
+        marker_text = block["text"].strip()
+        label, label_rect = find_nearest_label(
             marker_rect=block["rect"],
             text_blocks=non_marker_blocks,
             left_column_tolerance_px=left_col_tolerance,
             exclude_patterns=exclude_patterns,
             max_vert_distance_px=_MAX_LABEL_VERT_PX,
         )
+        if field_type == "text_field" and _text_field_has_inline_label(marker_text):
+            # Inline prompt+marker spans should keep their own text when the
+            # nearest candidate is a helper line below, not the true label.
+            helper_below = bool(
+                label_rect and (label_rect[1] - block["rect"][1]) > _HELPER_ROW_TOP_DELTA_PX
+            )
+            same_row_stub = bool(
+                label_rect
+                and abs(label_rect[1] - block["rect"][1]) <= _HELPER_ROW_TOP_DELTA_PX
+                and _label_is_inline_stub(label, marker_text)
+            )
+            if not label or helper_below or same_row_stub:
+                label = marker_text
         if not label:
             # Graceful degradation: use the marker text itself
-            label = block["text"]
+            label = marker_text
         records.append(
             FieldRecord(
                 id=str(uuid.uuid4()),

@@ -203,6 +203,178 @@ class TestGetTextBlocksFreeTextOnlyFilter:
         )
 
 
+class TestInlineTextFieldLabels:
+    """Inline prompt+underscore spans must keep their own prompt text."""
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("If Yes, Average based _____ days", True),
+            ("Other, specify _____", True),
+            ("days _____", False),
+            ("_____ days", False),
+            ("(kg) _____", False),
+            ("1. _____", False),
+        ],
+    )
+    def test_inline_label_predicate_requires_meaningful_prompt_text(self, text, expected):
+        """Only genuine prompt text should override a competing nearby label."""
+        from src.field_parser import _text_field_has_inline_label
+
+        assert _text_field_has_inline_label(text) is expected
+
+    def test_inline_text_field_does_not_get_replaced_by_explanatory_line(self, tmp_path):
+        """A mixed prompt+marker span should not be relabeled by nearby helper text.
+
+        Regression: a span like "If Yes, Average based _____ days" is itself the
+        human-readable field label. Because it also contains underscores, Pass B
+        treated it as a marker block and replaced it with the closer explanatory
+        line below ("Enter the # of days...").
+        """
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+        page.insert_text((50, 50), "Sleep Study", fontsize=14, fontname="helv")
+        page.insert_text((50, 120), "If Yes, Average based _____ days", fontsize=9, fontname="helv")
+        page.insert_text(
+            (50, 130),
+            "(Enter the # of days the average is based on, from report)",
+            fontsize=9,
+            fontname="helv",
+        )
+
+        pdf_path = tmp_path / "inline_prompt_label.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        text_fields = [field for field in fields if field.field_type == "text_field"]
+
+        assert len(text_fields) == 1, f"Expected one text_field, got: {fields}"
+        assert text_fields[0].label == "If Yes, Average based _____ days", (
+            f"Expected inline prompt label to be preserved, got '{text_fields[0].label}'"
+        )
+
+    def test_suffix_fragment_within_label_band_still_uses_left_label(self, tmp_path):
+        """A suffix fragment like "_____ days" must still resolve to the left label."""
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+        page.insert_text((50, 50), "Sleep Study", fontsize=14, fontname="helv")
+        page.insert_text((50, 120), "Duration", fontsize=9, fontname="helv")
+        page.insert_text((95, 120), "_____ days", fontsize=9, fontname="helv")
+
+        pdf_path = tmp_path / "suffix_fragment_label_band.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        text_fields = [field for field in fields if field.field_type == "text_field"]
+
+        assert len(text_fields) == 1, f"Expected one text_field, got: {fields}"
+        assert text_fields[0].label == "Duration", (
+            f"Expected left label to win over suffix fragment, got '{text_fields[0].label}'"
+        )
+
+    def test_prefix_fragment_still_uses_same_row_left_label(self, tmp_path):
+        """A same-row continuation fragment like "days _____" must not become the label."""
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+        page.insert_text((50, 50), "Sleep Study", fontsize=14, fontname="helv")
+        page.insert_text((50, 120), "Duration", fontsize=9, fontname="helv")
+        page.insert_text((95, 120), "days _____", fontsize=9, fontname="helv")
+
+        pdf_path = tmp_path / "prefix_fragment_same_row.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        text_fields = [field for field in fields if field.field_type == "text_field"]
+
+        assert len(text_fields) == 1, f"Expected one text_field, got: {fields}"
+        assert text_fields[0].label == "Duration", (
+            f"Expected same-row left label to win over prefix fragment, got '{text_fields[0].label}'"
+        )
+
+    def test_same_row_left_label_with_small_y_offset_still_wins(self, tmp_path):
+        """A same-row label with slight bbox jitter must not be treated as helper text below."""
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+        page.insert_text((50, 50), "Sleep Study", fontsize=14, fontname="helv")
+        page.insert_text((50, 121), "Duration", fontsize=9, fontname="helv")
+        page.insert_text((95, 120), "days _____", fontsize=9, fontname="helv")
+
+        pdf_path = tmp_path / "same_row_jitter_label.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        text_fields = [field for field in fields if field.field_type == "text_field"]
+
+        assert len(text_fields) == 1, f"Expected one text_field, got: {fields}"
+        assert text_fields[0].label == "Duration", (
+            f"Expected same-row left label to survive bbox jitter, got '{text_fields[0].label}'"
+        )
+
+    def test_inline_prompt_wins_over_same_row_left_stub(self, tmp_path):
+        """A full inline prompt should beat a shorter same-row stub on the left."""
+        import fitz
+        from src.field_parser import extract_fields
+        from src.profile_loader import load_profile
+        from src.rule_engine import RuleEngine
+
+        profile = load_profile(Path("profiles/cdisc_standard.yaml"))
+        engine = RuleEngine(profile)
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=841)
+        page.insert_text((50, 50), "Sleep Study", fontsize=14, fontname="helv")
+        page.insert_text((50, 120), "Other:", fontsize=9, fontname="helv")
+        page.insert_text((95, 120), "Other, specify _____", fontsize=9, fontname="helv")
+
+        pdf_path = tmp_path / "inline_prompt_stub.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        fields = extract_fields(pdf_path, profile, engine)
+        text_fields = [field for field in fields if field.field_type == "text_field"]
+
+        assert len(text_fields) == 1, f"Expected one text_field, got: {fields}"
+        assert text_fields[0].label == "Other, specify _____", (
+            f"Expected inline prompt to beat same-row stub, got '{text_fields[0].label}'"
+        )
+
+
 class TestCollectSectionHeaders:
     def _make_block(self, text, bold, font_size, x0=78, y0=100):
         from src.rule_engine import TextBlock
