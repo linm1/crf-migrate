@@ -1261,6 +1261,50 @@ class TestRepeatingFieldVerticalOrder:
         assert by_annot["a2"].field_id == "f2"
         assert by_annot["a3"].field_id == "f3"
 
+    def test_label_relative_rank_fallback_when_form_page_counts_differ(self):
+        """Regression: source form has 6 pages, target form has 18 pages.
+        A repeating label appears on src pages 3+4 (form-ranks 3+4) and
+        tgt pages 1+10 (form-ranks 1+10).  Neither rank 3 nor rank 4 exists
+        in the target bucket → must fall back to label-relative rank (1↔1, 2↔2)
+        and produce exact matches, not fall through to fuzzy cross-form."""
+        # Source form spans pages 1–6; label only on pages 3 and 4.
+        src_pages_all = [1, 2, 3, 4, 5, 6]
+        # Target form spans pages 101–118 (18 pages); label only on pages 103 and 112
+        # (form-ranks 3 and 12 — neither matches src form-ranks 3 or 4 relative to full form).
+        tgt_pages_all = list(range(101, 119))  # 101..118
+
+        # Filler annotations on other pages so _build_page_rank_map assigns correct form ranks
+        filler_annots = [
+            _make_annot(f"filler_a{p}", "Other Label", "Big Form", page=p)
+            for p in src_pages_all if p not in (3, 4)
+        ]
+        a1 = _make_annot("a1", "Repeating Label", "Big Form", page=3, y=100.0)
+        a2 = _make_annot("a2", "Repeating Label", "Big Form", page=4, y=100.0)
+
+        filler_fields = [
+            _make_field(f"filler_f{p}", "Other Label", "Big Form", page=p)
+            for p in tgt_pages_all if p not in (103, 112)
+        ]
+        f1 = _make_field("f1", "Repeating Label", "Big Form", page=103, y=100.0)
+        f2 = _make_field("f2", "Repeating Label", "Big Form", page=112, y=100.0)
+
+        profile = _make_profile_default()
+        src_dims = {p: (595.0, 842.0) for p in src_pages_all}
+        tgt_dims = {p: (595.0, 842.0) for p in tgt_pages_all}
+
+        matches = match_annotations(
+            filler_annots + [a1, a2],
+            filler_fields + [f1, f2],
+            profile,
+            src_dims,
+            tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["a1"].field_id == "f1", "label-rank-1 annotation must hit label-rank-1 field"
+        assert by_annot["a2"].field_id == "f2", "label-rank-2 annotation must hit label-rank-2 field"
+        assert by_annot["a1"].match_type == "exact"
+        assert by_annot["a2"].match_type == "exact"
+
 
 class TestExactCaseInsensitiveMatch:
     """Exact pass uses case-insensitive comparison for both form_name and label."""

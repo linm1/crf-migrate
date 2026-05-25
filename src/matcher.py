@@ -383,10 +383,23 @@ def _exact_pass(
             for f in sorted_fields:
                 fields_by_rank[form_tgt_ranks.get(f.page, 0)].append(f)
 
+            # Label-relative rank maps: rank among pages that carry *this label*,
+            # used as fallback when full-form ranks don't align (e.g. source 6 pages,
+            # target 18 pages — the label's source rank 3 has no target rank-3 bucket).
+            label_src_rank = {pg: i + 1 for i, pg in enumerate(sorted({a.page for a in sorted_annots}))}
+            label_tgt_rank = {pg: i + 1 for i, pg in enumerate(sorted({f.page for f in sorted_fields}))}
+            fields_by_lrank: dict[int, list[FieldRecord]] = defaultdict(list)
+            for f in sorted_fields:
+                fields_by_lrank[label_tgt_rank[f.page]].append(f)
+
             for rank, rank_annots in sorted(annots_by_rank.items()):
                 rank_fields = fields_by_rank.get(rank)
                 if not rank_fields:
-                    # No matching target page for this rank; fall through to later passes.
+                    # Full-form rank miss — try label-relative rank fallback.
+                    lrank = label_src_rank.get(rank_annots[0].page)
+                    rank_fields = fields_by_lrank.get(lrank)
+                if not rank_fields:
+                    # Genuinely unmatched; fall through to later passes.
                     continue
                 # Row-index pre-pass within this single-page bucket.
                 annot_row = _assign_row_indices(rank_annots)
