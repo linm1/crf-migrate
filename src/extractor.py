@@ -214,20 +214,23 @@ def _dedup_annotations(records: list[AnnotationRecord]) -> list[AnnotationRecord
         except ValueError:
             return len(_DEDUP_CATEGORY_PRIORITY)
 
-    def _winner_key(record: AnnotationRecord) -> tuple[int, int, str]:
-        return (-len(record.content), _category_rank(record.category), record.id)
+    def _winner_key(record_index: int, record: AnnotationRecord) -> tuple[int, int, int]:
+        return (-len(record.content), _category_rank(record.category), record_index)
 
-    groups: dict[tuple[int, float, float, float, float], list[AnnotationRecord]] = defaultdict(list)
-    for record in records:
-        groups[_rect_key(record)].append(record)
+    groups: dict[
+        tuple[int, float, float, float, float],
+        list[tuple[int, AnnotationRecord]],
+    ] = defaultdict(list)
+    for record_index, record in enumerate(records):
+        groups[_rect_key(record)].append((record_index, record))
 
     winning_ids: set[str] = set()
     for key, group in groups.items():
         if len(group) == 1:
-            winning_ids.add(group[0].id)
+            winning_ids.add(group[0][1].id)
             continue
 
-        winner = min(group, key=_winner_key)
+        _, winner = min(group, key=lambda entry: _winner_key(*entry))
         winning_ids.add(winner.id)
         warnings.warn(
             "Duplicate annotations at "
