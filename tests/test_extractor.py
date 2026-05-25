@@ -5,6 +5,7 @@ T1.16 (re-classify) requires UI and is out of scope for unit tests.
 """
 import re
 import uuid
+import warnings
 import pytest
 from pathlib import Path
 
@@ -103,6 +104,55 @@ class TestExtractAnnotations:
             data = record.model_dump()
             restored = AnnotationRecord.model_validate(data)
             assert restored.id == record.id
+
+    def test_t1_12_dedup_identical_rect(self, tmp_path, cdisc_profile, cdisc_engine):
+        """T1.12: Duplicate annotations at the same page and rect are deduped with a warning."""
+        import fitz
+
+        expected_rect = [50.0, 50.0, 220.0, 90.0]
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+
+        longer = page.add_freetext_annot(
+            rect=fitz.Rect(expected_rect),
+            text="BRTHDTC",
+            fontsize=18,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        longer.set_info(content="BRTHDTC", subject="DM")
+        longer.update()
+
+        shorter = page.add_freetext_annot(
+            rect=fitz.Rect(expected_rect),
+            text="DM",
+            fontsize=18,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(0.75, 1.0, 1.0),
+        )
+        shorter.set_info(content="DM", subject="DM")
+        shorter.update()
+
+        pdf_path = tmp_path / "duplicate_identical_rect.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+
+        matching_records = [
+            record
+            for record in records
+            if record.page == 1
+            and all(abs(value - expected) < 0.01 for value, expected in zip(record.rect, expected_rect))
+        ]
+
+        assert len(matching_records) == 1
+        assert matching_records[0].content == "BRTHDTC"
+        assert any("duplicate" in str(warning.message).lower() for warning in caught_warnings)
 
     def test_form_name_populated(self, sample_acrf_path, cdisc_profile, cdisc_engine):
         """form_name is a string on every record (may be empty if extraction rules don't match)."""
