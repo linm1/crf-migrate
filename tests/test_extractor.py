@@ -166,6 +166,118 @@ class TestExtractAnnotations:
         assert matching_records[0].content == "BRTHDTC"
         assert duplicate_user_warnings
 
+    def test_t1_12_dedup_highly_overlapped_rects(self, tmp_path, cdisc_profile, cdisc_engine):
+        """T1.12: Near-identical overlapping annotations are deduped with a warning."""
+        import fitz
+
+        first_rect = [50.0, 50.0, 220.0, 90.0]
+        second_rect = [50.3, 49.8, 219.7, 89.6]
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+
+        first = page.add_freetext_annot(
+            rect=fitz.Rect(first_rect),
+            text="CO (Comments)",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(1.0, 1.0, 0.58824),
+        )
+        first.set_info(content="CO (Comments)", subject="Text Box")
+        first.update()
+
+        second = page.add_freetext_annot(
+            rect=fitz.Rect(second_rect),
+            text="CO (Comments)",
+            fontsize=12,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(1.0, 0.7451, 0.60785),
+        )
+        second.set_info(content="CO (Comments)", subject="Text Box")
+        second.update()
+
+        pdf_path = tmp_path / "duplicate_high_overlap_rects.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+
+        duplicate_user_warnings = [
+            warning
+            for warning in caught_warnings
+            if issubclass(warning.category, UserWarning)
+            and "duplicate" in str(warning.message).lower()
+        ]
+
+        matching_records = [
+            record
+            for record in records
+            if record.page == 1 and record.content == "CO (Comments)"
+        ]
+
+        assert len(matching_records) == 1
+        assert matching_records[0].category == "domain_label"
+        assert duplicate_user_warnings
+
+    def test_t1_12_dedup_session_like_high_overlap_rects(self, tmp_path, cdisc_profile, cdisc_engine):
+        """T1.12: Page-13-style near overlays are deduped even when the overlap is not exact."""
+        import fitz
+
+        first_rect = [355.1947, 216.1858, 395.8142, 232.4336]
+        second_rect = [355.2544, 215.4172, 396.0166, 231.8354]
+        doc = fitz.open()
+        page = doc.new_page(width=612, height=792)
+
+        first = page.add_freetext_annot(
+            rect=fitz.Rect(first_rect),
+            text="COVAL",
+            fontsize=10,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(1.0, 1.0, 0.58824),
+        )
+        first.set_info(content="COVAL", subject="Text Box")
+        first.update()
+
+        second = page.add_freetext_annot(
+            rect=fitz.Rect(second_rect),
+            text="COVAL",
+            fontsize=10,
+            fontname="helv",
+            text_color=(0, 0, 0),
+            fill_color=(1.0, 0.7451, 0.60785),
+        )
+        second.set_info(content="COVAL", subject="Text Box")
+        second.update()
+
+        pdf_path = tmp_path / "duplicate_session_like_overlap_rects.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+
+        duplicate_user_warnings = [
+            warning
+            for warning in caught_warnings
+            if issubclass(warning.category, UserWarning)
+            and "duplicate" in str(warning.message).lower()
+        ]
+
+        matching_records = [
+            record
+            for record in records
+            if record.page == 1 and record.content == "COVAL"
+        ]
+
+        assert len(matching_records) == 1
+        assert matching_records[0].category == "sdtm_mapping"
+        assert duplicate_user_warnings
+
     def test_form_name_populated(self, sample_acrf_path, cdisc_profile, cdisc_engine):
         """form_name is a string on every record (may be empty if extraction rules don't match)."""
         records = extract_annotations(sample_acrf_path, cdisc_profile, cdisc_engine)

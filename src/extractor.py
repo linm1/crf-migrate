@@ -37,6 +37,8 @@ _DEDUP_CATEGORY_PRIORITY: tuple[str, ...] = (
     "cross_reference",
     "note",
 )
+_DEDUP_HIGH_OVERLAP_IOU = 0.95
+_DEDUP_HIGH_OVERLAP_SMALLER_COVERAGE = 0.96
 
 
 def extract_annotations(
@@ -195,8 +197,81 @@ def _safe_rotation(annot: fitz.Annot) -> int:
         return 0
 
 
+def _rect_area(rect: list[float]) -> float:
+    """Return the area of a PDF rect, clamped to zero for invalid dimensions."""
+    return max(0.0, rect[2] - rect[0]) * max(0.0, rect[3] - rect[1])
+
+
+def _rect_intersection_area(left: list[float], right: list[float]) -> float:
+    """Return the overlapping area between two rects."""
+    x0 = max(left[0], right[0])
+    y0 = max(left[1], right[1])
+    x1 = min(left[2], right[2])
+    y1 = min(left[3], right[3])
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    return (x1 - x0) * (y1 - y0)
+
+
+def _rects_highly_overlap(left: list[float], right: list[float]) -> bool:
+    """Return True when two rects are effectively the same annotation footprint."""
+    intersection = _rect_intersection_area(left, right)
+    if intersection == 0.0:
+        return False
+
+    left_area = _rect_area(left)
+    right_area = _rect_area(right)
+    if left_area == 0.0 or right_area == 0.0:
+        return False
+
+    union = left_area + right_area - intersection
+    iou = intersection / union if union > 0.0 else 0.0
+    smaller_coverage = intersection / min(left_area, right_area)
+    return (
+        iou >= _DEDUP_HIGH_OVERLAP_IOU
+        or smaller_coverage >= _DEDUP_HIGH_OVERLAP_SMALLER_COVERAGE
+    )
+
+
+def _warn_duplicate_group(
+    page: int,
+    detail: str,
+    group_size: int,
+    winner: AnnotationRecord,
+) -> None:
+    """Emit a stable duplicate warning for a deduped annotation group."""
+    warnings.warn(
+        "Duplicate annotations at "
+        f"page={page}; {detail}; group_size={group_size}; "
+        f"keeping category={winner.category!r} with content={winner.content!r}.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+
+def _filter_winning_records(
+    records: list[AnnotationRecord],
+    winning_ids: set[str],
+) -> list[AnnotationRecord]:
+    """Preserve original extraction order while keeping only chosen winners."""
+    return [record for record in records if record.id in winning_ids]
+
+
+def _overlap_signature(record: AnnotationRecord) -> tuple[int | str, ...]:
+    """Return the narrow signature used for overlap-based duplicate detection."""
+    return (
+        record.page,
+        record.content,
+        record.category,
+        record.domain,
+        record.anchor_text,
+        record.form_name,
+        record.visit,
+    )
+
+
 def _dedup_annotations(records: list[AnnotationRecord]) -> list[AnnotationRecord]:
-    """Remove annotations with identical page and rounded rect coordinates."""
+    """Remove exact and near-identical duplicate annotations."""
     from collections import defaultdict
 
     def _rect_key(record: AnnotationRecord) -> tuple[int, float, float, float, float]:
@@ -217,31 +292,78 @@ def _dedup_annotations(records: list[AnnotationRecord]) -> list[AnnotationRecord
     def _winner_key(record_index: int, record: AnnotationRecord) -> tuple[int, int, int]:
         return (-len(record.content), _category_rank(record.category), record_index)
 
-    groups: dict[
+    exact_groups: dict[
         tuple[int, float, float, float, float],
         list[tuple[int, AnnotationRecord]],
     ] = defaultdict(list)
     for record_index, record in enumerate(records):
-        groups[_rect_key(record)].append((record_index, record))
+        exact_groups[_rect_key(record)].append((record_index, record))
 
     winning_ids: set[str] = set()
-    for key, group in groups.items():
+    for key, group in exact_groups.items():
         if len(group) == 1:
             winning_ids.add(group[0][1].id)
             continue
 
         _, winner = min(group, key=lambda entry: _winner_key(*entry))
         winning_ids.add(winner.id)
-        warnings.warn(
-            "Duplicate annotations at "
-            f"page={key[0]}, rect=({key[1]}, {key[2]}, {key[3]}, {key[4]}); "
-            f"group_size={len(group)}; keeping category={winner.category!r} "
-            f"with content={winner.content!r}.",
-            UserWarning,
-            stacklevel=2,
+        _warn_duplicate_group(
+            page=key[0],
+            detail=f"rect=({key[1]}, {key[2]}, {key[3]}, {key[4]})",
+            group_size=len(group),
+            winner=winner,
         )
 
-    return [record for record in records if record.id in winning_ids]
+    exact_deduped = _filter_winning_records(records, winning_ids)
+
+    overlap_groups: dict[
+        tuple[int | str, ...],
+        list[tuple[int, AnnotationRecord]],
+    ] = defaultdict(list)
+    for record_index, record in enumerate(exact_deduped):
+        overlap_groups[_overlap_signature(record)].append((record_index, record))
+
+    winning_ids = set()
+    for group in overlap_groups.values():
+        if len(group) == 1:
+            winning_ids.add(group[0][1].id)
+            continue
+
+        visited: set[int] = set()
+        for start_index in range(len(group)):
+            if start_index in visited:
+                continue
+
+            stack = [start_index]
+            cluster_indices: set[int] = {start_index}
+            visited.add(start_index)
+
+            while stack:
+                current_index = stack.pop()
+                current_record = group[current_index][1]
+                for other_index, (_, other_record) in enumerate(group):
+                    if other_index in visited:
+                        continue
+                    if _rects_highly_overlap(current_record.rect, other_record.rect):
+                        visited.add(other_index)
+                        cluster_indices.add(other_index)
+                        stack.append(other_index)
+
+            cluster = [group[index] for index in sorted(cluster_indices)]
+            if len(cluster) == 1:
+                winning_ids.add(cluster[0][1].id)
+                continue
+
+            _, winner = min(cluster, key=lambda entry: _winner_key(*entry))
+            winning_ids.add(winner.id)
+            _warn_duplicate_group(
+                page=winner.page,
+                detail="reason='high_overlap'",
+                group_size=len(cluster),
+                winner=winner,
+            )
+
+    return _filter_winning_records(exact_deduped, winning_ids)
 
 
 def _parse_device_rgb(raw: str) -> list[float] | None:
