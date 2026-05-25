@@ -1,6 +1,6 @@
-"""Tests for src/extractor.py — T1.01 through T1.11.
+"""Tests for src/extractor.py — T1.01 through T1.12.
 
-T1.12-T1.15 (CSV round-trip) are covered in test_csv_handler.py.
+T1.13-T1.15 (CSV round-trip) are covered in test_csv_handler.py.
 T1.16 (re-classify) requires UI and is out of scope for unit tests.
 """
 import re
@@ -13,6 +13,11 @@ from src.models import AnnotationRecord
 from src.rule_engine import RuleEngine
 from src.extractor import extract_annotations
 from src.profile_models import Profile, ProfileMeta, ClassificationRule, RuleCondition
+
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Duplicate annotations at page=.*:UserWarning"
+)
 
 
 class TestExtractAnnotations:
