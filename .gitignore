@@ -65,3 +65,5 @@ scripts/
 # memory layer
 graphify-out/
 .graphify_python
+
+nul
