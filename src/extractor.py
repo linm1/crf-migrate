@@ -224,13 +224,11 @@ def _rects_highly_overlap(left: list[float], right: list[float]) -> bool:
     if left_area == 0.0 or right_area == 0.0:
         return False
 
-    union = left_area + right_area - intersection
-    iou = intersection / union if union > 0.0 else 0.0
     smaller_coverage = intersection / min(left_area, right_area)
-    return (
-        iou >= _DEDUP_HIGH_OVERLAP_IOU
-        or smaller_coverage >= _DEDUP_HIGH_OVERLAP_SMALLER_COVERAGE
-    )
+    if smaller_coverage >= _DEDUP_HIGH_OVERLAP_SMALLER_COVERAGE:
+        return True
+    union = left_area + right_area - intersection
+    return (intersection / union) >= _DEDUP_HIGH_OVERLAP_IOU
 
 
 def _warn_duplicate_group(
@@ -245,7 +243,7 @@ def _warn_duplicate_group(
         f"page={page}; {detail}; group_size={group_size}; "
         f"keeping category={winner.category!r} with content={winner.content!r}.",
         UserWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
 
 
@@ -338,16 +336,19 @@ def _dedup_annotations(records: list[AnnotationRecord]) -> list[AnnotationRecord
             cluster_indices: set[int] = {start_index}
             visited.add(start_index)
 
+            unvisited = [i for i in range(len(group)) if i not in visited]
             while stack:
                 current_index = stack.pop()
                 current_record = group[current_index][1]
-                for other_index, (_, other_record) in enumerate(group):
-                    if other_index in visited:
-                        continue
-                    if _rects_highly_overlap(current_record.rect, other_record.rect):
+                still_unvisited = []
+                for other_index in unvisited:
+                    if _rects_highly_overlap(current_record.rect, group[other_index][1].rect):
                         visited.add(other_index)
                         cluster_indices.add(other_index)
                         stack.append(other_index)
+                    else:
+                        still_unvisited.append(other_index)
+                unvisited = still_unvisited
 
             cluster = [group[index] for index in sorted(cluster_indices)]
             if len(cluster) == 1:

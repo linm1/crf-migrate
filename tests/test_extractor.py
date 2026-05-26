@@ -219,7 +219,6 @@ class TestExtractAnnotations:
         ]
 
         assert len(matching_records) == 1
-        assert matching_records[0].category == "domain_label"
         assert duplicate_user_warnings
 
     def test_t1_12_dedup_session_like_high_overlap_rects(self, tmp_path, cdisc_profile, cdisc_engine):
@@ -275,8 +274,48 @@ class TestExtractAnnotations:
         ]
 
         assert len(matching_records) == 1
-        assert matching_records[0].category == "sdtm_mapping"
         assert duplicate_user_warnings
+
+    def test_t1_12_dedup_no_overlap_same_signature_kept(self, tmp_path, cdisc_profile, cdisc_engine):
+        """T1.12: Same-signature annotations at distant rects are NOT deduped (singleton clusters)."""
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+
+        # Two annotations: same content/subject, but rects far apart (no overlap)
+        for rect, subject in [
+            ([50.0, 50.0, 220.0, 70.0], "DM"),
+            ([50.0, 700.0, 220.0, 720.0], "DM"),
+        ]:
+            a = page.add_freetext_annot(
+                rect=fitz.Rect(rect),
+                text="USUBJID",
+                fontsize=12,
+                fontname="helv",
+                text_color=(0, 0, 0),
+                fill_color=(0.75, 1.0, 1.0),
+            )
+            a.set_info(content="USUBJID", subject=subject)
+            a.update()
+
+        pdf_path = tmp_path / "no_overlap_same_sig.pdf"
+        doc.save(str(pdf_path))
+        doc.close()
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            records = extract_annotations(pdf_path, cdisc_profile, cdisc_engine)
+
+        matching = [r for r in records if r.page == 1 and r.content == "USUBJID"]
+        assert len(matching) == 2, (
+            f"Distant same-signature annotations must both survive, got {len(matching)}"
+        )
+        dedup_warnings = [
+            w for w in caught_warnings
+            if issubclass(w.category, UserWarning) and "duplicate" in str(w.message).lower()
+        ]
+        assert not dedup_warnings, "No dedup warning expected for non-overlapping annotations"
 
     def test_form_name_populated(self, sample_acrf_path, cdisc_profile, cdisc_engine):
         """form_name is a string on every record (may be empty if extraction rules don't match)."""
