@@ -1019,6 +1019,111 @@ class TestAutoStatusAssignment:
 
 
 # ---------------------------------------------------------------------------
+# TestCheckboxFieldExclusion — checkbox fields must never be anchor targets
+# ---------------------------------------------------------------------------
+
+class TestCheckboxFieldExclusion:
+    """Checkbox fields are excluded from all label-based passes (exact + fuzzy)."""
+
+    def _annot(self, aid, anchor_text="Adverse Event", form_name="Form A"):
+        from src.models import AnnotationRecord
+        return AnnotationRecord(
+            id=aid, page=1, content="X", domain="DM",
+            category="sdtm_mapping", matched_rule="test",
+            rect=[10.0, 10.0, 80.0, 25.0],
+            anchor_text=anchor_text, form_name=form_name,
+        )
+
+    def _checkbox_field(self, fid, label="Adverse Event", form_name="Form A"):
+        from src.models import FieldRecord
+        return FieldRecord(
+            id=fid, page=1, label=label, form_name=form_name,
+            rect=[10.0, 10.0, 80.0, 25.0],
+            field_type="checkbox", page_width=595.0, page_height=842.0,
+        )
+
+    def _text_field(self, fid, label="Adverse Event", form_name="Form A"):
+        from src.models import FieldRecord
+        return FieldRecord(
+            id=fid, page=1, label=label, form_name=form_name,
+            rect=[10.0, 10.0, 80.0, 25.0],
+            field_type="text_field", page_width=595.0, page_height=842.0,
+        )
+
+    def _profile(self):
+        from src.profile_models import (
+            MatchingConfig, Profile, ProfileMeta, ClassificationRule, RuleCondition,
+        )
+        return Profile(
+            meta=ProfileMeta(name="test", version="1"),
+            domain_codes=["DM"],
+            classification_rules=[
+                ClassificationRule(
+                    category="sdtm_mapping",
+                    conditions=RuleCondition(fallback=True),
+                )
+            ],
+            matching_config=MatchingConfig(),
+        )
+
+    def test_exact_pass_skips_checkbox_field(self):
+        """Annotation whose anchor_text matches only a checkbox field produces no exact match."""
+        from src.matcher import match_annotations
+        annot = self._annot("a1")
+        cb_field = self._checkbox_field("f1")
+        matches = match_annotations(
+            [annot], [cb_field], self._profile(),
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        exact = [m for m in matches if m.match_type == "exact"]
+        assert len(exact) == 0
+
+    def test_exact_pass_prefers_text_field_over_same_label_checkbox(self):
+        """When label is identical, text_field wins; checkbox is excluded."""
+        from src.matcher import match_annotations
+        annot = self._annot("a1")
+        cb_field = self._checkbox_field("f_cb")
+        tf_field = self._text_field("f_tf")
+        matches = match_annotations(
+            [annot], [cb_field, tf_field], self._profile(),
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        exact = [m for m in matches if m.match_type == "exact"]
+        assert len(exact) == 1
+        assert exact[0].field_id == "f_tf"
+
+    def test_fuzzy_same_form_pass_skips_checkbox_field(self):
+        """Annotation fuzzy-matching only a checkbox field is not matched to it."""
+        from src.matcher import match_annotations
+        # "Adverse Events" vs "Adverse Event" scores ~94 — above same-form threshold
+        annot = self._annot("a1", anchor_text="Adverse Events")
+        cb_field = self._checkbox_field("f_cb", label="Adverse Event")
+        matches = match_annotations(
+            [annot], [cb_field], self._profile(),
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        fuzzy = [m for m in matches if m.match_type == "fuzzy"]
+        assert all(m.field_id != "f_cb" for m in fuzzy)
+
+    def test_fuzzy_same_form_prefers_text_field_over_checkbox(self):
+        """When both a checkbox and text_field fuzzy-match, text_field is selected."""
+        from src.matcher import match_annotations
+        annot = self._annot("a1", anchor_text="Adverse Events")
+        cb_field = self._checkbox_field("f_cb", label="Adverse Event")
+        tf_field = self._text_field("f_tf", label="Adverse Event")
+        matches = match_annotations(
+            [annot], [cb_field, tf_field], self._profile(),
+            source_page_dims={1: (595.0, 842.0)},
+            target_page_dims={1: (595.0, 842.0)},
+        )
+        assert len(matches) == 1
+        assert matches[0].field_id == "f_tf"
+
+
+# ---------------------------------------------------------------------------
 # Page-rank isolation and repeating field tests
 # ---------------------------------------------------------------------------
 

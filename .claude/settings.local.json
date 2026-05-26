@@ -20,7 +20,10 @@
       "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/ -v)",
       "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/test_rule_engine.py tests/test_profile_loader.py tests/test_session.py tests/test_csv_handler.py -v)",
       "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" -m pytest tests/test_rule_engine.py -k \"test_tr04\" -v)",
-      "Bash(C:\\\\Program Files\\\\Python312\\\\python.exe:*)"
+      "Bash(C:\\\\Program Files\\\\Python312\\\\python.exe:*)",
+      "Bash(dir C:\\\\Users\\\\LinM1\\\\Documents\\\\python\\\\crf-migrate\\\\sessions\\\\session_ION373-CS1 *)",
+      "Bash(rtk git *)",
+      "Bash(rtk ls *)"
     ]
   }
 }

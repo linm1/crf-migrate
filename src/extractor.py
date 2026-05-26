@@ -17,6 +17,10 @@ from src.rule_engine import RuleEngine, TextBlock
 
 # FreeText annotation subtype value in PyMuPDF
 _FREETEXT_SUBTYPE = "FreeText"
+_ANCHOR_CHECKBOX_RE = re.compile(
+    r"^\s*(yes|no|y\s*/\s*n|yes\s*/\s*no)\s*$|[□☐☑✓✗]",
+    re.IGNORECASE,
+)
 _DEVICE_RGB_PATTERN = re.compile(r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg")
 _RC_RGB_COLOR_PATTERN = re.compile(
     r"rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)",
@@ -624,9 +628,10 @@ def _extract_anchor_text(
             re.compile(p, re.IGNORECASE) for p in profile.form_name_rules.exclude_patterns
         ]
     marker_rect = [annot_rect.x0, annot_rect.y0, annot_rect.x1, annot_rect.y1]
+    all_excludes = list(exclude_patterns or []) + [_ANCHOR_CHECKBOX_RE]
     return find_nearest_label(
         marker_rect,
         text_blocks,
         config.left_column_tolerance_px,
-        exclude_patterns=exclude_patterns,
+        exclude_patterns=all_excludes,
     )

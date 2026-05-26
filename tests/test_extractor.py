@@ -11,7 +11,8 @@ from pathlib import Path
 
 from src.models import AnnotationRecord
 from src.rule_engine import RuleEngine
-from src.extractor import extract_annotations
+from src.extractor import extract_annotations, _ANCHOR_CHECKBOX_RE
+from src.pdf_utils import find_nearest_label
 from src.profile_models import Profile, ProfileMeta, ClassificationRule, RuleCondition
 
 
@@ -1010,3 +1011,55 @@ class TestGetTextBlocksAnnotFiltering:
             f"Original page annotations changed: before={original_annot_count}, after={after_count}"
         )
         doc.close()
+
+
+# ---------------------------------------------------------------------------
+# TestAnchorCheckboxExclusion — _ANCHOR_CHECKBOX_RE prevents checkbox option
+# text from being selected as an annotation anchor.
+# ---------------------------------------------------------------------------
+
+def _tb(text: str, x0: float, y0: float, x1: float, y1: float) -> dict:
+    return {"text": text, "font_size": 10.0, "bold": False, "rect": [x0, y0, x1, y1]}
+
+
+class TestAnchorCheckboxExclusion:
+    """find_nearest_label skips checkbox option text when _ANCHOR_CHECKBOX_RE is excluded."""
+
+    def _blocks_with_checkbox_nearest(self):
+        # Annotation rect is at y=50–65.  "Yes" is at y=50 (same row — very close).
+        # "Adverse Event" is at y=30 (slightly farther up).
+        return [
+            _tb("Yes", 5.0, 50.0, 30.0, 60.0),
+            _tb("Adverse Event", 5.0, 30.0, 100.0, 42.0),
+        ]
+
+    def test_checkbox_text_skipped_as_anchor(self):
+        marker_rect = [35.0, 50.0, 150.0, 65.0]
+        blocks = self._blocks_with_checkbox_nearest()
+        text, _ = find_nearest_label(
+            marker_rect, blocks, left_column_tolerance_px=200.0,
+            exclude_patterns=[_ANCHOR_CHECKBOX_RE],
+        )
+        assert text == "Adverse Event"
+
+    def test_checkbox_symbol_skipped_as_anchor(self):
+        marker_rect = [35.0, 50.0, 150.0, 65.0]
+        blocks = [
+            _tb("☐", 5.0, 50.0, 20.0, 60.0),
+            _tb("Subject ID", 5.0, 30.0, 90.0, 42.0),
+        ]
+        text, _ = find_nearest_label(
+            marker_rect, blocks, left_column_tolerance_px=200.0,
+            exclude_patterns=[_ANCHOR_CHECKBOX_RE],
+        )
+        assert text == "Subject ID"
+
+    def test_without_exclusion_checkbox_would_win(self):
+        """Control: without the exclude pattern, 'Yes' (nearest) is selected."""
+        marker_rect = [35.0, 50.0, 150.0, 65.0]
+        blocks = self._blocks_with_checkbox_nearest()
+        text, _ = find_nearest_label(
+            marker_rect, blocks, left_column_tolerance_px=200.0,
+            exclude_patterns=[],
+        )
+        assert text == "Yes"

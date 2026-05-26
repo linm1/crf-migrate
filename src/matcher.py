@@ -366,6 +366,8 @@ def _exact_pass(
     # by _apply_anchor_offset, so it is always the correct match target.
     field_groups: dict[tuple[str, str], list[FieldRecord]] = {}
     for field in fields:
+        if field.field_type == "checkbox":
+            continue
         key = (_norm(field.form_name), _norm(field.label))
         field_groups.setdefault(key, []).append(field)
     for key in field_groups:
@@ -671,6 +673,7 @@ def _fuzzy_same_form_pass(
             grp_fields = [
                 f for f in fields
                 if _norm(f.form_name) == form
+                and f.field_type != "checkbox"
                 and (
                     tgt_cluster_pages is None
                     or f.page in tgt_cluster_pages
@@ -721,6 +724,7 @@ def _fuzzy_same_form_pass(
             grp_fields = [
                 f for f in fields
                 if _norm(f.form_name) == form
+                and f.field_type != "checkbox"
                 and tgt_rank_map.get(_norm(f.form_name), {}).get(f.page, 0) == src_rank
             ]
 
@@ -765,7 +769,7 @@ def _fuzzy_cross_form_pass(
         a for a in annotations
         if a.id in unmatched_annot_ids and a.anchor_text.strip() != ""
     ]
-    eligible_fields = list(fields)
+    eligible_fields = [f for f in fields if f.field_type != "checkbox"]
 
     def _score(a: AnnotationRecord, f: FieldRecord, _b: float = visit_boost) -> float:
         return _adjusted_score(a, f, _b)
