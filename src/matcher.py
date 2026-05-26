@@ -514,6 +514,19 @@ def _exact_pass(
                 candidate_fields = cluster_fields or sorted_fields
             else:
                 candidate_fields = sorted_fields
+            # Within the cluster, prefer fields on the annotation's own page when
+            # the same-page fields are sufficient to serve all annotations.
+            # Fixes cases where the same label appears on multiple pages within
+            # one contiguous cluster (e.g. "If Other, specify:" on p.22 and p.23)
+            # — without this, index-0 always resolves to the earliest page.
+            # Guard: if fewer same-page fields than annotations, do NOT restrict —
+            # annotations fan out across target pages via ridx (existing behaviour).
+            anchor_y = _row_y(sorted_annots[0]) if sorted_annots else None
+            page_fields = [f for f in candidate_fields if f.page == src_pg]
+            if page_fields and len(page_fields) >= len(sorted_annots):
+                candidate_fields = sorted(
+                    page_fields, key=lambda f: abs(f.rect[1] - (anchor_y or 0))
+                )
             annot_row = _assign_row_indices(sorted_annots)
             for annot, ridx in zip(sorted_annots, annot_row):
                 field = candidate_fields[min(ridx, len(candidate_fields) - 1)]

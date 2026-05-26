@@ -1115,6 +1115,50 @@ class TestCheckboxFieldExclusion:
         assert len(exact) == 1
         assert exact[0].field_id == "f_tf"
 
+    def test_exact_pass_single_cluster_page_alignment(self):
+        """Single-cluster form: annotation on p.23 must match the p.23 field, not p.22.
+
+        Regression for ION373-CS1 NASLOTSP: pages 20-24 are contiguous so
+        _build_form_clusters produces one cluster containing all five pages.
+        Before the fix, index-0 always selected the earliest-page field (p.22).
+        """
+        from src.matcher import match_annotations
+        from src.models import AnnotationRecord, FieldRecord
+
+        form = "Alexander Disease History"
+        label = "If Other, specify:"
+
+        annot = AnnotationRecord(
+            id="eb171414", page=23, content="NASLOTSP in SUPPFA",
+            domain="DM", category="sdtm_mapping", matched_rule="test",
+            rect=[100.0, 440.0, 200.0, 460.0],
+            anchor_text=label, form_name=form,
+            anchor_rect=[50.0, 451.12, 200.0, 463.0],
+        )
+
+        def _field(fid, page, y):
+            return FieldRecord(
+                id=fid, page=page, label=label, form_name=form,
+                rect=[50.0, y, 200.0, y + 12.0],
+                field_type="text_field", page_width=595.0, page_height=842.0,
+            )
+
+        f_p22a = _field("3c9ebef8", page=22, y=272.99)
+        f_p22b = _field("c5b6448f", page=22, y=495.21)
+        f_p23  = _field("47dfc9ae", page=23, y=451.12)
+
+        profile = self._profile()
+        dims = {p: (595.0, 842.0) for p in range(20, 25)}
+        matches = match_annotations(
+            [annot], [f_p22a, f_p22b, f_p23], profile,
+            source_page_dims=dims, target_page_dims=dims,
+        )
+        exact = [m for m in matches if m.match_type == "exact"]
+        assert len(exact) == 1
+        assert exact[0].field_id == "47dfc9ae", (
+            f"Expected p.23 field '47dfc9ae', got '{exact[0].field_id}'"
+        )
+
     def test_fuzzy_same_form_pass_skips_checkbox_field(self):
         """Annotation fuzzy-matching only a checkbox field is not matched to it."""
         from src.matcher import match_annotations
