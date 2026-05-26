@@ -182,11 +182,12 @@ class TestExactMatch:
         assert m.confidence == pytest.approx(1.0)
         assert m.target_rect == pytest.approx([50.0, 90.0, 200.0, 105.0])
 
-    def test_exact_match_case_insensitive_still_matches(self, dm_field, default_profile):
-        """Exact pass is case-insensitive.
-
-        An annotation with mismatched casing ("DATE OF BIRTH" vs "Date of Birth",
-        or "demographics" vs "DEMOGRAPHICS") must still match in the exact pass.
+    def test_anchor_label_case_drift_falls_through_to_fuzzy(self, dm_field, default_profile):
+        """Exact pass label key is case-sensitive (annotation migration assumes
+        source and target CRFs share label casing). Form_name remains case-
+        insensitive. When anchor_text casing differs from the target field
+        label, the annotation falls through to the fuzzy pass and still
+        matches there.
         """
         annot = AnnotationRecord(
             id="annot-ci",
@@ -196,7 +197,27 @@ class TestExactMatch:
             category="sdtm_mapping",
             matched_rule="test",
             rect=[100.0, 90.0, 300.0, 110.0],
-            anchor_text="DATE OF BIRTH",
+            anchor_text="DATE OF BIRTH",  # field label is "Date of Birth"
+            form_name="demographics",     # field form_name is "DEMOGRAPHICS"
+        )
+        matches = match_annotations(
+            [annot], [dm_field], default_profile,
+            SOURCE_DIMS, TARGET_DIMS,
+        )
+        assert matches[0].field_id == dm_field.id
+        assert matches[0].match_type != "exact"  # case drift → fuzzy or later
+
+    def test_anchor_label_case_sensitive_exact_match(self, dm_field, default_profile):
+        """Exact pass matches when anchor_text and field label have identical casing."""
+        annot = AnnotationRecord(
+            id="annot-cs",
+            page=1,
+            content="BRTHDTC",
+            domain="DM",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[100.0, 90.0, 300.0, 110.0],
+            anchor_text="Date of Birth",  # exact match with field label
             form_name="demographics",
         )
         matches = match_annotations(
@@ -1426,8 +1447,15 @@ class TestExactCaseInsensitiveMatch:
         assert matches[0].match_type == "exact"
         assert matches[0].field_id == "f1"
 
-    def test_case_mismatch_label_still_exact(self):
-        """Annotation anchor_text differs in case from field label: still exact."""
+    def test_case_mismatch_label_falls_through_to_fuzzy(self):
+        """Annotation anchor_text differs in case from field label.
+
+        The exact pass label key is case-sensitive (annotation migration assumes
+        source and target CRFs share label casing). When casing drifts the
+        annotation falls through exact → fuzzy_same_form_pass, which lower-
+        cases both sides before scoring, so the match still succeeds — just
+        labeled `fuzzy` instead of `exact`.
+        """
         annot = _make_annot("a1", "DATE OF BIRTH", "DEMOGRAPHICS", page=1)
         field = _make_field("f1", "Date of Birth", "DEMOGRAPHICS", page=1)
 
@@ -1435,8 +1463,8 @@ class TestExactCaseInsensitiveMatch:
         matches = match_annotations(
             [annot], [field], profile, {1: (595.0, 842.0)}, {1: (595.0, 842.0)},
         )
-        assert matches[0].match_type == "exact"
         assert matches[0].field_id == "f1"
+        assert matches[0].match_type == "fuzzy"
 
     def test_identical_strings_match_exact(self):
         """When form_name and label match exactly, exact pass succeeds."""
@@ -1747,3 +1775,107 @@ class TestVisitClusterAlignment:
         assert by_annot["a2"].field_id == "f2", "single-cluster: label-rank-2 must hit label-rank-2 field"
         assert by_annot["a1"].match_type == "exact"
         assert by_annot["a2"].match_type == "exact"
+
+
+class TestAnchorYNearestField:
+    """Regression coverage for the ION373-CS1 'Head Circumference' bug.
+
+    Repeated label appears at two anchor Y positions on the source page (header
+    row carrying VSCAT/VSTESTCD at Y=70, measurement row carrying VSORRES at
+    Y=150). Target page has the same two label occurrences. Each annotation
+    must pair with the field whose Y is nearest its anchor Y — not by sorted
+    rank, which previously clamped extra rows onto the last field when the
+    domain_label annotation consumed a field slot.
+    """
+
+    def _annot_with_anchor(self, aid, anchor_text, form_name, page, anchor_y, category="sdtm_mapping"):
+        return AnnotationRecord(
+            id=aid,
+            page=page,
+            content="X",
+            domain="VS",
+            category=category,
+            matched_rule="test",
+            rect=[50.0, anchor_y + 5.0, 200.0, anchor_y + 20.0],
+            anchor_text=anchor_text,
+            anchor_rect=[50.0, anchor_y, 200.0, anchor_y + 12.0],
+            form_name=form_name,
+        )
+
+    def test_single_page_repeated_label_pairs_by_anchor_y(self):
+        """Single-page branch: 3 annots (domain_label + VSCAT + VSORRES) on one
+        source page, 2 target fields at different Y. VSCAT (anchor Y=70) must
+        land on the Y=70 field; VSORRES (anchor Y=150) on the Y=150 field.
+        Previously VSCAT and VSORRES both clamped onto the Y=150 field after
+        the domain_label consumed the Y=70 slot.
+        """
+        dom = self._annot_with_anchor("dom", "Head Circ", "VS", page=1, anchor_y=70.0, category="domain_label")
+        vscat = self._annot_with_anchor("vscat", "Head Circ", "VS", page=1, anchor_y=70.0)
+        vsorres = self._annot_with_anchor("vsorres", "Head Circ", "VS", page=1, anchor_y=150.0)
+
+        f_hdr = _make_field("f_hdr", "Head Circ", "VS", page=2, y=70.0)
+        f_meas = _make_field("f_meas", "Head Circ", "VS", page=2, y=150.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {2: (595.0, 842.0)}
+
+        matches = match_annotations(
+            [dom, vscat, vsorres], [f_hdr, f_meas], profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["dom"].field_id == "f_hdr"
+        assert by_annot["vscat"].field_id == "f_hdr"
+        assert by_annot["vsorres"].field_id == "f_meas"
+        assert by_annot["vscat"].match_type == "exact"
+        assert by_annot["vsorres"].match_type == "exact"
+
+    def test_multi_page_repeated_label_pairs_by_anchor_y(self):
+        """Multi-page branch (mirrors ION373-CS1 p.163+p.164 routing). Two
+        source visits each carry the repeated label; each visit's VSCAT and
+        VSORRES must reach the correct field in the matching target cluster.
+        """
+        v1_vscat = self._annot_with_anchor("v1_vscat", "Head Circ", "VS", page=10, anchor_y=70.0)
+        v1_vsorres = self._annot_with_anchor("v1_vsorres", "Head Circ", "VS", page=10, anchor_y=170.0)
+        v2_vscat = self._annot_with_anchor("v2_vscat", "Head Circ", "VS", page=11, anchor_y=70.0)
+        v2_vsorres = self._annot_with_anchor("v2_vsorres", "Head Circ", "VS", page=11, anchor_y=147.0)
+
+        tgt_v1_hdr = _make_field("tgt_v1_hdr", "Head Circ", "VS", page=20, y=70.0)
+        tgt_v1_meas = _make_field("tgt_v1_meas", "Head Circ", "VS", page=20, y=170.0)
+        tgt_v2_hdr = _make_field("tgt_v2_hdr", "Head Circ", "VS", page=21, y=70.0)
+        tgt_v2_meas = _make_field("tgt_v2_meas", "Head Circ", "VS", page=21, y=147.0)
+
+        profile = _make_profile_default()
+        src_dims = {10: (595.0, 842.0), 11: (595.0, 842.0)}
+        tgt_dims = {20: (595.0, 842.0), 21: (595.0, 842.0)}
+
+        matches = match_annotations(
+            [v1_vscat, v1_vsorres, v2_vscat, v2_vsorres],
+            [tgt_v1_hdr, tgt_v1_meas, tgt_v2_hdr, tgt_v2_meas],
+            profile, src_dims, tgt_dims,
+        )
+        by_annot = {m.annotation_id: m for m in matches}
+        assert by_annot["v1_vscat"].field_id == "tgt_v1_hdr"
+        assert by_annot["v1_vsorres"].field_id == "tgt_v1_meas"
+        assert by_annot["v2_vscat"].field_id == "tgt_v2_hdr"
+        assert by_annot["v2_vsorres"].field_id == "tgt_v2_meas"
+        for aid in ("v1_vscat", "v1_vsorres", "v2_vscat", "v2_vsorres"):
+            assert by_annot[aid].match_type == "exact", f"{aid} should match exact"
+
+    def test_case_sensitive_label_isolates_groups(self):
+        """'Head Circumference' (form title) and 'HEAD CIRCUMFERENCE' (section
+        header) are distinct labels under the new case-sensitive exact pass.
+        An annotation anchored to 'Head Circumference' must NOT compete against
+        the 'HEAD CIRCUMFERENCE' field for the exact-match slot.
+        """
+        a = self._annot_with_anchor("a", "Head Circumference", "VS", page=1, anchor_y=70.0)
+        f_title = _make_field("f_title", "Head Circumference", "VS", page=2, y=70.0)
+        f_subhdr = _make_field("f_subhdr", "HEAD CIRCUMFERENCE", "VS", page=2, y=100.0)
+
+        profile = _make_profile_default()
+        src_dims = {1: (595.0, 842.0)}
+        tgt_dims = {2: (595.0, 842.0)}
+
+        matches = match_annotations([a], [f_title, f_subhdr], profile, src_dims, tgt_dims)
+        assert matches[0].field_id == "f_title"
+        assert matches[0].match_type == "exact"

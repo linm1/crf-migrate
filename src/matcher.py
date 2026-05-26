@@ -262,8 +262,14 @@ def _visit_match(a: str, b: str) -> float:
 
 
 def _adjusted_score(annot: AnnotationRecord, field: FieldRecord, visit_boost: float) -> float:
-    """Return raw fuzzy score (0-100) plus optional visit boost."""
-    raw = fuzz.token_sort_ratio(annot.anchor_text, field.label)
+    """Return raw fuzzy score (0-100) plus optional visit boost.
+
+    Lowercases both sides before scoring: rapidfuzz.token_sort_ratio is
+    case-sensitive by default, and the exact pass is now case-sensitive too,
+    so fuzzy must absorb any case drift between source anchor_text and
+    target field label.
+    """
+    raw = fuzz.token_sort_ratio(annot.anchor_text.lower(), field.label.lower())
     boost = visit_boost * _visit_match(annot.visit, field.visit)
     return raw + boost
 
@@ -347,19 +353,27 @@ def _exact_pass(
     """
     results: list[MatchRecord] = []
 
-    # Build (norm_form, norm_label) -> [annotations sorted by (page, y0)]
+    # Case-sensitive label key for exact_pass only. Annotation migration assumes
+    # source/target CRFs use the same label casing; "Head Circumference" (form
+    # title) and "HEAD CIRCUMFERENCE" (sub-header) are distinct SDTM labels that
+    # case-insensitive matching incorrectly conflates. form_name stays case-
+    # insensitive (vendors vary). If casing drifts the annotation falls through
+    # to the fuzzy passes, which remain case-insensitive.
+    _label_key = lambda s: s.strip()  # noqa: E731
+
+    # Build (norm_form, label) -> [annotations sorted by (page, y0)]
     annot_groups: dict[tuple[str, str], list[AnnotationRecord]] = {}
     for annot in annotations:
         if annot.id not in unmatched_annot_ids:
             continue
         if not annot.anchor_text.strip():
             continue
-        key = (_norm(annot.form_name), _norm(annot.anchor_text))
+        key = (_norm(annot.form_name), _label_key(annot.anchor_text))
         annot_groups.setdefault(key, []).append(annot)
     for key in annot_groups:
         annot_groups[key].sort(key=lambda a: (a.page, a.rect[1]))
 
-    # Build (norm_form, norm_label) -> [fields sorted by (page, y0)]
+    # Build (norm_form, label) -> [fields sorted by (page, y0)]
     # Deduplicate fields that share the same (form, label, page, y_row): when a label
     # row produces both a section_header and a text_field at the same y, keep only the
     # first one encountered after sorting — section_header is the positional anchor used
@@ -368,7 +382,7 @@ def _exact_pass(
     for field in fields:
         if field.field_type == "checkbox":
             continue
-        key = (_norm(field.form_name), _norm(field.label))
+        key = (_norm(field.form_name), _label_key(field.label))
         field_groups.setdefault(key, []).append(field)
     for key in field_groups:
         field_groups[key].sort(key=lambda f: (f.page, f.rect[1], 0 if f.field_type != "checkbox" else 1))
@@ -410,26 +424,44 @@ def _exact_pass(
             status="approved",
         )
 
+    def _row_y(annot: AnnotationRecord) -> float:
+        """Y used for row grouping. Prefers anchor_rect (semantic ground truth —
+        the field the source author tied the annotation to). Falls back to the
+        annotation's own rect Y when anchor_rect is missing.
+        """
+        return annot.anchor_rect[1] if annot.anchor_rect else annot.rect[1]
+
     def _assign_row_indices(annots: list[AnnotationRecord]) -> list[int]:
         """Assign a row index to each annotation.
 
         Annotations within 5 px of their predecessor on the same page share
         the same row slot (siblings).  A page change or a gap > 5 px increments
-        the row counter.
+        the row counter. Grouping is driven by anchor Y so repeated labels at
+        distinct anchor positions on one page (e.g. ION373-CS1 'Head
+        Circumference' header at Y=76 + measurement row at Y=147) get
+        distinct row indices and pair with distinct target fields.
         """
+        # Sort annotations by (page, anchor Y) so row indices follow the
+        # source-PDF ordering of distinct anchor positions, not the visually
+        # drawn annotation box positions — which can be interleaved (e.g. the
+        # domain_label box drawn near the header anchor at Y=76 even though
+        # the SDTM mapping box is drawn lower).
+        order = sorted(range(len(annots)), key=lambda i: (annots[i].page, _row_y(annots[i])))
+        row_for: dict[int, int] = {}
         row_idx = 0
         prev_page: int | None = None
         prev_y: float | None = None
-        rows: list[int] = []
-        for annot in annots:
+        for i in order:
+            a = annots[i]
+            y = _row_y(a)
             if prev_page is not None and (
-                annot.page != prev_page or abs(annot.rect[1] - prev_y) > 5.0
+                a.page != prev_page or abs(y - prev_y) > 5.0
             ):
                 row_idx += 1
-            rows.append(row_idx)
-            prev_page = annot.page
-            prev_y = annot.rect[1]
-        return rows
+            row_for[i] = row_idx
+            prev_page = a.page
+            prev_y = y
+        return [row_for[i] for i in range(len(annots))]
 
     def _resolve_tgt_cluster_idx(
         src_ci: int,
@@ -595,7 +627,13 @@ def _exact_pass(
                     # Genuinely unmatched; fall through to later passes.
                     continue
 
-                # Row-index pre-pass within this bucket.
+                # Row-index pre-pass within this bucket. Row indices are now
+                # driven by anchor_rect Y (see _assign_row_indices), so repeated
+                # labels at distinct anchor positions on the same page get
+                # distinct rows and pair with distinct target fields — fixing
+                # ION373-CS1 p.164 where domain_label + VSCAT shared anchor
+                # Y=76 (now row 0 → header field) while VSORRES at anchor
+                # Y=147 (row 1 → measurement field).
                 annot_row = _assign_row_indices(crank_annots)
                 for annot, ridx in zip(crank_annots, annot_row):
                     field = rank_fields[min(ridx, len(rank_fields) - 1)]
