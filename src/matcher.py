@@ -583,17 +583,22 @@ def _exact_pass(
                     # Multiple annotations: sort by field Y (document order) so ridx N → field[N].
                     # Proximity-to-a-single-anchor-Y biases all rows toward the same top field.
                     candidate_fields = sorted(page_fields, key=lambda f: f.rect[1])
+            annot_row = _assign_row_indices(sorted_annots)
+            n_distinct_rows = (max(annot_row) + 1) if annot_row else 0
             _cand_pages = {f.page for f in candidate_fields}
-            if len(candidate_fields) > len(sorted_annots) and len(_cand_pages) == 1:
-                # More fields than annotations on a single target page: use
-                # anchor-Y proximity so each annotation claims the nearest
-                # unclaimed field rather than always starting at field[0].
-                # Guard: only when all candidates are on the same page —
-                # cross-page Y values are not comparable.
+            if (
+                len(candidate_fields) > n_distinct_rows > 1
+                and len(_cand_pages) == 1
+            ):
+                # More candidate fields than distinct anchor-Y rows, all on one
+                # target page: use proximity so row K maps to the nearest field,
+                # not always field[0].  Guards:
+                #  - n_distinct_rows > 1: siblings sharing one anchor Y all
+                #    belong to the same field (ridx=0 for all) — old path correct.
+                #  - len(_cand_pages)==1: cross-page Y values are not comparable.
                 _prox_assign(sorted_annots, candidate_fields, results,
                              unmatched_annot_ids, _emit_match, _row_y)
             else:
-                annot_row = _assign_row_indices(sorted_annots)
                 for annot, ridx in zip(sorted_annots, annot_row):
                     field = candidate_fields[min(ridx, len(candidate_fields) - 1)]
                     results.append(_emit_match(annot, field))
@@ -713,11 +718,16 @@ def _exact_pass(
                 # ION373-CS1 p.164 where domain_label + VSCAT shared anchor
                 # Y=76 (now row 0 → header field) while VSORRES at anchor
                 # Y=147 (row 1 → measurement field).
-                if len(rank_fields) > len(crank_annots):
+                annot_row = _assign_row_indices(crank_annots)
+                n_distinct_rows = (max(annot_row) + 1) if annot_row else 0
+                _rf_pages = {f.page for f in rank_fields}
+                if (
+                    len(rank_fields) > n_distinct_rows > 1
+                    and len(_rf_pages) == 1
+                ):
                     _prox_assign(crank_annots, rank_fields, results,
                                  unmatched_annot_ids, _emit_match, _row_y)
                 else:
-                    annot_row = _assign_row_indices(crank_annots)
                     for annot, ridx in zip(crank_annots, annot_row):
                         field = rank_fields[min(ridx, len(rank_fields) - 1)]
                         results.append(_emit_match(annot, field))
