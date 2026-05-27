@@ -514,15 +514,35 @@ def _exact_pass(
                 candidate_fields = cluster_fields or sorted_fields
             else:
                 candidate_fields = sorted_fields
-            # Within the cluster, prefer fields on the annotation's own page when
-            # the same-page fields are sufficient to serve all annotations.
-            # Fixes cases where the same label appears on multiple pages within
-            # one contiguous cluster (e.g. "If Other, specify:" on p.22 and p.23)
-            # — without this, index-0 always resolves to the earliest page.
-            # Guard: if fewer same-page fields than annotations, do NOT restrict —
-            # annotations fan out across target pages via ridx (existing behaviour).
+            # Within the cluster, prefer fields on the page that corresponds to the
+            # source annotation's cluster-relative position.
+            # When src and tgt clusters have equal page counts, use cluster-pos mapping:
+            #   src p.31 in [29-32] (pos 3) → tgt [30-33][2] = p.32 (not raw p.31).
+            # When counts differ, fall back to raw page-number equality so the existing
+            # "same-page fields win" behaviour is preserved for mismatched clusters.
             anchor_y = _row_y(sorted_annots[0]) if sorted_annots else None
-            page_fields = [f for f in candidate_fields if f.page == src_pg]
+            tgt_cluster_pages = (
+                form_tgt_clusters[tgt_ci - 1]
+                if form_tgt_clusters and 1 <= tgt_ci <= len(form_tgt_clusters)
+                else []
+            )
+            src_cluster_pages = (
+                form_src_clusters[src_ci - 1]
+                if form_src_clusters and 1 <= src_ci <= len(form_src_clusters)
+                else []
+            )
+            if tgt_cluster_pages and src_cluster_pages and len(src_cluster_pages) == len(tgt_cluster_pages):
+                src_pi = _cluster_rank(src_pg, form_src_clusters)[1] if form_src_clusters else 1
+                # src_pi == 0 means src_pg not in any cluster (cluster override removed it).
+                # The 1 <= src_pi guard falls through to src_pg, preserving old behaviour.
+                tgt_pi_page = (
+                    tgt_cluster_pages[src_pi - 1]
+                    if 1 <= src_pi <= len(tgt_cluster_pages)
+                    else src_pg
+                )
+            else:
+                tgt_pi_page = src_pg
+            page_fields = [f for f in candidate_fields if f.page == tgt_pi_page]
             if page_fields and len(page_fields) >= len(sorted_annots):
                 candidate_fields = sorted(
                     page_fields, key=lambda f: abs(f.rect[1] - (anchor_y or 0))

@@ -1159,6 +1159,83 @@ class TestCheckboxFieldExclusion:
             f"Expected p.23 field '47dfc9ae', got '{exact[0].field_id}'"
         )
 
+    def test_exact_pass_single_page_annot_offset_cluster(self):
+        """Single-page annotation must use cluster-relative position, not raw page number.
+
+        Regression for ION373-CS1 AxD-Clinical Manifestations:
+        - Source cluster [29,30,31,32]: annotation at p.31 is cluster-position 3
+        - Target cluster [30,31,32,33]: cluster-position 3 is p.32
+        - Two target fields exist on p.31 (wrong) and one on p.32 (correct)
+        - Old guard used f.page == src_pg (=31), hitting p.31 fields instead of p.32
+        """
+        from src.matcher import match_annotations
+        from src.models import AnnotationRecord, FieldRecord
+
+        form = "AxD-Clinical Manifestations"
+        label = "If Other, specify:"
+
+        annot = AnnotationRecord(
+            id="d54a7523", page=31, content="NASLOTSP in SUPPFA",
+            domain="Text Box", category="sdtm_mapping", matched_rule="test",
+            rect=[254.65, 333.47, 368.69, 348.99],
+            anchor_text=label, form_name=form,
+            anchor_rect=[78.11, 338.92, 139.67, 345.91],
+        )
+
+        def _field(fid, page, y):
+            return FieldRecord(
+                id=fid, page=page, label=label, form_name=form,
+                rect=[78.0, y, 200.0, y + 12.0],
+                field_type="text_field", page_width=595.0, page_height=842.0,
+            )
+
+        # Source pages 29-32 (annotation at p.31 = cluster-pos 3)
+        # Target pages 30-33 (p.32 = cluster-pos 3 = correct target)
+        f_p31a = _field("f_p31a", page=31, y=272.99)   # cluster-pos 2, wrong
+        f_p31b = _field("f_p31b", page=31, y=495.21)   # cluster-pos 2, wrong
+        f_p32  = _field("f_p32",  page=32, y=338.92)   # cluster-pos 3, correct
+
+        # Dummy annotations on other source pages so _build_form_clusters sees all 4 pages
+        def _dummy_annot(aid, page):
+            return AnnotationRecord(
+                id=aid, page=page, content="X", domain="Text Box",
+                category="sdtm_mapping", matched_rule="test",
+                rect=[50.0, 50.0, 100.0, 62.0],
+                anchor_text="dummy_unique_label_xyz", form_name=form,
+            )
+
+        dummy_annots = [_dummy_annot(f"da{p}", p) for p in [29, 30, 32]]
+        # Pages 30, 31, 32, 33 must form a contiguous target cluster independently
+        # of f_p32 (the assertion field). Without a dummy on p.32, the gap 31→33
+        # would split the cluster into [30,31] and [33], breaking the size-equality
+        # check in the fix. Use a distinct label so dummy fields never conflict with
+        # the "If Other, specify:" group being tested.
+        dummy_fields = [
+            FieldRecord(
+                id=f"df{p}", page=p, label="dummy_unique_label_xyz", form_name=form,
+                rect=[50.0, 50.0, 100.0, 62.0],
+                field_type="text_field", page_width=595.0, page_height=842.0,
+            )
+            for p in [30, 31, 32, 33]
+        ]
+
+        profile = self._profile()
+        src_dims = {p: (595.0, 842.0) for p in range(29, 33)}
+        tgt_dims = {p: (595.0, 842.0) for p in range(30, 34)}
+
+        matches = match_annotations(
+            [annot] + dummy_annots,
+            [f_p31a, f_p31b, f_p32] + dummy_fields,
+            profile,
+            source_page_dims=src_dims,
+            target_page_dims=tgt_dims,
+        )
+        exact = [m for m in matches if m.match_type == "exact" and m.annotation_id == "d54a7523"]
+        assert len(exact) == 1, f"Expected 1 exact match for NASLOTSP, got {len(exact)}"
+        assert exact[0].field_id == "f_p32", (
+            f"Expected p.32 field 'f_p32' (cluster-pos 3), got '{exact[0].field_id}'"
+        )
+
     def test_fuzzy_same_form_pass_skips_checkbox_field(self):
         """Annotation fuzzy-matching only a checkbox field is not matched to it."""
         from src.matcher import match_annotations
