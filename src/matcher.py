@@ -544,9 +544,16 @@ def _exact_pass(
                 tgt_pi_page = src_pg
             page_fields = [f for f in candidate_fields if f.page == tgt_pi_page]
             if page_fields and len(page_fields) >= len(sorted_annots):
-                candidate_fields = sorted(
-                    page_fields, key=lambda f: abs(f.rect[1] - (anchor_y or 0))
-                )
+                # Enough page-filtered fields for all annotations. Reorder them.
+                if len(sorted_annots) == 1:
+                    # Single annotation: proximity sort to its anchor Y (existing behaviour).
+                    candidate_fields = sorted(
+                        page_fields, key=lambda f: abs(f.rect[1] - (anchor_y or 0))
+                    )
+                else:
+                    # Multiple annotations: sort by field Y (document order) so ridx N → field[N].
+                    # Proximity-to-a-single-anchor-Y biases all rows toward the same top field.
+                    candidate_fields = sorted(page_fields, key=lambda f: f.rect[1])
             annot_row = _assign_row_indices(sorted_annots)
             for annot, ridx in zip(sorted_annots, annot_row):
                 field = candidate_fields[min(ridx, len(candidate_fields) - 1)]

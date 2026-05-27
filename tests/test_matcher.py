@@ -2000,3 +2000,84 @@ class TestAnchorYNearestField:
         matches = match_annotations([a], [f_title, f_subhdr], profile, src_dims, tgt_dims)
         assert matches[0].field_id == "f_title"
         assert matches[0].match_type == "exact"
+
+
+class TestExactPassNoDuplicateField:
+    """Regression: two annotations sharing anchor_text but at distinct anchor Y
+    positions must NOT both be assigned to the same target field.
+    ION373-CS1 edge case: 'FAOBJ' and 'NHPTEOTS in SUPPFA' both anchor at
+    'Other deviation from instructions' but represent two distinct source rows.
+    """
+
+    def _make_annot(self, aid, content, page, rect_y, anchor_y, anchor_text="Other deviation from instructions"):
+        return AnnotationRecord(
+            id=aid,
+            page=page,
+            content=content,
+            domain="FA",
+            category="sdtm_mapping",
+            matched_rule="test",
+            rect=[50.0, rect_y, 200.0, rect_y + 12.0],
+            anchor_text=anchor_text,
+            anchor_rect=[10.0, anchor_y, 400.0, anchor_y + 10.0],
+            form_name="9-Hole Peg Test",
+        )
+
+    def _make_field(self, fid, label, page, rect_y):
+        return FieldRecord(
+            id=fid,
+            page=page,
+            label=label,
+            field_type="text_field",
+            rect=[10.0, rect_y, 500.0, rect_y + 12.0],
+            form_name="9-Hole Peg Test",
+        )
+
+    def test_two_annots_same_anchor_text_get_distinct_fields(self):
+        """Two annotations with the same anchor_text but anchor_rect Y >5px apart
+        must be matched to two distinct target fields when both exact matches exist.
+
+        This test enforces that ridx=0 and ridx=1 from _assign_row_indices both map
+        to distinct entries in candidate_fields, not both to field[0] via the clamp."""
+        annots = [
+            self._make_annot("a1", "NHPTEOTS in SUPPFA", page=9, rect_y=130.0, anchor_y=135.77),
+            self._make_annot("a2", "FAOBJ",             page=9, rect_y=145.0, anchor_y=151.25),
+        ]
+        # Two "Other deviation from instructions" fields on the target page
+        fields = [
+            self._make_field("f1", "Other deviation from instructions", page=9, rect_y=151.25),
+            self._make_field("f2", "Other deviation from instructions", page=9, rect_y=323.55),
+        ]
+        profile = _make_profile()
+        matches = match_annotations(annots, fields, profile, {9: (595.0, 842.0)}, {9: (595.0, 842.0)})
+        exact = [m for m in matches if m.match_type == "exact"]
+
+        assert len(exact) == 2, f"Expected 2 exact matches, got {len(exact)}"
+
+        # The critical check: both annotations must map to DIFFERENT fields.
+        # If len(page_fields) < len(sorted_annots), the old code skipped the proximity
+        # re-sort and both clamped to field[0] via min(ridx, len-1).
+        a1_match = next(m for m in exact if m.annotation_id == "a1")
+        a2_match = next(m for m in exact if m.annotation_id == "a2")
+
+        # In the simple 2-field case, f1 (Y=151) is closer to both annotations.
+        # The sort order (whether by proximity or by Y) determines which gets f1 and which gets f2.
+        # With the fix, field Y sort ensures a1 (ridx=0) → f1, a2 (ridx=1) → f2.
+        # Before the fix, both might clamp to f1 in edge cases. We verify they're distinct.
+        assert a1_match.field_id != a2_match.field_id, (
+            f"Both annotations must map to different fields. Got a1→{a1_match.field_id}, "
+            f"a2→{a2_match.field_id}. Bug: clamp to same field."
+        )
+
+    def test_single_annot_proximity_sort_preserved(self):
+        """Single annotation still matches by proximity to anchor Y (existing behaviour)."""
+        annot = self._make_annot("a1", "NHPTEOTS in SUPPFA", page=9, rect_y=130.0, anchor_y=135.77)
+        fields = [
+            self._make_field("f1", "Other deviation from instructions", page=9, rect_y=151.25),
+            self._make_field("f2", "Other deviation from instructions", page=9, rect_y=323.55),
+        ]
+        profile = _make_profile()
+        matches = match_annotations([annot], fields, profile, {9: (595.0, 842.0)}, {9: (595.0, 842.0)})
+        exact = [m for m in matches if m.match_type == "exact"]
+        assert len(exact) == 1
+        assert exact[0].field_id == "f1"  # f1 at Y=151 is closest to anchor_y=135.77
