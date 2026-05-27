@@ -2069,6 +2069,44 @@ class TestExactPassNoDuplicateField:
             f"a2→{a2_match.field_id}. Bug: clamp to same field."
         )
 
+    def test_more_fields_than_annots_prox_assign(self):
+        """Regression: when target page has MORE fields than source annotations for a label,
+        each annotation must claim the NEAREST unclaimed field by anchor Y, not field[0].
+
+        ION373-CS1 topology: 'Participant tried...' label has 2 src annotations on page 9
+        (anchor_y=300.7, anchor_y=495.9) but 4 target fields on page 9
+        (y=128.4, y=300.7, y=495.9, y=668.2). Before the _prox_assign fix, both
+        annotations started at field[0] (y=128.4) producing an off-by-one row shift.
+        """
+        annots = [
+            self._make_annot("a1", "NHPTEOTS in SUPPFA", page=9, rect_y=307.0, anchor_y=300.7,
+                             anchor_text="Participant tried"),
+            self._make_annot("a2", "NHPTEOTS in SUPPFA", page=9, rect_y=502.0, anchor_y=495.9,
+                             anchor_text="Participant tried"),
+        ]
+        fields = [
+            self._make_field("f1", "Participant tried", page=9, rect_y=128.4),
+            self._make_field("f2", "Participant tried", page=9, rect_y=300.7),
+            self._make_field("f3", "Participant tried", page=9, rect_y=495.9),
+            self._make_field("f4", "Participant tried", page=9, rect_y=668.2),
+        ]
+        profile = _make_profile()
+        matches = match_annotations(annots, fields, profile, {9: (595.0, 842.0)}, {9: (595.0, 842.0)})
+        exact = [m for m in matches if m.match_type == "exact"]
+
+        assert len(exact) == 2, f"Expected 2 exact matches, got {len(exact)}"
+        a1_match = next(m for m in exact if m.annotation_id == "a1")
+        a2_match = next(m for m in exact if m.annotation_id == "a2")
+
+        assert a1_match.field_id == "f2", (
+            f"a1 (anchor_y=300.7) should map to f2 (y=300.7), got {a1_match.field_id}. "
+            "Row-offset bug: annotation shifted one slot up."
+        )
+        assert a2_match.field_id == "f3", (
+            f"a2 (anchor_y=495.9) should map to f3 (y=495.9), got {a2_match.field_id}. "
+            "Row-offset bug: annotation shifted one slot up."
+        )
+
     def test_single_annot_proximity_sort_preserved(self):
         """Single annotation still matches by proximity to anchor Y (existing behaviour)."""
         annot = self._make_annot("a1", "NHPTEOTS in SUPPFA", page=9, rect_y=130.0, anchor_y=135.77)

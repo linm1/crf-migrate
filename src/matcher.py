@@ -329,6 +329,35 @@ def _bipartite_assign(
     return results
 
 
+def _prox_assign(annots, candidate_fields, results, unmatched_annot_ids, emit_fn, row_y_fn):
+    """Assign each annotation to the nearest unclaimed field by anchor Y.
+
+    Used when candidate_fields outnumbers annots so that row-index arithmetic
+    (which always starts at index 0) would map annotations to the wrong fields.
+    Greedy nearest-neighbour in anchor-Y order; ties broken by document order.
+    """
+    claimed: set[int] = set()
+    sorted_by_y = sorted(range(len(annots)), key=lambda i: row_y_fn(annots[i]))
+    assignments: dict[str, "FieldRecord"] = {}
+    for i in sorted_by_y:
+        a = annots[i]
+        ay = row_y_fn(a)
+        best_fi, best_dist = -1, float("inf")
+        for fi, f in enumerate(candidate_fields):
+            if fi in claimed:
+                continue
+            d = abs(f.rect[1] - ay)
+            if d < best_dist:
+                best_dist, best_fi = d, fi
+        if best_fi >= 0:
+            claimed.add(best_fi)
+            assignments[a.id] = candidate_fields[best_fi]
+    for a in annots:
+        field = assignments.get(a.id, candidate_fields[-1])
+        results.append(emit_fn(a, field))
+        unmatched_annot_ids.discard(a.id)
+
+
 def _exact_pass(
     annotations: list[AnnotationRecord],
     fields: list[FieldRecord],
@@ -554,11 +583,21 @@ def _exact_pass(
                     # Multiple annotations: sort by field Y (document order) so ridx N → field[N].
                     # Proximity-to-a-single-anchor-Y biases all rows toward the same top field.
                     candidate_fields = sorted(page_fields, key=lambda f: f.rect[1])
-            annot_row = _assign_row_indices(sorted_annots)
-            for annot, ridx in zip(sorted_annots, annot_row):
-                field = candidate_fields[min(ridx, len(candidate_fields) - 1)]
-                results.append(_emit_match(annot, field))
-                unmatched_annot_ids.discard(annot.id)
+            _cand_pages = {f.page for f in candidate_fields}
+            if len(candidate_fields) > len(sorted_annots) and len(_cand_pages) == 1:
+                # More fields than annotations on a single target page: use
+                # anchor-Y proximity so each annotation claims the nearest
+                # unclaimed field rather than always starting at field[0].
+                # Guard: only when all candidates are on the same page —
+                # cross-page Y values are not comparable.
+                _prox_assign(sorted_annots, candidate_fields, results,
+                             unmatched_annot_ids, _emit_match, _row_y)
+            else:
+                annot_row = _assign_row_indices(sorted_annots)
+                for annot, ridx in zip(sorted_annots, annot_row):
+                    field = candidate_fields[min(ridx, len(candidate_fields) - 1)]
+                    results.append(_emit_match(annot, field))
+                    unmatched_annot_ids.discard(annot.id)
         else:
             # ── Multi-page: bucket by (cluster_idx, page_in_cluster_idx) ──
             form_src_clusters = _src_clusters.get(norm_form, [])
@@ -674,11 +713,15 @@ def _exact_pass(
                 # ION373-CS1 p.164 where domain_label + VSCAT shared anchor
                 # Y=76 (now row 0 → header field) while VSORRES at anchor
                 # Y=147 (row 1 → measurement field).
-                annot_row = _assign_row_indices(crank_annots)
-                for annot, ridx in zip(crank_annots, annot_row):
-                    field = rank_fields[min(ridx, len(rank_fields) - 1)]
-                    results.append(_emit_match(annot, field))
-                    unmatched_annot_ids.discard(annot.id)
+                if len(rank_fields) > len(crank_annots):
+                    _prox_assign(crank_annots, rank_fields, results,
+                                 unmatched_annot_ids, _emit_match, _row_y)
+                else:
+                    annot_row = _assign_row_indices(crank_annots)
+                    for annot, ridx in zip(crank_annots, annot_row):
+                        field = rank_fields[min(ridx, len(rank_fields) - 1)]
+                        results.append(_emit_match(annot, field))
+                        unmatched_annot_ids.discard(annot.id)
 
     return results
 
