@@ -67,3 +67,6 @@ graphify-out/
 .graphify_python
 
 nul
+
+# unknowns report
+unknowns/
