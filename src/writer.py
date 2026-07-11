@@ -43,6 +43,26 @@ _BASE14_MAP: dict[tuple[str, bool, bool], tuple[str, str]] = {
 _BOLD_RE = re.compile(r"(?i)(bold|hebo|hebi|cobo|cobi|tibo|tibi)")
 _ITALIC_RE = re.compile(r"(?i)(italic|oblique|heit|hebi|coit|cobi|tiit|tibi)")
 
+# Trailing bold/italic/oblique style token, for the *display* family name used
+# only in /RC and /DS (e.g. "Arial,BoldItalic" -> "Arial"). Never affects the
+# Base-14 family bucket below.
+_STYLE_SUFFIX_RE = re.compile(r"(?i)[,\-\s]+(bold\s*italic|bold\s*oblique|italic|oblique|bold)\s*$")
+
+
+def _detect_family(raw: str) -> str:
+    """Bucket an arbitrary font name into a Base-14 family: times/courier/helvetica."""
+    if _FAMILY_TIMES.search(raw):
+        return "times"
+    if _FAMILY_COURIER.search(raw):
+        return "courier"
+    return "helvetica"
+
+
+def _display_family(raw: str) -> str:
+    """Strip a trailing style token for /RC and /DS, e.g. "Arial,BoldItalic" -> "Arial"."""
+    cleaned = _STYLE_SUFFIX_RE.sub("", raw).strip()
+    return cleaned or raw
+
 
 def _normalise_font_name(raw: str) -> tuple[str, str, bool, bool]:
     """Map an arbitrary font name to (pymupdf_alias, pdf_standard_name, is_bold, is_italic).
@@ -52,14 +72,7 @@ def _normalise_font_name(raw: str) -> tuple[str, str, bool, bool]:
     """
     is_bold = bool(_BOLD_RE.search(raw))
     is_italic = bool(_ITALIC_RE.search(raw))
-
-    if _FAMILY_TIMES.search(raw):
-        family = "times"
-    elif _FAMILY_COURIER.search(raw):
-        family = "courier"
-    else:
-        family = "helvetica"
-
+    family = _detect_family(raw)
     alias, pdf_name = _BASE14_MAP[(family, is_bold, is_italic)]
     return alias, pdf_name, is_bold, is_italic
 
@@ -67,8 +80,14 @@ def _normalise_font_name(raw: str) -> tuple[str, str, bool, bool]:
 def _resolve_text_style(
     annot: AnnotationRecord,
     profile: Profile,
-) -> tuple[str, str, float, tuple[float, float, float], bool, bool]:
-    """Return (pymupdf_alias, pdf_standard_name, fontsize, text_color, is_bold, is_italic).
+) -> tuple[str, str, float, tuple[float, float, float], bool, bool, str]:
+    """Return (pymupdf_alias, pdf_standard_name, fontsize, text_color, is_bold,
+    is_italic, display_family).
+
+    display_family is the clean, pre-normalisation family name (e.g. "Arial")
+    used only for /RC + /DS (Kofax resize-triggered AP regeneration reads font
+    weight/style/family from there) — it never changes pdf_standard_name, the
+    Base-14 name used for AP-stream/DA rendering.
 
     When profile.style_defaults.use_source_style is True:
       - font weight/style/size/color come from the source annotation's StyleInfo
@@ -76,6 +95,8 @@ def _resolve_text_style(
 
     When False (default — current behaviour):
       - category-driven rules: domain_label uses bold, cross_reference uses cyan, etc.
+      - family bucket (Base-14 rendering) and display_family (/RC + /DS) both
+        come from profile.style_defaults.font
     """
     sd = profile.style_defaults
 
@@ -84,13 +105,19 @@ def _resolve_text_style(
         fontsize = annot.style.font_size
         tc = annot.style.text_color
         text_color = (tc[0], tc[1], tc[2]) if len(tc) >= 3 else (0.0, 0.0, 0.0)
-        return alias, pdf_name, fontsize, text_color, is_bold, is_italic
+        return alias, pdf_name, fontsize, text_color, is_bold, is_italic, _display_family(annot.style.font)
+
+    display_family = _display_family(sd.font)
+    family_bucket = _detect_family(sd.font)
 
     if annot.category == "domain_label":
-        return "hebo", "Helvetica-Bold", sd.domain_label_font_size, (0.0, 0.0, 0.0), True, False
+        alias, pdf_name = _BASE14_MAP[(family_bucket, True, False)]
+        return alias, pdf_name, sd.domain_label_font_size, (0.0, 0.0, 0.0), True, False, display_family
     if annot.category == "cross_reference":
-        return "helv", "Helvetica", sd.font_size, (0.0, 1.0, 1.0), False, False
-    return "helv", "Helvetica", sd.font_size, (0.0, 0.0, 0.0), False, False
+        alias, pdf_name = _BASE14_MAP[(family_bucket, False, False)]
+        return alias, pdf_name, sd.font_size, (0.0, 1.0, 1.0), False, False, display_family
+    alias, pdf_name = _BASE14_MAP[(family_bucket, False, False)]
+    return alias, pdf_name, sd.font_size, (0.0, 0.0, 0.0), False, False, display_family
 
 
 def write_annotations(
@@ -124,7 +151,12 @@ def write_annotations(
         else:
             skipped_ids.append(match.annotation_id)
 
-    doc.save(str(output_pdf_path))
+    for page in doc:
+        for annot in page.annots():
+            if doc.xref_get_key(annot.xref, "CL")[0] != "null":
+                raise RuntimeError(f"annotation xref {annot.xref} still has /CL after stripping")
+
+    doc.save(str(output_pdf_path), garbage=4, deflate=True)
     doc.close()
 
     return build_qc_report(matches, written_ids, skipped_ids)
@@ -223,6 +255,101 @@ def _patch_ap_border_color(
     doc.update_stream(n_num, patched)
 
 
+# ---------------------------------------------------------------------------
+# Kofax Power PDF compatibility — /CL removal, /RC + /DS rich-content styling
+# ---------------------------------------------------------------------------
+# See CLAUDE.md ("FreeText annotation writing — critical PyMuPDF behavior") for
+# why these are required: PyMuPDF's add_freetext_annot() unconditionally emits
+# a spec-malformed /CL (callout-line geometry with no matching /IT), which
+# Kofax Power PDF interprets as a locked callout, blocking drag/resize
+# entirely. Kofax's resize-triggered AP-stream regeneration separately reads
+# font weight/style/family from /RC (rich content, XHTML) and /DS (default
+# style) rather than /DA — neither of which writer.py sets otherwise.
+
+_CL_LINE_RE = re.compile(r"/CL\s*\[[^\]]*\]\s*\n?")
+
+
+def _pdf_string_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _xml_escape(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _build_rc(
+    content: str,
+    family: str,
+    size: float,
+    is_bold: bool,
+    is_italic: bool,
+    text_color: tuple[float, float, float],
+) -> str:
+    """XHTML fragment Kofax reads for font weight/style/family on resize-triggered
+    AP regeneration. Structurally identical to the validated diagnostic prototype
+    (tests/fixtures/generate_kofax_rc_variant.py:_build_rc).
+    """
+    style_parts = [f"font-size:{size:.2f}pt", f"font-family:'{_xml_escape(family)}'"]
+    if is_bold:
+        style_parts.append("font-weight:bold")
+    if is_italic:
+        style_parts.append("font-style:italic")
+    r, g, b = (round(c * 255) for c in text_color)
+    style_parts.append(f"color:#{r:02X}{g:02X}{b:02X}")
+    style = ";".join(style_parts)
+    return (
+        '<?xml version="1.0" ?> <body xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:7.0.0" '
+        "xfa:spec=\"2.0.2\" style=\"font-family:'Helvetica'\">"
+        f'<p><span style="{style}">{_xml_escape(content)}</span></p></body>'
+    )
+
+
+def _build_ds(family: str, size: float) -> str:
+    return f"text-decoration:;font-size:{size:.2f}pt;font-family:'{family}'"
+
+
+def _write_rc_ds(
+    doc: fitz.Document,
+    annot: fitz.Annot,
+    content: str,
+    family: str,
+    fontsize: float,
+    text_color: tuple[float, float, float],
+    is_bold: bool,
+    is_italic: bool,
+) -> None:
+    """Set /RC + /DS unconditionally, so Kofax's resize regeneration reads correct
+    font weight/style/family instead of falling back to regular. /RC and /DS are
+    top-level annotation-dict keys, untouched by a.update()'s /DA or /AP
+    regeneration, so call-order relative to update() doesn't matter — unlike
+    _apply_font_style/_patch_ap_border_color.
+    """
+    rc = _build_rc(content, family, fontsize, is_bold, is_italic, text_color)
+    ds = _build_ds(family, fontsize)
+    doc.xref_set_key(annot.xref, "RC", f"({_pdf_string_escape(rc)})")
+    doc.xref_set_key(annot.xref, "DS", f"({_pdf_string_escape(ds)})")
+
+
+def _strip_cl(doc: fitz.Document, annot: fitz.Annot) -> None:
+    """Remove /CL (callout-line geometry) entirely from this annotation's object.
+
+    PyMuPDF's add_freetext_annot() unconditionally emits /CL with no matching /IT
+    (intent) — a spec-malformed combination Kofax Power PDF interprets as a locked
+    callout, blocking drag/resize entirely (ticket #4, CONFIRMED). Must run BEFORE
+    _write_rc_ds() so this regex never runs over an object that already contains
+    the much larger /RC string.
+
+    xref_set_key(xref, "CL", "null") is not sufficient — it nulls the value but
+    does not remove the key, and stale /CL bytes can survive a plain save. True
+    removal requires rewriting the object's raw text via update_object().
+    """
+    text = doc.xref_object(annot.xref)
+    new_text, n_subs = _CL_LINE_RE.subn("", text)
+    if n_subs:
+        doc.update_object(annot.xref, new_text)
+
+
 def _write_single_annotation(
     page: fitz.Page,
     target_rect: list[float],
@@ -242,7 +369,7 @@ def _write_single_annotation(
     update(fill_color=...) sets /C correctly; overwriting it breaks both the
     fill color and the border color on viewer re-render.
     """
-    alias, pdf_name, fontsize, text_color, is_bold, is_italic = _resolve_text_style(annot, profile)
+    alias, pdf_name, fontsize, text_color, is_bold, is_italic, display_family = _resolve_text_style(annot, profile)
     fill_src = annot.style.fill_color
     fill = (fill_src[0], fill_src[1], fill_src[2]) if fill_src and len(fill_src) >= 3 else _FALLBACK_FILL
     style = annot.style
@@ -269,3 +396,5 @@ def _write_single_annotation(
     _patch_ap_border_color(doc, a, border_color)
     if pdf_name != "Helvetica":
         _apply_font_style(doc, page, a, fontsize, pdf_name, text_color)
+    _strip_cl(doc, a)
+    _write_rc_ds(doc, a, annot.content, display_family, fontsize, text_color, is_bold, is_italic)

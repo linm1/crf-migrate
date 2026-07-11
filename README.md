@@ -4,8 +4,8 @@ A Python desktop tool for migrating SDTM annotations between annotated CRF (aCRF
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.40%2B-red)
-![Tests](https://img.shields.io/badge/tests-354%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-94%25-green)
+![Tests](https://img.shields.io/badge/tests-484%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-92%25-green)
 
 ## Overview
 
@@ -86,7 +86,7 @@ CRF-Migrate/
 │   ├── cdisc_standard.yaml   # Default CDISC profile
 │   ├── rave_medidata.yaml    # Medidata Rave profile
 │   └── veeva_vault.yaml      # Veeva Vault profile
-└── tests/                    # 354 tests, 94% coverage
+└── tests/                    # 484 tests, 92% coverage
 ```
 
 ## Profiles
@@ -265,6 +265,15 @@ Phase 3 runs four cascading passes. Each pass only processes annotations not yet
 
 Each match record carries a `confidence` score, `match_type`, and `status` (approved / re-pairing).
 
+## PDF Viewer Compatibility
+
+Phase 4 output is authored with PyMuPDF and round-trips correctly in Adobe Acrobat. Kofax Power PDF interprets the same FreeText annotation structure differently, so `writer.py` applies two additional fixes for Kofax compatibility:
+
+- **`/CL` removal** — PyMuPDF unconditionally writes a `/CL` (callout-line) key with no matching `/IT` intent, which Kofax treats as a locked callout, blocking both content editing and drag/resize. `writer.py` strips it from every annotation.
+- **`/RC` + `/DS` writing** — Kofax regenerates an annotation's appearance from `/RC` (rich content) and `/DS` (default style), not `/DA`, when it's resized. Writing both unconditionally preserves bold/italic/font-family through a resize.
+
+**Known limitation:** border color can still shift to match text color when an annotation is resized in Kofax — a separate, unresolved mechanism tracked in [issue #9](https://github.com/linm1/crf-migrate/issues/9). See `docs/unknowns/kofax-power-pdf-compat/interview-log.md` for the full diagnostic trail.
+
 ## CSV Workflow
 
 All three record types support CSV round-trips for bulk editing outside the app:
@@ -315,16 +324,16 @@ pytest tests/test_matcher.py -v
 |--------|----------|
 | `models.py` | 100% |
 | `profile_models.py` | 100% |
-| `matcher.py` | 99% |
-| `field_parser.py` | 99% |
 | `rule_engine.py` | 99% |
-| `writer.py` | 95% |
+| `writer.py` | 97% |
+| `field_parser.py` | 96% |
+| `matcher.py` | 94% |
+| `session.py` | 92% |
 | `profile_loader.py` | 91% |
-| `pdf_utils.py` | 89% |
-| `session.py` | 89% |
 | `csv_handler.py` | 89% |
-| `extractor.py` | 84% |
-| **Total** | **94%** |
+| `extractor.py` | 88% |
+| `pdf_utils.py` | 70% |
+| **Total** | **92%** |
 
 ## License
 

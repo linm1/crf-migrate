@@ -806,3 +806,176 @@ def test_border_color_preserved_from_source(tmp_path):
     assert b"1 0 0 RG" not in ap_stream, (
         f"Found '1 0 0 RG' (red, from text_color) in AP stream — border color was overwritten"
     )
+
+
+# ---------------------------------------------------------------------------
+# Kofax Power PDF compatibility — /CL removal, /RC + /DS unconditional writing
+# ---------------------------------------------------------------------------
+
+def test_rc_ds_present_domain_label_bold(tmp_path):
+    """domain_label: /RC + /DS present with Arial family and bold, not italic."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="DM",
+        domain="DM",
+        category="domain_label",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    xref = list(doc[0].annots())[0].xref
+    rc = doc.xref_get_key(xref, "RC")[1]
+    ds = doc.xref_get_key(xref, "DS")[1]
+    da = doc.xref_get_key(xref, "DA")[1]
+    n_num = int(doc.xref_get_key(xref, "AP/N")[1].split()[0])
+    ap_stream = doc.xref_stream(n_num)
+    doc.close()
+
+    assert "font-family:'Arial'" in rc
+    assert "font-weight:bold" in rc
+    assert "font-style:italic" not in rc
+    assert "font-family:'Arial'" in ds
+    # Family-bucket refactor must not change Base-14 rendering.
+    assert "Helvetica-Bold" in da
+    assert b"/Helvetica-Bold" in ap_stream
+
+
+def test_rc_ds_present_cross_reference_regular(tmp_path):
+    """cross_reference: /RC present with Arial family, no bold/italic, cyan color."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = AnnotationRecord(
+        id="annot-001",
+        page=1,
+        content="See DM",
+        domain="DM",
+        category="cross_reference",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(),
+    )
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    xref = list(doc[0].annots())[0].xref
+    rc = doc.xref_get_key(xref, "RC")[1]
+    doc.close()
+
+    assert "font-family:'Arial'" in rc
+    assert "font-weight:bold" not in rc
+    assert "font-style:italic" not in rc
+    assert "color:#00FFFF" in rc
+
+
+def test_rc_ds_unconditional_for_default_category(tmp_path):
+    """sdtm_mapping (pdf_name == "Helvetica", _apply_font_style's gate skips it) must
+    still get /RC + /DS — the resize-triggered style loss affected all 7 diagnostic
+    cases, including plain default/regular ones (ticket #6)."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation(content="BRTHDTC")
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    xref = list(doc[0].annots())[0].xref
+    rc = doc.xref_get_key(xref, "RC")[0]
+    ds = doc.xref_get_key(xref, "DS")[0]
+    n_num = int(doc.xref_get_key(xref, "AP/N")[1].split()[0])
+    ap_stream = doc.xref_stream(n_num)
+    doc.close()
+
+    assert rc != "null"
+    assert ds != "null"
+    # Confirms _apply_font_style never ran for this category (its gate is skipped).
+    assert b"/Helv " in ap_stream
+
+
+def test_rc_ds_source_style_bold_italic_family(tmp_path):
+    """use_source_style=True: /RC family is the clean display name, stripped of the
+    style suffix used for Base-14 bucketing (e.g. "Times New Roman,BoldItalic" ->
+    "Times New Roman"), with both bold and italic flags and the source text color."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = AnnotationRecord(
+        id="annot-src",
+        page=1,
+        content="BRTHDTC",
+        domain="DM",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=[100.0, 90.0, 300.0, 110.0],
+        style=StyleInfo(
+            font="Times New Roman,BoldItalic",
+            font_size=10.0,
+            text_color=[0.4, 0.0, 0.4],
+            fill_color=[0.75, 1.0, 1.0],
+        ),
+    )
+    match = make_match(annot_id="annot-src", status="approved")
+    profile = _make_profile()
+    profile.style_defaults.use_source_style = True
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    xref = list(doc[0].annots())[0].xref
+    rc = doc.xref_get_key(xref, "RC")[1]
+    doc.close()
+
+    assert "font-family:'Times New Roman'" in rc
+    assert "font-weight:bold" in rc
+    assert "font-style:italic" in rc
+    assert "color:#660066" in rc
+
+
+def test_rc_ds_pdf_string_escaping(tmp_path):
+    """Content with parens must not break /RC's PDF string literal or the save."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation(content="DM (Demographics)")
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))  # must not raise — file must be well-formed
+    xref = list(doc[0].annots())[0].xref
+    rc = doc.xref_get_key(xref, "RC")[1]
+    doc.close()
+
+    assert "DM (Demographics)" in rc
+
+
+def test_cl_stripped_from_output(tmp_path):
+    """/CL must be entirely absent (not merely nulled) from the written output, and
+    the raw saved PDF bytes must contain no literal /CL token."""
+    target = make_target_pdf(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    write_annotations(target, output, [match], [annot], profile)
+
+    doc = fitz.open(str(output))
+    xref = list(doc[0].annots())[0].xref
+    cl = doc.xref_get_key(xref, "CL")[0]
+    doc.close()
+
+    assert cl == "null"
+    assert b"/CL" not in output.read_bytes()
