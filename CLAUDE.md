@@ -103,6 +103,24 @@ All four steps in `_apply_font_style()` are required — dropping any one produc
 
 Call `_apply_font_style()` **after** `a.update()` — `update()` overwrites `/DA`. Source-PDF font names (`Arial,BoldItalic`, `Arial-BoldItalicMT`, etc.) are mapped to Base-14 by `_normalise_font_name()` using family + bold/italic flag parsing.
 
+**Kofax Power PDF compatibility — `/CL` removal, `/RC` + `/DS` — must run last, in this order:**
+
+```python
+a.update(fill_color=fill, text_color=text_color)
+_patch_ap_border_color(doc, a, border_color)
+if pdf_name != "Helvetica":
+    _apply_font_style(doc, page, a, fontsize, pdf_name, text_color)
+_strip_cl(doc, a)                                                        # before _write_rc_ds
+_write_rc_ds(doc, a, annot.content, display_family, fontsize, text_color, is_bold, is_italic)
+```
+
+- PyMuPDF's `add_freetext_annot()` unconditionally emits `/CL` (callout-line geometry) with no matching `/IT` (intent) — a spec-malformed combination Kofax Power PDF interprets as a locked callout, blocking drag/resize entirely. `_strip_cl()` removes it by rewriting the object's raw text via `doc.update_object()` — `xref_set_key(xref, "CL", "null")` only *nulls* the value, it does not remove the key, and stale `/CL` bytes can survive a plain save.
+- **Always** call `_strip_cl()` **before** `_write_rc_ds()` — the `/CL` regex must never run over an object that already contains the much larger `/RC` string.
+- Kofax's resize-triggered AP-stream regeneration reads font weight/style/family from `/RC` (rich content, XHTML) and `/DS` (default style), not `/DA`. `_write_rc_ds()` writes both **unconditionally for every annotation** — not gated behind the `if pdf_name != "Helvetica":` check above. The resize-triggered style loss affects *all* categories, including plain default/regular ones.
+- `/RC` and `/DS` are top-level annotation-dict keys, untouched by `a.update()`'s `/DA`/`/AP` regeneration — call-order relative to `update()` doesn't matter for them, unlike `_apply_font_style`/`_patch_ap_border_color`.
+- The final `doc.save()` in `write_annotations()` must pass `garbage=4, deflate=True` — required for `/CL` removal to fully take effect on disk, and for cleaning up orphaned AP objects.
+- **Known unfixed issue (roadmap, not fixed by `/RC`/`/DS`):** border color still becomes the text/font color when an annotation is resized in Kofax — an unexplained, separate mechanism. See `docs/unknowns/kofax-power-pdf-compat/interview-log.md` and GitHub issue #9.
+
 ### Style replication mode
 
 `style_defaults.use_source_style` (profile YAML, default `false`):
