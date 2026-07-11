@@ -12,9 +12,12 @@ scratch, not shipped fixtures):
 
 Run directly: `python tests/fixtures/generate_kofax_cl_variant.py`
 """
+import re
 from pathlib import Path
 
 import fitz
+
+_CL_LINE_RE = re.compile(r"/CL\s*\[[^\]]*\]\s*\n?")
 
 from src.models import AnnotationRecord, MatchRecord, StyleInfo
 from src.profile_models import (
@@ -117,17 +120,41 @@ def _write_two_page_pdf(annots, matches, profile, output_path: Path) -> None:
 
 
 def _strip_cl(pdf_path: Path) -> int:
-    """Remove /CL (callout-line geometry) from every FreeText annotation in place.
-    Returns the number of annotations patched."""
+    """Remove /CL (callout-line geometry) from every FreeText annotation, physically —
+    not just logically. `xref_set_key(xref, "CL", "null")` does NOT delete the key: it
+    writes a literal `/CL null` entry, which is spec-equivalent to absent for a compliant
+    parser but is not the "physically absent" control this experiment needs, since Kofax's
+    spec-compliance here is exactly what's under test. Also, saveIncr() would leave the
+    original /CL array present as raw bytes in the prior incremental-update section
+    regardless. Instead: rewrite each annotation's object text with the /CL line removed
+    entirely via update_object(), then do a full (non-incremental) save with garbage
+    collection so no stale revision data survives either.
+
+    Verifies its own postcondition (raw bytes contain no "/CL" token) rather than
+    silently trusting xref_get_keys(), since a PyMuPDF version change could someday stop
+    emitting /CL at all and this function would otherwise report false success.
+    """
     doc = fitz.open(str(pdf_path))
     patched = 0
     for page in doc:
         for annot in page.annots():
-            if doc.xref_get_key(annot.xref, "CL")[0] != "null":
-                doc.xref_set_key(annot.xref, "CL", "null")
+            text = doc.xref_object(annot.xref)
+            new_text, n_subs = _CL_LINE_RE.subn("", text)
+            if n_subs:
+                doc.update_object(annot.xref, new_text)
                 patched += 1
-    doc.saveIncr()
+
+    tmp_path = pdf_path.with_suffix(".tmp.pdf")
+    doc.save(str(tmp_path), garbage=4, deflate=True)
     doc.close()
+    tmp_path.replace(pdf_path)
+
+    raw = pdf_path.read_bytes()
+    if b"/CL" in raw:
+        raise RuntimeError(
+            f"{pdf_path} still contains a literal /CL token after full rewrite — "
+            "stripping did not physically remove the callout-line data."
+        )
     return patched
 
 
