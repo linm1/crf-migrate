@@ -26,7 +26,7 @@ from pathlib import Path
 import fitz
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from generate_kofax_cl_variant import _build_cases, _write_two_page_pdf  # noqa: E402
+from generate_kofax_cl_variant import _build_cases, _strip_cl, _write_two_page_pdf  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "docs" / "unknowns" / "kofax-power-pdf-compat"
@@ -114,8 +114,24 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     annots, matches, profile = _build_cases()
     _write_two_page_pdf(annots, matches, profile, OUTPUT_PATH)
+    # /CL must be stripped first (ticket #4's confirmed drag/resize-lock cause) so this
+    # variant is actually draggable/resizable in Kofax at all — otherwise /RC + /DS can
+    # never be tested, since resize (the trigger under test) never succeeds in the first
+    # place. Stripping before adding /RC/DS also avoids the /CL regex ever running over an
+    # object that already contains the (much larger) RC string.
+    stripped = _strip_cl(OUTPUT_PATH)
     patched = _add_rc_ds(OUTPUT_PATH)
-    print(f"Wrote {OUTPUT_PATH} ({patched} annotations got /RC + /DS)")
+
+    raw = OUTPUT_PATH.read_bytes()
+    if b"/CL" in raw:
+        raise RuntimeError(f"{OUTPUT_PATH} still contains a literal /CL token after stripping")
+    if raw.count(b"/RC") < patched:
+        raise RuntimeError(f"{OUTPUT_PATH} missing expected /RC entries after patching")
+
+    print(
+        f"Wrote {OUTPUT_PATH} ({stripped} annotations had /CL stripped, "
+        f"{patched} annotations got /RC + /DS)"
+    )
 
 
 if __name__ == "__main__":
