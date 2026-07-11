@@ -13,11 +13,14 @@ scratch, not shipped fixtures):
 Run directly: `python tests/fixtures/generate_kofax_cl_variant.py`
 """
 import re
+import sys
 from pathlib import Path
 
 import fitz
 
 _CL_LINE_RE = re.compile(r"/CL\s*\[[^\]]*\]\s*\n?")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
 
 from src.models import AnnotationRecord, MatchRecord, StyleInfo
 from src.profile_models import (
@@ -29,7 +32,6 @@ from src.profile_models import (
 )
 from src.writer import write_annotations
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "docs" / "unknowns" / "kofax-power-pdf-compat"
 
 
