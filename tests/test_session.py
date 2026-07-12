@@ -383,3 +383,35 @@ class TestSaveLoadArrowMatches:
         session = Session(tmp_path)
         with pytest.raises(FileNotFoundError):
             session.load_arrow_matches()
+
+
+class TestSaveLoadQcReport:
+    """qc_report.json is where the arrows_total/arrows_written/arrows_skipped/
+    arrow_skipped_ids QC keys land (src.writer.write_annotations' return
+    value) — a save/load round trip here is directly feature-relevant."""
+
+    def test_save_qc_report_creates_json(self, tmp_path):
+        session = Session(tmp_path)
+        report = {"written": 1, "skipped": 0, "arrows_total": 2, "arrows_written": 1}
+        path = session.save_qc_report(report)
+        assert path.exists()
+        assert path.name == "qc_report.json"
+
+    def test_load_qc_report_round_trip(self, tmp_path):
+        session = Session(tmp_path)
+        report = {
+            "written": 3,
+            "skipped": 1,
+            "arrows_total": 2,
+            "arrows_written": 1,
+            "arrows_skipped": 1,
+            "arrow_skipped_ids": [{"arrow_id": "a1", "reason": "parent_not_written"}],
+        }
+        session.save_qc_report(report)
+        loaded = session.load_qc_report()
+        assert loaded == report
+
+    def test_load_qc_report_missing_file_raises(self, tmp_path):
+        session = Session(tmp_path)
+        with pytest.raises(FileNotFoundError):
+            session.load_qc_report()

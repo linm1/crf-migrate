@@ -341,6 +341,22 @@ def test_classify_both_zero_only_one_end_near_annotation_becomes_tail():
     assert result.skip_reason is None
 
 
+def test_classify_both_zero_only_vertex1_near_annotation_becomes_tail():
+    # Mirror of the above: vertex1 near an annotation, vertex0 has none.
+    result = classify_endpoints(
+        line_ends=(0, 0),
+        vertex0_nearest=None,
+        vertex1_nearest=("annot-b", 4.0),
+        tail_snap_radius=12.0,
+        tie_epsilon=0.5,
+    )
+    assert result.tail_index == 1
+    assert result.head_index == 0
+    assert result.tail_line_end == 0
+    assert result.head_line_end == 0
+    assert result.skip_reason is None
+
+
 # ---------------------------------------------------------------------------
 # nearest_annotation_to_point
 # ---------------------------------------------------------------------------

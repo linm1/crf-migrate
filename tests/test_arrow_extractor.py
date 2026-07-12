@@ -116,6 +116,31 @@ class TestPlainLineProximityResolution:
         assert arrow.style.head_line_end == 0
 
 
+class TestPlainLineTailIsVertex1:
+    def test_plain_line_tail_is_second_vertex(self, tmp_path):
+        """Mirror of the vertex0-is-tail case: when vertex1 (not vertex0) is
+        nearer the annotation, tail_annotation_id must still resolve
+        correctly (exercises the classified.tail_index == 1 branch)."""
+        pdf_path = tmp_path / "plain_line_v1_tail.pdf"
+        _pdf_with_annotation_and_line(
+            pdf_path,
+            line_p0=(290.0, 62.0),   # far -> head
+            line_p1=(199.0, 60.0),   # near FreeText -> tail (vertex index 1)
+            line_ends=(0, 0),
+            text_at=(270.0, 65.0),
+            text_value="Option 1",
+        )
+        profile = _make_profile()
+        annotations = extract_annotations(pdf_path, profile, RuleEngine(profile))
+        records, qc_issues = extract_arrows(pdf_path, annotations, profile)
+
+        assert len(records) == 1
+        arrow = records[0]
+        assert arrow.tail_annotation_id == annotations[0].id
+        assert arrow.tail_vertex == pytest.approx((199.0, 60.0))
+        assert arrow.head_vertex == pytest.approx((290.0, 62.0))
+
+
 class TestTieSkip:
     def test_tie_within_epsilon_skips_and_logs_qc(self, tmp_path):
         """Both vertices are ~equidistant (within tail_tie_epsilon_pt) from
@@ -187,6 +212,34 @@ class TestNeitherNearSkip:
 
         assert records == []
         assert any("neither_end_near_annotation" in issue for issue in qc_issues)
+
+
+class TestLineVerticesNormalisation:
+    def test_line_vertices_normalises_fitz_point_objects(self):
+        """_line_vertices must handle real fitz.Point objects (annot.vertices
+        as returned by PyMuPDF), not just plain (x, y) tuples — the two
+        input shapes are normalised identically."""
+        from src.extractor import _line_vertices
+
+        mock_annot = MagicMock()
+        mock_annot.vertices = [fitz.Point(10.0, 20.0), fitz.Point(30.0, 40.0)]
+        vertices = _line_vertices(mock_annot)
+        assert vertices == [(10.0, 20.0), (30.0, 40.0)]
+
+    def test_line_vertices_normalises_plain_tuples(self):
+        from src.extractor import _line_vertices
+
+        mock_annot = MagicMock()
+        mock_annot.vertices = [(10.0, 20.0), (30.0, 40.0)]
+        vertices = _line_vertices(mock_annot)
+        assert vertices == [(10.0, 20.0), (30.0, 40.0)]
+
+    def test_line_vertices_empty_when_none(self):
+        from src.extractor import _line_vertices
+
+        mock_annot = MagicMock()
+        mock_annot.vertices = None
+        assert _line_vertices(mock_annot) == []
 
 
 class TestVertexCountGuard:

@@ -233,6 +233,29 @@ class TestApprovedParentPageOutOfRange:
             {"arrow_id": "arrow-1", "reason": "head_unresolved"}
         ]
 
+    def test_target_page_none_with_otherwise_resolved_method_skipped(self, tmp_path):
+        """Defensive: a resolved head_match_method paired with target_page=
+        None (should not normally co-occur, since resolve_arrows always sets
+        both together, but _write_single_arrow must not assume that
+        invariant) is skipped with invalid_target_page rather than raising."""
+        target = make_target_pdf(tmp_path / "target.pdf")
+        output = tmp_path / "output.pdf"
+        annot = make_annotation()
+        match = make_match(status="approved")
+        arrow = make_arrow()
+        arrow_match = make_arrow_match(
+            target_page=None, head_match_method="fuzzy_in_field", head_confidence=0.9,
+        )
+        profile = _make_profile()
+
+        qc_report = write_annotations(
+            target, output, [match], [annot], profile,
+            arrows=[arrow], arrow_matches=[arrow_match],
+        )
+        assert qc_report["arrow_skipped_ids"] == [
+            {"arrow_id": "arrow-1", "reason": "invalid_target_page"}
+        ]
+
 
 class TestStyleRoundTrip:
     def test_stroke_color_width_dashes_opacity_round_trip(self, tmp_path):
@@ -360,6 +383,24 @@ class TestEndpointPlacementBranches:
         annot = make_annotation()
         match = make_match(status="approved")
         arrow = make_arrow(head_source_rect=None)
+        arrow_match = make_arrow_match(head_target_rect=(210.0, 55.0, 260.0, 70.0))
+        profile = _make_profile()
+
+        qc_report = write_annotations(
+            target, output, [match], [annot], profile,
+            arrows=[arrow], arrow_matches=[arrow_match],
+        )
+        assert qc_report["arrows_written"] == 1
+
+    def test_head_uses_hybrid_placement_when_head_source_rect_present(self, tmp_path):
+        """When arrow.head_source_rect IS set, head placement goes through
+        hybrid_endpoint_placement (Branch A/B) rather than the
+        edge_midpoint_from_direction-only fallback."""
+        target = make_target_pdf(tmp_path / "target.pdf")
+        output = tmp_path / "output.pdf"
+        annot = make_annotation()
+        match = make_match(status="approved")
+        arrow = make_arrow(head_source_rect=(270.0, 51.0, 320.0, 71.0))
         arrow_match = make_arrow_match(head_target_rect=(210.0, 55.0, 260.0, 70.0))
         profile = _make_profile()
 
