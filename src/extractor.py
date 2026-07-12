@@ -3,6 +3,7 @@
 Uses PyMuPDF (fitz) for annotation extraction and the configured rule engine
 for classification, form name extraction, and visit detection.
 """
+import hashlib
 import re
 import uuid
 import warnings
@@ -10,7 +11,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-from src.models import AnnotationRecord, StyleInfo
+from src.arrow_geometry import classify_endpoints, is_duplicate_arrow, nearest_annotation_to_point
+from src.models import AnnotationRecord, ArrowRecord, ArrowStyle, StyleInfo
 from src.pdf_utils import find_nearest_label, get_text_blocks, make_clean_page
 from src.profile_models import Profile
 from src.rule_engine import RuleEngine, TextBlock
@@ -635,3 +637,254 @@ def _extract_anchor_text(
         config.left_column_tolerance_px,
         exclude_patterns=all_excludes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Arrow/line connector extraction (Arrow/Line Connector Migration feature)
+# ---------------------------------------------------------------------------
+# Separate from _process_page/_process_annotation (untouched). Line
+# annotations are the only connector geometry the profile currently governs
+# (Square/rectangle connectors are explicitly excluded per plan decision).
+
+_LINE_ANNOT_TYPE_CODE = 3  # fitz.Annot.type[0] for Line subtype
+
+
+def _line_vertices(annot: fitz.Annot) -> list[tuple[float, float]]:
+    """Return the annotation's vertices as a list of (x, y) float tuples.
+
+    PyMuPDF may return fitz.Point objects or plain (x, y) tuples depending on
+    version; normalise to plain tuples so downstream geometry code (which is
+    fitz-free) never sees a fitz type.
+    """
+    raw = annot.vertices or []
+    result: list[tuple[float, float]] = []
+    for v in raw:
+        if hasattr(v, "x"):
+            result.append((float(v.x), float(v.y)))
+        else:
+            result.append((float(v[0]), float(v[1])))
+    return result
+
+
+def _nearest_text_block_to_point(
+    point: tuple[float, float],
+    blocks: list[TextBlock],
+    radius: float,
+) -> tuple[str, tuple[float, float, float, float] | None]:
+    """Return (text, rect) of the nearest annotation-free text block to *point*.
+
+    Distance is measured from *point* to the block's center. Operates on
+    TextBlock dicts (as returned by pdf_utils.get_text_blocks on a clean
+    page, plan D3) — not raw fitz page.get_text("blocks") tuples, which can
+    anchor a head to FreeText annotation content instead of printed CRF text.
+    """
+    best_text = ""
+    best_rect: tuple[float, float, float, float] | None = None
+    best_dist = radius
+    for block in blocks:
+        rect = block["rect"]
+        cx = (rect[0] + rect[2]) / 2.0
+        cy = (rect[1] + rect[3]) / 2.0
+        dist = ((point[0] - cx) ** 2 + (point[1] - cy) ** 2) ** 0.5
+        if dist < best_dist:
+            best_dist = dist
+            best_text = block["text"].strip()
+            best_rect = (float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3]))
+    return best_text, best_rect
+
+
+def _dedup_arrows(
+    candidates: list[dict],
+    vertex_tolerance_pt: float,
+    qc_issues: list[str],
+) -> list[dict]:
+    """Drop near-identical overlay-duplicate Line annotations (plan D7).
+
+    candidates: list of dicts with keys "page", "vertices", "color" plus any
+    extra keys the caller wants carried through (e.g. "annot", "line_ends").
+    Keeps the first occurrence in document order; later duplicates are
+    dropped and logged to qc_issues.
+    """
+    kept: list[dict] = []
+    for candidate in candidates:
+        is_dup = False
+        for existing in kept:
+            if is_duplicate_arrow(candidate, existing, vertex_tolerance_pt=vertex_tolerance_pt):
+                is_dup = True
+                break
+        if is_dup:
+            qc_issues.append(
+                f"Page {candidate['page']}: duplicate overlay Line annotation at "
+                f"vertices={candidate['vertices']} — dropped."
+            )
+            continue
+        kept.append(candidate)
+    return kept
+
+
+def extract_arrows(
+    pdf_path: Path,
+    annotations: list[AnnotationRecord],
+    profile: Profile,
+) -> tuple[list[ArrowRecord], list[str]]:
+    """Extract Line arrow/connector annotations from the source aCRF PDF.
+
+    Called after extract_annotations() so that tail snap can reference
+    already-extracted AnnotationRecord rects.
+
+    Args:
+        pdf_path: Path to the source aCRF PDF.
+        annotations: Already-extracted annotation records (from extract_annotations).
+        profile: Active profile (reads profile.arrows for thresholds).
+
+    Returns:
+        (records, qc_issues). records is [] immediately when
+        profile.arrows.enabled is False (no PDF is opened in that case).
+    """
+    if not profile.arrows.enabled:
+        return [], []
+
+    arrow_cfg = profile.arrows
+    qc_issues: list[str] = []
+    records: list[ArrowRecord] = []
+
+    annots_by_page: dict[int, list[AnnotationRecord]] = {}
+    for a in annotations:
+        annots_by_page.setdefault(a.page, []).append(a)
+
+    doc = fitz.open(str(pdf_path))
+    try:
+        for page_index in range(doc.page_count):
+            page = doc[page_index]
+            page_num = page_index + 1  # 1-indexed, matches AnnotationRecord.page
+
+            # Clean-page text blocks for head-text snap (plan D3): must never
+            # see FreeText annotation content, only printed CRF text.
+            temp_doc, clean_page = make_clean_page(page)
+            try:
+                clean_blocks = get_text_blocks(clean_page)
+            finally:
+                temp_doc.close()
+
+            page_annots = [
+                (a.id, tuple(a.rect)) for a in annots_by_page.get(page_num, [])
+            ]
+
+            raw_candidates: list[dict] = []
+            for annot in page.annots():
+                if annot.type[0] != _LINE_ANNOT_TYPE_CODE:
+                    continue
+
+                vertices = _line_vertices(annot)
+                if len(vertices) != 2:
+                    qc_issues.append(
+                        f"Page {page_num}: Line annotation has {len(vertices)} vertices "
+                        "(expected 2) — skipped."
+                    )
+                    continue
+
+                raw_line_ends = annot.line_ends
+                line_ends = (
+                    (int(raw_line_ends[0]), int(raw_line_ends[1]))
+                    if raw_line_ends
+                    else (0, 0)
+                )
+
+                colors = annot.colors or {}
+                stroke = colors.get("stroke") or [0.0, 0.0, 0.0]
+                stroke_color = (float(stroke[0]), float(stroke[1]), float(stroke[2]))
+
+                raw_candidates.append({
+                    "page": page_num,
+                    "vertices": (vertices[0], vertices[1]),
+                    "color": stroke_color,
+                    "annot": annot,
+                    "line_ends": line_ends,
+                })
+
+            deduped = _dedup_arrows(
+                raw_candidates, arrow_cfg.dedup_vertex_tolerance_pt, qc_issues
+            )
+
+            for candidate in deduped:
+                annot = candidate["annot"]
+                vertices = candidate["vertices"]
+                line_ends = candidate["line_ends"]
+
+                v0_nearest = nearest_annotation_to_point(
+                    vertices[0], page_annots, arrow_cfg.tail_snap_radius_pt
+                )
+                v1_nearest = nearest_annotation_to_point(
+                    vertices[1], page_annots, arrow_cfg.tail_snap_radius_pt
+                )
+
+                classified = classify_endpoints(
+                    line_ends,
+                    v0_nearest,
+                    v1_nearest,
+                    arrow_cfg.tail_snap_radius_pt,
+                    arrow_cfg.tail_tie_epsilon_pt,
+                )
+                if classified.skip_reason is not None:
+                    qc_issues.append(
+                        f"Page {page_num}: arrow at vertices={vertices} skipped "
+                        f"({classified.skip_reason})."
+                    )
+                    continue
+
+                tail_vertex = vertices[classified.tail_index]
+                head_vertex = vertices[classified.head_index]
+
+                if classified.tail_index == 0:
+                    tail_annotation_id = v0_nearest[0] if v0_nearest else None
+                else:
+                    tail_annotation_id = v1_nearest[0] if v1_nearest else None
+
+                head_text, head_source_rect = _nearest_text_block_to_point(
+                    head_vertex, clean_blocks, arrow_cfg.head_text_search_radius_pt
+                )
+                if not head_text:
+                    qc_issues.append(
+                        f"Page {page_num}: arrow head at {head_vertex} has no text "
+                        f"within {arrow_cfg.head_text_search_radius_pt}pt — kept "
+                        "unresolved (head_text='')."
+                    )
+
+                border = annot.border or {}
+                _w = border.get("width")
+                width = float(_w) if _w is not None and float(_w) > 0 else 1.0
+                dashes = [float(d) for d in (border.get("dashes") or ())]
+                raw_opacity = annot.opacity
+                opacity = (
+                    1.0 if (raw_opacity is None or raw_opacity < 0)
+                    else max(0.0, min(1.0, float(raw_opacity)))
+                )
+
+                vertices_str = ",".join(f"{x:.4f}:{y:.4f}" for x, y in vertices)
+                arrow_id = hashlib.sha1(
+                    f"{page_num}:{vertices_str}".encode()
+                ).hexdigest()[:16]
+
+                records.append(
+                    ArrowRecord(
+                        arrow_id=arrow_id,
+                        source_page=page_num,
+                        tail_vertex=tail_vertex,
+                        head_vertex=head_vertex,
+                        head_source_rect=head_source_rect,
+                        tail_annotation_id=tail_annotation_id,
+                        head_text=head_text,
+                        style=ArrowStyle(
+                            stroke_color=candidate["color"],
+                            width=width,
+                            dashes=dashes,
+                            tail_line_end=classified.tail_line_end,
+                            head_line_end=classified.head_line_end,
+                            opacity=opacity,
+                        ),
+                    )
+                )
+    finally:
+        doc.close()
+
+    return records, qc_issues
