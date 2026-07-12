@@ -270,3 +270,80 @@ class TestListProfiles:
         result = list_profiles(tmp_path)
         assert "alpha" in result
         assert "beta" in result
+
+
+class TestArrowsConfig:
+    """Arrow/line connector migration: profile.arrows resolves on every shipped profile."""
+
+    @pytest.mark.parametrize(
+        "profile_name",
+        ["cdisc_standard", "taimi", "rave_medidata", "veeva_vault"],
+    )
+    def test_arrows_config_resolved_on_all_profiles(self, profile_name):
+        profile = load_profile(PROFILES_DIR / f"{profile_name}.yaml")
+        assert profile.arrows is not None
+        assert profile.arrows.enabled is True
+        assert profile.arrows.tail_snap_radius_pt == 12.0
+        assert profile.arrows.head_text_search_radius_pt == 60.0
+        assert profile.arrows.head_fuzzy_threshold == 0.85
+        assert profile.arrows.size_similarity_tolerance == 0.20
+        assert profile.arrows.tail_tie_epsilon_pt == 0.5
+        assert profile.arrows.dedup_vertex_tolerance_pt == 0.75
+
+    def test_rave_and_veeva_inherit_arrows_wholesale(self):
+        """rave_medidata / veeva_vault have no arrows: key of their own —
+        they must inherit cdisc_standard's block via deep-merge (child-omitted
+        dict keys inherit wholesale)."""
+        rave = load_profile(PROFILES_DIR / "rave_medidata.yaml")
+        cdisc = load_profile(PROFILES_DIR / "cdisc_standard.yaml")
+        assert rave.arrows == cdisc.arrows
+
+    def test_arrows_defaults_when_omitted_entirely(self, tmp_path):
+        """A profile with no arrows: key at all still gets ArrowsConfig defaults."""
+        yaml_text = """
+meta:
+  name: Test
+domain_codes: [DM]
+classification_rules:
+  - conditions: {fallback: true}
+    category: sdtm_mapping
+"""
+        p = tmp_path / "test.yaml"
+        p.write_text(yaml_text, encoding="utf-8")
+        profile = load_profile(p)
+        assert profile.arrows.enabled is True
+        assert profile.arrows.tail_snap_radius_pt == 12.0
+
+    def test_arrows_disabled_via_child_override(self, tmp_path):
+        """A profile can disable arrows entirely without touching other sections."""
+        yaml_text = """
+meta:
+  name: Test
+domain_codes: [DM]
+classification_rules:
+  - conditions: {fallback: true}
+    category: sdtm_mapping
+arrows:
+  enabled: false
+"""
+        p = tmp_path / "test.yaml"
+        p.write_text(yaml_text, encoding="utf-8")
+        profile = load_profile(p)
+        assert profile.arrows.enabled is False
+
+    def test_arrows_rejects_invalid_thresholds(self, tmp_path):
+        """Field constraints (gt=0, 0<=x<=1) are enforced at load time."""
+        yaml_text = """
+meta:
+  name: Test
+domain_codes: [DM]
+classification_rules:
+  - conditions: {fallback: true}
+    category: sdtm_mapping
+arrows:
+  head_fuzzy_threshold: 1.5
+"""
+        p = tmp_path / "test.yaml"
+        p.write_text(yaml_text, encoding="utf-8")
+        with pytest.raises((ValidationError, ValueError)):
+            load_profile(p)

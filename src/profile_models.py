@@ -1,7 +1,7 @@
 """Pydantic v2 models for CRF-Migrate profile schema."""
 import re
 from typing import Any
-from pydantic import BaseModel, model_validator, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 class RuleCondition(BaseModel):
@@ -105,6 +105,18 @@ class ProfileMeta(BaseModel):
     parent: str | None = None
 
 
+class ArrowsConfig(BaseModel):
+    """Thresholds for arrow/line connector extraction, resolution, and placement."""
+
+    enabled: bool = True
+    tail_snap_radius_pt: float = Field(default=12.0, gt=0)
+    head_text_search_radius_pt: float = Field(default=20.0, gt=0)
+    head_fuzzy_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    size_similarity_tolerance: float = Field(default=0.20, ge=0.0, le=1.0)
+    tail_tie_epsilon_pt: float = Field(default=0.5, ge=0.0)
+    dedup_vertex_tolerance_pt: float = Field(default=0.75, ge=0.0)
+
+
 class Profile(BaseModel):
     meta: ProfileMeta
     domain_codes: list[str]
@@ -115,3 +127,4 @@ class Profile(BaseModel):
     annotation_filter: AnnotationFilter = AnnotationFilter()
     matching_config: MatchingConfig = MatchingConfig()
     style_defaults: StyleDefaults = StyleDefaults()
+    arrows: ArrowsConfig = ArrowsConfig()

@@ -197,3 +197,11 @@ style_defaults:
   - 0.0
   fill_color: null
   use_source_style: true
+arrows:
+  enabled: true
+  tail_snap_radius_pt: 12.0
+  head_text_search_radius_pt: 60.0
+  head_fuzzy_threshold: 0.85
+  size_similarity_tolerance: 0.20
+  tail_tie_epsilon_pt: 0.5
+  dedup_vertex_tolerance_pt: 0.75
