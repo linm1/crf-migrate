@@ -401,8 +401,8 @@ def test_nearest_annotation_picks_nearer_of_two_within_radius():
 # is_duplicate_arrow
 # ---------------------------------------------------------------------------
 
-def _arrow(page=1, v0=(0.0, 0.0), v1=(10.0, 10.0), color=(1.0, 0.0, 0.0)):
-    return {"page": page, "vertices": (v0, v1), "color": color}
+def _arrow(page=1, v0=(0.0, 0.0), v1=(10.0, 10.0), color=(1.0, 0.0, 0.0), line_ends=(0, 0)):
+    return {"page": page, "vertices": (v0, v1), "color": color, "line_ends": line_ends}
 
 
 def test_duplicate_arrow_identical_vertices_same_order():
@@ -445,3 +445,42 @@ def test_duplicate_arrow_color_rounding_3dp_still_duplicate():
     a = _arrow(color=(1.0, 0.0, 0.0))
     b = _arrow(color=(1.0000001, 0.0, 0.0))
     assert is_duplicate_arrow(a, b, color_decimals=3) is True
+
+
+def test_duplicate_arrow_missing_line_ends_key_defaults_to_zero_zero():
+    """Callers that don't carry a 'line_ends' key (e.g. dicts built without
+    style info) default to (0, 0) on both sides, so vertex+color-identical
+    pairs still dedup exactly as before this fix."""
+    a = {"page": 1, "vertices": ((0.0, 0.0), (10.0, 10.0)), "color": (1.0, 0.0, 0.0)}
+    b = {"page": 1, "vertices": ((0.0, 0.0), (10.0, 10.0)), "color": (1.0, 0.0, 0.0)}
+    assert is_duplicate_arrow(a, b) is True
+
+
+def test_duplicate_arrow_same_position_different_line_ends_not_duplicate():
+    """Plan D7 fix: same page/color/vertices but DIFFERENT line_ends must NOT
+    be treated as a duplicate overlay — they are different connectors (e.g. a
+    plain line vs. a double-arrow) coincidentally drawn at the same position,
+    not a render artifact of the same connector."""
+    plain_line = _arrow(v0=(0.0, 0.0), v1=(10.0, 10.0), line_ends=(0, 0))
+    double_arrow = _arrow(v0=(0.0, 0.0), v1=(10.0, 10.0), line_ends=(4, 6))
+    assert is_duplicate_arrow(plain_line, double_arrow) is False
+
+
+def test_duplicate_arrow_reversed_vertices_with_matching_reversed_line_ends_is_duplicate():
+    """A duplicate overlay drawn with swapped endpoints also has its
+    line_ends swapped in lockstep (the code follows its vertex) — this must
+    still dedup. This is the case that would silently break if line_ends
+    were compared un-reversed inside the reversed-vertex-order branch."""
+    a = _arrow(v0=(0.0, 0.0), v1=(10.0, 10.0), line_ends=(4, 0))
+    b = _arrow(v0=(10.0, 10.0), v1=(0.0, 0.0), line_ends=(0, 4))
+    assert is_duplicate_arrow(a, b) is True
+
+
+def test_duplicate_arrow_reversed_vertices_with_non_reversed_line_ends_not_duplicate():
+    """Guards the reversed-order branch against comparing line_ends
+    un-reversed: same reversed vertex pairing as above, but line_ends do NOT
+    correspond to a simple swap -> genuinely different connectors, not a
+    duplicate."""
+    a = _arrow(v0=(0.0, 0.0), v1=(10.0, 10.0), line_ends=(4, 0))
+    b = _arrow(v0=(10.0, 10.0), v1=(0.0, 0.0), line_ends=(4, 0))
+    assert is_duplicate_arrow(a, b) is False

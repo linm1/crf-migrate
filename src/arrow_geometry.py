@@ -379,15 +379,26 @@ def is_duplicate_arrow(
 
     Args:
         a, b: dicts with keys "page" (int), "vertices" (tuple of two (x,y)
-            points), "color" (tuple of 3 floats, 0..1).
+            points), "color" (tuple of 3 floats, 0..1), and optionally
+            "line_ends" (tuple of two ints, the per-vertex PyMuPDF line-end
+            style codes as stored at extraction — defaults to (0, 0) when
+            absent, e.g. in callers/tests that don't care about line style).
         vertex_tolerance_pt: Max per-coordinate distance for two vertices to
             be considered the same point.
         color_decimals: Rounding precision for stroke color comparison.
 
     Two arrows are duplicates when they share the same page, the same
-    (rounded) stroke color, and their vertex pairs match within tolerance —
-    checked in both original and reversed vertex order, since a duplicate
-    overlay may have been drawn with swapped endpoints.
+    (rounded) stroke color, the same line_ends (arrowhead style), and their
+    vertex pairs match within tolerance — checked in both original and
+    reversed vertex order, since a duplicate overlay may have been drawn
+    with swapped endpoints. line_ends is compared in lockstep with whichever
+    vertex order matched: a genuinely reversed-drawn duplicate has its
+    line_ends reversed too (vertex0<->vertex1 swap carries its line-end code
+    with it), so line_ends is NOT independently order-insensitive the way a
+    plain coordinate pair is — (4, 6) and (6, 4) are different arrow
+    orientations, not the same orientation drawn backwards, and must only be
+    treated as equal when the vertex pairing that matched was itself
+    reversed.
     """
     if a["page"] != b["page"]:
         return False
@@ -403,6 +414,11 @@ def is_duplicate_arrow(
     av0, av1 = a["vertices"]
     bv0, bv1 = b["vertices"]
 
-    same_order = _close(av0, bv0) and _close(av1, bv1)
-    reversed_order = _close(av0, bv1) and _close(av1, bv0)
+    le_a = tuple(a.get("line_ends", (0, 0)))
+    le_b = tuple(b.get("line_ends", (0, 0)))
+
+    same_order = _close(av0, bv0) and _close(av1, bv1) and le_a == le_b
+    reversed_order = (
+        _close(av0, bv1) and _close(av1, bv0) and le_a == (le_b[1], le_b[0])
+    )
     return same_order or reversed_order

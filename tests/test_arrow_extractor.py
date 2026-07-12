@@ -373,6 +373,37 @@ class TestDuplicateDedup:
         assert len(records) == 1
         assert any("duplicate overlay" in issue for issue in qc_issues)
 
+    def test_same_position_different_line_ends_both_kept(self, tmp_path):
+        """Plan D7 fix: a plain line (0,0) and a double-arrow (4,6) at the
+        same position are DIFFERENT connectors with different styles, not a
+        duplicate overlay render artifact — both must be extracted, not
+        deduped."""
+        pdf_path = tmp_path / "different_style_same_pos.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        page.insert_text(fitz.Point(270.0, 65.0), "Option 1", fontsize=10, color=(0, 0, 0))
+        ft = page.add_freetext_annot(fitz.Rect(50.0, 50.0, 200.0, 70.0), "SUOCCUR=Y")
+        ft.update()
+        a1 = page.add_line_annot(fitz.Point(199.0, 60.0), fitz.Point(290.0, 62.0))
+        a1.set_line_ends(0, 0)
+        a1.set_colors(stroke=(1.0, 0.0, 0.0))
+        a1.update()
+        # Same position (within dedup tolerance) but a double-arrow style —
+        # must NOT be treated as a duplicate of the plain line above.
+        a2 = page.add_line_annot(fitz.Point(199.0, 60.0), fitz.Point(290.0, 62.0))
+        a2.set_line_ends(4, 6)
+        a2.set_colors(stroke=(1.0, 0.0, 0.0))
+        a2.update()
+        doc.save(str(pdf_path))
+        doc.close()
+
+        profile = _make_profile(dedup_vertex_tolerance_pt=0.75)
+        annotations = extract_annotations(pdf_path, profile, RuleEngine(profile))
+        records, qc_issues = extract_arrows(pdf_path, annotations, profile)
+
+        assert len(records) == 2
+        assert not any("duplicate overlay" in issue for issue in qc_issues)
+
     def test_near_miss_outside_tolerance_both_kept(self, tmp_path):
         """Vertices offset by 1.0pt (> 0.75pt tolerance) -> both kept, no dedup."""
         pdf_path = tmp_path / "near_miss.pdf"
