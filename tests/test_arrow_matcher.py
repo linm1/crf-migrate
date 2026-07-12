@@ -150,6 +150,9 @@ class TestUnresolved:
         assert result[0].head_match_method == "unresolved"
         assert result[0].head_confidence == 0.0
         assert result[0].target_page is None
+        # Plain "no parent match" is distinct from the duplicate-id case
+        # (plan D8) and must NOT carry the duplicate-id skip_reason.
+        assert result[0].skip_reason is None
 
     def test_unresolved_below_threshold(self, tmp_path):
         target = _make_target_pdf(tmp_path / "t.pdf", [("Zzz Qqq Www", (60.0, 95.0))])
@@ -230,6 +233,7 @@ class TestDuplicateParentIdGuard:
                          target_rect=[50.0, 80.0, 200.0, 100.0])
         result = resolve_arrows([arrow], [match1, match2], [], target, _profile())
         assert result[0].head_match_method == "unresolved"
+        assert result[0].skip_reason == "duplicate_parent_annotation_id"
 
 
 class TestInvalidTargetPage:

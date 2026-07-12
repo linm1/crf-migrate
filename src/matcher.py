@@ -1138,7 +1138,10 @@ def compute_target_rect(
 _ARROW_HEAD_SEARCH_INFLATE_PT = 30.0
 
 
-def _unresolved_arrow_match(arrow_id: str) -> ArrowMatch:
+_ARROW_SKIP_DUPLICATE_PARENT_ANNOTATION_ID = "duplicate_parent_annotation_id"
+
+
+def _unresolved_arrow_match(arrow_id: str, skip_reason: str | None = None) -> ArrowMatch:
     return ArrowMatch(
         arrow_id=arrow_id,
         target_page=None,
@@ -1146,6 +1149,7 @@ def _unresolved_arrow_match(arrow_id: str) -> ArrowMatch:
         head_target_rect=None,
         head_match_method="unresolved",
         head_confidence=0.0,
+        skip_reason=skip_reason,
     )
 
 
@@ -1198,7 +1202,9 @@ def resolve_arrows(
          write pass is the actual gate on whether the parent was written, via
          placed_rects — see src.writer._write_arrows). A duplicate
          annotation_id in `matches` makes the parent ambiguous and resolves
-         unresolved (plan D8).
+         unresolved with ArrowMatch.skip_reason=
+         "duplicate_parent_annotation_id" (plan D8) — a QC-visible,
+         distinguishing reason rather than the generic unresolved fallback.
       2. Pass A (fuzzy_in_field): fuzzy-match head_text (rapidfuzz
          token_sort_ratio) against target text blocks intersecting the
          parent's target_rect inflated by 30pt on each side.
@@ -1249,6 +1255,15 @@ def resolve_arrows(
     for arrow in arrows:
         if arrow.tail_annotation_id is None:
             results.append(_unresolved_arrow_match(arrow.arrow_id))
+            continue
+
+        if arrow.tail_annotation_id in duplicated_ids:
+            results.append(
+                _unresolved_arrow_match(
+                    arrow.arrow_id,
+                    skip_reason=_ARROW_SKIP_DUPLICATE_PARENT_ANNOTATION_ID,
+                )
+            )
             continue
 
         parent_match = annot_id_to_match.get(arrow.tail_annotation_id)

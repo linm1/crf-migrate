@@ -141,3 +141,16 @@ class ArrowMatch(BaseModel):
     head_target_rect: tuple[float, float, float, float] | None
     head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "unresolved"]
     head_confidence: float = Field(ge=0.0, le=1.0)
+    skip_reason: str | None = Field(
+        default=None,
+        description=(
+            "Additive, optional distinguishing reason for why resolution "
+            "landed on head_match_method='unresolved' (plan D8). None for "
+            "the ordinary unresolved paths (no parent match, empty "
+            "head_text, no fuzzy hit, etc.) -- only populated for causes "
+            "that would otherwise be indistinguishable, e.g. "
+            "'duplicate_parent_annotation_id' when the arrow's parent "
+            "annotation_id is ambiguous because persisted matches contain "
+            "duplicates of it."
+        ),
+    )
