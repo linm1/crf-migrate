@@ -10,7 +10,8 @@ import re
 
 import fitz  # PyMuPDF
 
-from src.models import AnnotationRecord, MatchRecord
+from src.arrow_geometry import clamp_to_page, edge_midpoint_from_direction, hybrid_endpoint_placement
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, MatchRecord
 from src.profile_models import Profile
 
 _FALLBACK_FILL: tuple[float, float, float] = (0.75, 1.0, 1.0)  # cyan
@@ -126,14 +127,25 @@ def write_annotations(
     matches: list[MatchRecord],
     annotations: list[AnnotationRecord],
     profile: Profile,
+    arrows: list[ArrowRecord] | None = None,
+    arrow_matches: list[ArrowMatch] | None = None,
 ) -> dict:
-    """Write approved annotations to target PDF. Returns qc_report dict."""
+    """Write approved annotations to target PDF. Returns qc_report dict.
+
+    arrows / arrow_matches are additive, trailing, default-None parameters —
+    existing positional call sites (tests, ui/phase4_review.py before this
+    feature) keep working unmodified. When provided, resolved arrow/line
+    connectors are written in a separate pass after the FreeText loop below
+    and before the existing /CL integrity assertion and doc.save() call —
+    neither of which changes.
+    """
     annot_by_id: dict[str, AnnotationRecord] = {a.id: a for a in annotations}
 
     doc = fitz.open(str(target_pdf_path))
 
     written_ids: list[str] = []
     skipped_ids: list[str] = []
+    placed_rects: dict[str, list[float]] = {}
 
     for match in matches:
         if match.status == "approved":
@@ -148,8 +160,13 @@ def write_annotations(
             page = doc[page_index]
             _write_single_annotation(page, match.target_rect, annot, profile, doc)
             written_ids.append(match.annotation_id)
+            placed_rects[match.annotation_id] = match.target_rect
         else:
             skipped_ids.append(match.annotation_id)
+
+    arrow_report = _write_arrows(
+        doc, arrows or [], arrow_matches or [], annot_by_id, placed_rects, profile
+    )
 
     for page in doc:
         for annot in page.annots():
@@ -159,7 +176,9 @@ def write_annotations(
     doc.save(str(output_pdf_path), garbage=4, deflate=True)
     doc.close()
 
-    return build_qc_report(matches, written_ids, skipped_ids)
+    report = build_qc_report(matches, written_ids, skipped_ids)
+    report.update(arrow_report)
+    return report
 
 
 def build_qc_report(
@@ -398,3 +417,169 @@ def _write_single_annotation(
         _apply_font_style(doc, page, a, fontsize, pdf_name, text_color)
     _strip_cl(doc, a)
     _write_rc_ds(doc, a, annot.content, display_family, fontsize, text_color, is_bold, is_italic)
+
+
+# ---------------------------------------------------------------------------
+# Arrow/line connector writing (Arrow/Line Connector Migration feature)
+# ---------------------------------------------------------------------------
+# Additive — nothing above this point changes. Runs after the FreeText loop
+# (which populates placed_rects above) and before the /CL integrity
+# assertion + doc.save() in write_annotations(), neither of which changes.
+#
+# Line annotations do not use the FreeText /C-is-fill / AP-stream-patching
+# machinery documented in CLAUDE.md — that machinery is specific to
+# FreeText's spec-malformed /CL and Kofax's /RC+/DS resize behavior. For a
+# Line annot, set_colors(stroke=...) is simply the line's visible color; no
+# equivalent gymnastics are needed here.
+
+_ARROW_SKIP_HEAD_UNRESOLVED = "head_unresolved"
+_ARROW_SKIP_PARENT_NOT_WRITTEN = "parent_not_written"
+_ARROW_SKIP_INVALID_TARGET_PAGE = "invalid_target_page"
+_ARROW_SKIP_WRITE_ERROR = "write_error"
+
+
+def _write_single_arrow(
+    doc: fitz.Document,
+    arrow: ArrowRecord,
+    arrow_match: ArrowMatch,
+    annot_by_id: dict[str, AnnotationRecord],
+    placed_rects: dict[str, list[float]],
+    profile: Profile,
+) -> tuple[bool, str | None]:
+    """Write one resolved arrow as a Line annotation. Returns (written, skip_reason)."""
+    if arrow_match.head_match_method == "unresolved" or arrow_match.head_target_rect is None:
+        return False, _ARROW_SKIP_HEAD_UNRESOLVED
+
+    # D5: no raw-tail-vertex fallback. The parent annotation must have been
+    # actually written (present in placed_rects) — there is no fallback path.
+    if arrow.tail_annotation_id is None or arrow.tail_annotation_id not in placed_rects:
+        return False, _ARROW_SKIP_PARENT_NOT_WRITTEN
+
+    if arrow_match.target_page is None:
+        return False, _ARROW_SKIP_INVALID_TARGET_PAGE
+
+    page_index = arrow_match.target_page - 1
+    if page_index < 0 or page_index >= doc.page_count:
+        return False, _ARROW_SKIP_INVALID_TARGET_PAGE
+
+    target_annot_rect = placed_rects[arrow.tail_annotation_id]
+    source_annot = annot_by_id.get(arrow.tail_annotation_id)
+    source_annot_rect = tuple(source_annot.rect) if source_annot is not None else tuple(target_annot_rect)
+
+    tail_pt = hybrid_endpoint_placement(
+        source_box=source_annot_rect,
+        source_point=arrow.tail_vertex,
+        target_box=tuple(target_annot_rect),
+        other_endpoint=arrow.head_vertex,
+        size_similarity_tolerance=profile.arrows.size_similarity_tolerance,
+    )
+
+    head_target_rect = arrow_match.head_target_rect
+    if arrow.head_source_rect is not None:
+        head_pt = hybrid_endpoint_placement(
+            source_box=arrow.head_source_rect,
+            source_point=arrow.head_vertex,
+            target_box=head_target_rect,
+            other_endpoint=arrow.tail_vertex,
+            size_similarity_tolerance=profile.arrows.size_similarity_tolerance,
+        )
+    else:
+        head_pt = edge_midpoint_from_direction(
+            other_endpoint=arrow.tail_vertex,
+            target_box=head_target_rect,
+        )
+
+    page = doc[page_index]
+    page_rect = (0.0, 0.0, float(page.rect.width), float(page.rect.height))
+    tail_pt = clamp_to_page(tail_pt, page_rect)
+    head_pt = clamp_to_page(head_pt, page_rect)
+
+    style = arrow.style
+    a = page.add_line_annot(fitz.Point(*tail_pt), fitz.Point(*head_pt))
+    a.set_colors(stroke=list(style.stroke_color))
+    a.set_border(width=style.width, dashes=list(style.dashes))
+    a.set_line_ends(style.tail_line_end, style.head_line_end)
+    a.update(opacity=style.opacity)
+    _patch_line_dashes(doc, a, style.width, style.dashes)
+
+    return True, None
+
+
+def _patch_line_dashes(
+    doc: fitz.Document,
+    annot: fitz.Annot,
+    width: float,
+    dashes: list[float],
+) -> None:
+    """Patch the /BS dict to include a /D dash array for a Line annotation.
+
+    PyMuPDF 1.26.4's set_border(dashes=...) silently drops the dash array
+    for Line annotations — it writes /BS << /W .. /S /S >> with no /D key at
+    all (verified: /BS dict inspected immediately after set_border() has no
+    /D entry). This patches the dict-level style so annot.border["dashes"]
+    round-trips correctly after save/reopen; it does not touch the AP
+    stream, so whether Adobe/Kofax render the dash pattern visually is a
+    separate, human-verification concern (see
+    docs/unknowns/arrow-connector-migration/implementation-notes.md).
+
+    Line-only — never touches the FreeText /BS or AP-stream machinery.
+    """
+    if not dashes:
+        return
+    dash_str = " ".join(_fmt_dash(d) for d in dashes)
+    bs_value = f"<< /W {_fmt_dash(width)} /S /D /D [{dash_str}] >>"
+    doc.xref_set_key(annot.xref, "BS", bs_value)
+
+
+def _fmt_dash(v: float) -> str:
+    s = f"{v:.6f}".rstrip("0").rstrip(".")
+    return s if s else "0"
+
+
+def _write_arrows(
+    doc: fitz.Document,
+    arrows: list[ArrowRecord],
+    arrow_matches: list[ArrowMatch],
+    annot_by_id: dict[str, AnnotationRecord],
+    placed_rects: dict[str, list[float]],
+    profile: Profile,
+) -> dict:
+    """Write all resolved arrows as Line annotations. Returns additive QC keys.
+
+    Always returns arrows_total / arrows_written / arrows_skipped /
+    arrow_skipped_ids, even when arrows/arrow_matches are empty, so
+    build_qc_report's dict shape is stable whether or not this feature is
+    used. Each arrow is written inside its own try/except so one bad arrow
+    never aborts the whole pass (or the surrounding write_annotations call).
+    """
+    arrows_by_id = {a.arrow_id: a for a in arrows}
+    written = 0
+    skipped = 0
+    skipped_ids: list[dict] = []
+
+    for arrow_match in arrow_matches:
+        arrow = arrows_by_id.get(arrow_match.arrow_id)
+        if arrow is None:
+            skipped += 1
+            skipped_ids.append({"arrow_id": arrow_match.arrow_id, "reason": _ARROW_SKIP_HEAD_UNRESOLVED})
+            continue
+
+        try:
+            was_written, reason = _write_single_arrow(
+                doc, arrow, arrow_match, annot_by_id, placed_rects, profile
+            )
+        except Exception:
+            was_written, reason = False, _ARROW_SKIP_WRITE_ERROR
+
+        if was_written:
+            written += 1
+        else:
+            skipped += 1
+            skipped_ids.append({"arrow_id": arrow_match.arrow_id, "reason": reason})
+
+    return {
+        "arrows_total": len(arrow_matches),
+        "arrows_written": written,
+        "arrows_skipped": skipped,
+        "arrow_skipped_ids": skipped_ids,
+    }
