@@ -5,8 +5,45 @@ import pytest
 from pathlib import Path
 from datetime import datetime
 
-from src.models import AnnotationRecord, StyleInfo
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, ArrowStyle, StyleInfo
 from src.session import Session
+
+
+def make_arrow_style(**kwargs) -> ArrowStyle:
+    defaults = dict(
+        stroke_color=(1.0, 0.0, 0.0), width=1.0, dashes=[],
+        tail_line_end=0, head_line_end=4,
+    )
+    defaults.update(kwargs)
+    return ArrowStyle(**defaults)
+
+
+def make_arrow(**kwargs) -> ArrowRecord:
+    defaults = dict(
+        arrow_id="arrow-1",
+        source_page=1,
+        tail_vertex=(200.0, 60.0),
+        head_vertex=(290.0, 62.0),
+        head_source_rect=None,
+        tail_annotation_id="annot-1",
+        head_text="Yes",
+        style=make_arrow_style(),
+    )
+    defaults.update(kwargs)
+    return ArrowRecord(**defaults)
+
+
+def make_arrow_match(**kwargs) -> ArrowMatch:
+    defaults = dict(
+        arrow_id="arrow-1",
+        target_page=1,
+        target_field_id="field-1",
+        head_target_rect=(210.0, 55.0, 260.0, 70.0),
+        head_match_method="fuzzy_in_field",
+        head_confidence=0.9,
+    )
+    defaults.update(kwargs)
+    return ArrowMatch(**defaults)
 
 
 def make_annotation(**kwargs) -> AnnotationRecord:
@@ -272,3 +309,77 @@ class TestRenameDelete:
         workspace_path = session.workspace
         Session.delete(workspace_path)
         assert not workspace_path.exists()
+
+
+class TestSaveLoadArrows:
+    def test_save_arrows_creates_json(self, tmp_path):
+        session = Session(tmp_path)
+        path = session.save_arrows([make_arrow()])
+        assert path.exists()
+        assert path.name == "arrows.json"
+
+    def test_save_arrows_empty_list_still_creates_file(self, tmp_path):
+        """Phase 1 always saves arrows.json, even when empty (arrows
+        disabled or none extracted), so a re-extract overwrites any stale
+        arrows.json from a previous run with arrows enabled."""
+        session = Session(tmp_path)
+        path = session.save_arrows([])
+        assert path.exists()
+        data = json.loads(path.read_text())
+        assert data == []
+
+    def test_save_arrows_overwrites_stale_file(self, tmp_path):
+        session = Session(tmp_path)
+        session.save_arrows([make_arrow(arrow_id="old-arrow")])
+        session.save_arrows([])
+        loaded = session.load_arrows()
+        assert loaded == []
+
+    def test_load_arrows_round_trip(self, tmp_path):
+        session = Session(tmp_path)
+        original = [make_arrow(arrow_id="a1"), make_arrow(arrow_id="a2", head_text="No")]
+        session.save_arrows(original)
+        loaded = session.load_arrows()
+        assert len(loaded) == 2
+        assert loaded[0].arrow_id == "a1"
+        assert loaded[1].head_text == "No"
+        assert all(isinstance(r, ArrowRecord) for r in loaded)
+
+    def test_load_arrows_missing_file_raises(self, tmp_path):
+        session = Session(tmp_path)
+        with pytest.raises(FileNotFoundError):
+            session.load_arrows()
+
+
+class TestSaveLoadArrowMatches:
+    def test_save_arrow_matches_creates_json(self, tmp_path):
+        session = Session(tmp_path)
+        path = session.save_arrow_matches([make_arrow_match()])
+        assert path.exists()
+        assert path.name == "arrow_matches.json"
+
+    def test_save_arrow_matches_empty_list(self, tmp_path):
+        session = Session(tmp_path)
+        path = session.save_arrow_matches([])
+        data = json.loads(path.read_text())
+        assert data == []
+
+    def test_load_arrow_matches_round_trip(self, tmp_path):
+        session = Session(tmp_path)
+        original = [
+            make_arrow_match(arrow_id="a1"),
+            make_arrow_match(arrow_id="a2", head_match_method="unresolved",
+                              head_confidence=0.0, target_page=None,
+                              target_field_id=None, head_target_rect=None),
+        ]
+        session.save_arrow_matches(original)
+        loaded = session.load_arrow_matches()
+        assert len(loaded) == 2
+        assert loaded[0].arrow_id == "a1"
+        assert loaded[1].head_match_method == "unresolved"
+        assert all(isinstance(r, ArrowMatch) for r in loaded)
+
+    def test_load_arrow_matches_missing_file_raises(self, tmp_path):
+        session = Session(tmp_path)
+        with pytest.raises(FileNotFoundError):
+            session.load_arrow_matches()

@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, FieldRecord, MatchRecord
 
 
 class Session:
@@ -66,6 +66,51 @@ class Session:
             )
         data = json.loads(path.read_text(encoding="utf-8"))
         return [MatchRecord.model_validate(d) for d in data]
+
+    def save_arrows(self, records: list[ArrowRecord]) -> Path:
+        """Serialize and write arrow records to arrows.json.
+
+        Called unconditionally whenever Phase 1 extraction runs (empty list
+        included) so that a re-extract with arrows disabled overwrites a
+        stale arrows.json from a previous run.
+        """
+        path = self.workspace / "arrows.json"
+        data = [r.model_dump() for r in records]
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return path
+
+    def load_arrows(self) -> list[ArrowRecord]:
+        """Load and deserialize arrow records from arrows.json."""
+        path = self.workspace / "arrows.json"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"arrows.json not found in {self.workspace}"
+            )
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [ArrowRecord.model_validate(d) for d in data]
+
+    def save_arrow_matches(self, records: list[ArrowMatch]) -> Path:
+        """Serialize and write arrow match records to arrow_matches.json.
+
+        This is a Phase-4 (Generate) byproduct — resolve_arrows() runs
+        against the final approved matches immediately before
+        write_annotations(), so arrow_matches.json always reflects the most
+        recent Generate run rather than a possibly-stale Phase 3 artifact.
+        """
+        path = self.workspace / "arrow_matches.json"
+        data = [r.model_dump() for r in records]
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return path
+
+    def load_arrow_matches(self) -> list[ArrowMatch]:
+        """Load and deserialize arrow match records from arrow_matches.json."""
+        path = self.workspace / "arrow_matches.json"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"arrow_matches.json not found in {self.workspace}"
+            )
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [ArrowMatch.model_validate(d) for d in data]
 
     def save_qc_report(self, report: dict) -> Path:
         """Serialize and write QC report to qc_report.json."""
