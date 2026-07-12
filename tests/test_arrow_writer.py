@@ -233,6 +233,31 @@ class TestApprovedParentPageOutOfRange:
             {"arrow_id": "arrow-1", "reason": "head_unresolved"}
         ]
 
+    def test_unresolved_arrow_match_preserves_specific_skip_reason(self, tmp_path):
+        """When resolve_arrows() sets a specific skip_reason (plan D8, e.g.
+        duplicate_parent_annotation_id), the writer must surface it in the QC
+        report rather than overwriting it with the generic head_unresolved —
+        otherwise the QC report can't distinguish an ambiguous-parent match
+        from an ordinary unresolved head."""
+        target = make_target_pdf(tmp_path / "target.pdf")
+        output = tmp_path / "output.pdf"
+        annot = make_annotation()
+        match = make_match(status="approved")
+        arrow = make_arrow()
+        arrow_match = make_arrow_match(
+            target_page=None, target_field_id=None, head_target_rect=None,
+            head_match_method="unresolved", head_confidence=0.0,
+        ).model_copy(update={"skip_reason": "duplicate_parent_annotation_id"})
+        profile = _make_profile()
+
+        qc_report = write_annotations(
+            target, output, [match], [annot], profile,
+            arrows=[arrow], arrow_matches=[arrow_match],
+        )
+        assert qc_report["arrow_skipped_ids"] == [
+            {"arrow_id": "arrow-1", "reason": "duplicate_parent_annotation_id"}
+        ]
+
     def test_target_page_none_with_otherwise_resolved_method_skipped(self, tmp_path):
         """Defensive: a resolved head_match_method paired with target_page=
         None (should not normally co-occur, since resolve_arrows always sets

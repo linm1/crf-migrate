@@ -448,7 +448,7 @@ def _write_single_arrow(
 ) -> tuple[bool, str | None]:
     """Write one resolved arrow as a Line annotation. Returns (written, skip_reason)."""
     if arrow_match.head_match_method == "unresolved" or arrow_match.head_target_rect is None:
-        return False, _ARROW_SKIP_HEAD_UNRESOLVED
+        return False, arrow_match.skip_reason or _ARROW_SKIP_HEAD_UNRESOLVED
 
     # D5: no raw-tail-vertex fallback. The parent annotation must have been
     # actually written (present in placed_rects) — there is no fallback path.
