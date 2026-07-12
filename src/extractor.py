@@ -862,7 +862,7 @@ def extract_arrows(
 
                 vertices_str = ",".join(f"{x:.4f}:{y:.4f}" for x, y in vertices)
                 arrow_id = hashlib.sha1(
-                    f"{page_num}:{vertices_str}".encode()
+                    f"{page_num}:{vertices_str}:{annot.xref}".encode()
                 ).hexdigest()[:16]
 
                 records.append(

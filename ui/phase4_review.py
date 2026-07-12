@@ -127,8 +127,13 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
                     # final approved `matches` — not at Phase 3 — so a manual
                     # re-pair or batch approve made just before clicking
                     # Generate is always reflected (no staleness window).
+                    # Re-check profile.arrows.enabled here (not just at
+                    # extraction) so switching to a profile with arrows
+                    # disabled — without re-running Phase 1 — doesn't emit
+                    # connectors from a stale session-state arrows list.
+                    active_arrows = arrows if profile.arrows.enabled else []
                     arrow_matches = resolve_arrows(
-                        arrows, matches, fields, target_pdf_path, profile
+                        active_arrows, matches, fields, target_pdf_path, profile
                     )
                     _result["arrow_matches"] = arrow_matches
                     _result["qc_report"] = write_annotations(
@@ -137,7 +142,7 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
                         matches,
                         annotations,
                         profile,
-                        arrows=arrows,
+                        arrows=active_arrows,
                         arrow_matches=arrow_matches,
                     )
                 except Exception as exc:

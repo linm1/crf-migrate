@@ -403,6 +403,10 @@ class TestDuplicateDedup:
 
         assert len(records) == 2
         assert not any("duplicate overlay" in issue for issue in qc_issues)
+        # arrow_id must discriminate same-geometry, different-style records —
+        # otherwise a dict keyed by arrow_id (e.g. writer._write_arrows)
+        # collapses the two into one and silently drops a connector's style.
+        assert records[0].arrow_id != records[1].arrow_id
 
     def test_near_miss_outside_tolerance_both_kept(self, tmp_path):
         """Vertices offset by 1.0pt (> 0.75pt tolerance) -> both kept, no dedup."""
