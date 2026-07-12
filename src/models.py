@@ -4,13 +4,20 @@ Defines the three core record types used as intermediate artifacts:
 - AnnotationRecord: extracted from source aCRF (Phase 1 output)
 - FieldRecord: extracted from target blank CRF (Phase 2 output)
 - MatchRecord: annotation-to-field match result (Phase 3 output)
+
+Also defines the arrow/line-connector record types (Arrow/Line Connector
+Migration feature):
+- ArrowStyle: stroke/width/dashes/line-end styling for a Line annotation
+- ArrowRecord: extracted arrow/line connector (Phase 1 output)
+- ArrowMatch: arrow head-resolution result (Phase 4 output — resolved at
+  Generate time against final approved matches, not at Phase 3)
 """
 from __future__ import annotations
 
 import re
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Bold/italic aliases known from PyMuPDF and common PDF font names
 _BOLD_PATTERN = re.compile(r"(?i)(bold|hebo|hebi|cobo|cobi|tibo|tibi)")
@@ -81,3 +88,56 @@ class MatchRecord(BaseModel):
     status: Literal["pending", "approved", "re-pairing"] = "re-pairing"
     user_notes: str = ""
     placement_adjusted: bool = False  # True if target_rect was clamped or fallback-placed
+
+
+class ArrowStyle(BaseModel):
+    """Stroke, width, dash, and line-end styling for an extracted Line annotation.
+
+    tail_line_end / head_line_end are the PyMuPDF line-end style codes
+    (e.g. 0=none, 4=open arrow) resolved to their vertex *role* (tail vs
+    head) by src.arrow_geometry.classify_endpoints — not the raw per-vertex
+    order from the source PDF. The writer calls
+    ``set_line_ends(tail_line_end, head_line_end)`` directly with no further
+    swapping.
+    """
+
+    stroke_color: tuple[float, float, float]
+    width: float = Field(gt=0)
+    dashes: list[float]
+    tail_line_end: int
+    head_line_end: int
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class ArrowRecord(BaseModel):
+    """A single arrow/line connector extracted from the source aCRF.
+
+    arrow_id is a stable hash of (source_page, vertices) so re-extraction
+    of an unchanged PDF produces identical ids.
+    """
+
+    arrow_id: str                  # sha1(f"{page}:{vertices 4dp}")[:16]
+    source_page: int               # 1-indexed (consistent with AnnotationRecord.page)
+    tail_vertex: tuple[float, float]
+    head_vertex: tuple[float, float]
+    head_source_rect: tuple[float, float, float, float] | None = None
+    tail_annotation_id: str | None
+    head_text: str
+    style: ArrowStyle
+
+
+class ArrowMatch(BaseModel):
+    """Resolution of an arrow's head endpoint against the target CRF.
+
+    Produced by src.matcher.resolve_arrows() at Phase 4 (Generate) time,
+    against the final approved MatchRecord list — not persisted or computed
+    at Phase 3, since arrows have no review UI and staleness would otherwise
+    creep in via Phase 3 CSV import / batch approve / manual re-pair.
+    """
+
+    arrow_id: str
+    target_page: int | None
+    target_field_id: str | None
+    head_target_rect: tuple[float, float, float, float] | None
+    head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "unresolved"]
+    head_confidence: float = Field(ge=0.0, le=1.0)
