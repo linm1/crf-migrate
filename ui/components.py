@@ -574,3 +574,6 @@ def invalidate_phases(phase_numbers: list[int]) -> None:
     if 4 in phase_numbers:
         st.session_state.pop("output_pdf_path", None)
         st.session_state.pop("qc_report", None)
+        # arrow_matches is a Phase-4 output (resolve_arrows runs at Generate
+        # time, not Phase 3) — invalidate it alongside qc_report/output_pdf_path.
+        st.session_state.pop("arrow_matches", None)

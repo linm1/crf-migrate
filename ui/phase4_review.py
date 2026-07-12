@@ -6,6 +6,7 @@ from pathlib import Path
 import fitz
 import streamlit as st
 
+from src.matcher import resolve_arrows
 from src.models import MatchRecord
 from src.writer import write_annotations
 from ui.components import render_page_navigator_windowed
@@ -104,6 +105,8 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
     session = st.session_state.get("session")
     profile = st.session_state.get("profile")
     annotations = st.session_state.get("annotations", [])
+    fields = st.session_state.get("fields", [])
+    arrows = st.session_state.get("arrows", [])
     target_pdf_path = st.session_state.get("target_pdf_path")
     output_pdf_path = st.session_state.get("output_pdf_path")
 
@@ -120,12 +123,22 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
 
             def _work() -> None:
                 try:
+                    # Arrow resolution runs here, at Generate time, against the
+                    # final approved `matches` — not at Phase 3 — so a manual
+                    # re-pair or batch approve made just before clicking
+                    # Generate is always reflected (no staleness window).
+                    arrow_matches = resolve_arrows(
+                        arrows, matches, fields, target_pdf_path, profile
+                    )
+                    _result["arrow_matches"] = arrow_matches
                     _result["qc_report"] = write_annotations(
                         target_pdf_path,
                         out_path,
                         matches,
                         annotations,
                         profile,
+                        arrows=arrows,
+                        arrow_matches=arrow_matches,
                     )
                 except Exception as exc:
                     _result["error"] = exc
@@ -141,9 +154,12 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
                 st.error(f"Output generation failed: {_result['error']}")
             else:
                 qc_report = _result["qc_report"]
+                arrow_matches = _result["arrow_matches"]
                 session.save_qc_report(qc_report)
+                session.save_arrow_matches(arrow_matches)
                 st.session_state["output_pdf_path"] = out_path
                 st.session_state["qc_report"] = qc_report
+                st.session_state["arrow_matches"] = arrow_matches
                 st.session_state["phases_complete"][4] = True
                 session.log_action("phase4_write", qc_report)
                 st.rerun()

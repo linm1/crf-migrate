@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import streamlit as st
+from pydantic import ValidationError
 
 from src.profile_loader import list_profiles, load_profile
 from src.rule_engine import RuleEngine
@@ -32,6 +33,7 @@ CLEARABLE_STATE_KEYS = [
     "p1_page", "p2_page", "p3_page",
     "p3_filter_type", "p3_filter_status",
     "sidebar_workspace",
+    "arrows", "arrow_matches",
 ]
 
 _WORKSPACE_ICON_BUTTON_CSS = build_centered_icon_button_css(
@@ -455,6 +457,20 @@ def _load_session_into_state(sess: Session) -> None:
         st.session_state["qc_report"] = sess.load_qc_report()
     except FileNotFoundError:
         st.session_state["qc_report"] = None
+
+    try:
+        st.session_state["arrows"] = sess.load_arrows()
+    except (FileNotFoundError, ValidationError):
+        # A ValidationError here means an old-schema arrows.json from an
+        # earlier experiment (e.g. a stray file predating a model change) —
+        # treat it the same as "absent": re-run Phase 1, don't crash the
+        # whole session load.
+        st.session_state["arrows"] = []
+
+    try:
+        st.session_state["arrow_matches"] = sess.load_arrow_matches()
+    except (FileNotFoundError, ValidationError):
+        st.session_state["arrow_matches"] = []
 
     for key, fname in [
         ("source_pdf_path", "source_acrf.pdf"),
