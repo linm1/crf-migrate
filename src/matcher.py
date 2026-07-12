@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import warnings
 from collections import defaultdict
+from pathlib import Path
 
+import fitz  # PyMuPDF
 import numpy as np
 from rapidfuzz import fuzz
 
-from src.models import AnnotationRecord, FieldRecord, MatchRecord
+from src.models import AnnotationRecord, ArrowMatch, ArrowRecord, FieldRecord, MatchRecord
 from src.profile_models import Profile
 
 try:
@@ -1121,3 +1123,189 @@ def compute_target_rect(
     )
     final_rect, _ = _apply_placement_guard(raw_rect, field, all_fields)
     return final_rect
+
+
+# ---------------------------------------------------------------------------
+# Arrow/line connector resolution (Arrow/Line Connector Migration feature)
+# ---------------------------------------------------------------------------
+# Additive — nothing above this point changes. Runs at Phase 4 (Generate)
+# time against the *final* approved MatchRecord list, not at Phase 3 (plan
+# D2): arrows have no review UI, so nothing is lost by deferring resolution,
+# and doing so at Generate time kills the staleness class where Phase 3 CSV
+# import / batch approve / manual re-pair would otherwise mutate matches
+# without re-resolving arrows against them.
+
+_ARROW_HEAD_SEARCH_INFLATE_PT = 30.0
+
+
+def _unresolved_arrow_match(arrow_id: str) -> ArrowMatch:
+    return ArrowMatch(
+        arrow_id=arrow_id,
+        target_page=None,
+        target_field_id=None,
+        head_target_rect=None,
+        head_match_method="unresolved",
+        head_confidence=0.0,
+    )
+
+
+def _duplicated_annotation_ids(matches: list[MatchRecord]) -> set[str]:
+    """Return the set of annotation_ids that appear more than once in matches.
+
+    Plan D8: a duplicate parent id makes "the" parent MatchRecord ambiguous;
+    affected arrows must resolve unresolved with a QC-visible reason rather
+    than silently picking the last one (the reference branch's behavior).
+    """
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for m in matches:
+        if m.annotation_id in seen:
+            dupes.add(m.annotation_id)
+        seen.add(m.annotation_id)
+    return dupes
+
+
+def _best_fuzzy_block(
+    query: str,
+    blocks: list[tuple[float, float, float, float, str]],
+    threshold: float,
+) -> tuple[float, tuple[float, float, float, float]] | None:
+    """Return (score, rect) of the best-scoring block >= threshold, else None."""
+    best_score = 0.0
+    best_rect: tuple[float, float, float, float] | None = None
+    for x0, y0, x1, y1, text in blocks:
+        score = fuzz.token_sort_ratio(query, text.strip())
+        if score > best_score:
+            best_score = score
+            best_rect = (x0, y0, x1, y1)
+    if best_rect is not None and best_score >= threshold:
+        return best_score, best_rect
+    return None
+
+
+def resolve_arrows(
+    arrows: list[ArrowRecord],
+    matches: list[MatchRecord],
+    fields: list[FieldRecord],
+    target_pdf_path: Path,
+    profile: Profile,
+) -> list[ArrowMatch]:
+    """Resolve each arrow's head endpoint against the target CRF text.
+
+    For each ArrowRecord:
+      1. Look up the parent annotation's MatchRecord (by tail_annotation_id)
+         in `matches` — any status qualifies (permissive by design; Phase 4's
+         write pass is the actual gate on whether the parent was written, via
+         placed_rects — see src.writer._write_arrows). A duplicate
+         annotation_id in `matches` makes the parent ambiguous and resolves
+         unresolved (plan D8).
+      2. Pass A (fuzzy_in_field): fuzzy-match head_text (rapidfuzz
+         token_sort_ratio) against target text blocks intersecting the
+         parent's target_rect inflated by 30pt on each side.
+      3. Fallback fuzzy_on_page: only when the target page has zero
+         FieldRecords at all — fuzzy-match head_text against every text
+         block on the page. (No Pass B "proximity_field" — plan D1: the
+         reference branch's 2-D field-proximity pass compared source-PDF
+         head_vertex coordinates against target-PDF field rects, a
+         wrong-coordinate-space correctness bug.)
+      4. Otherwise unresolved.
+
+    head_target_rect is the bounding box of the matched *text block* (not a
+    FieldRecord). target_field_id and target_page are inherited from the
+    parent MatchRecord.
+    """
+    if not arrows:
+        return []
+
+    threshold = profile.arrows.head_fuzzy_threshold * 100.0  # rapidfuzz uses 0-100
+
+    duplicated_ids = _duplicated_annotation_ids(matches)
+    annot_id_to_match: dict[str, MatchRecord] = {}
+    for m in matches:
+        if m.annotation_id not in duplicated_ids:
+            annot_id_to_match[m.annotation_id] = m
+
+    fields_by_page: dict[int, list[FieldRecord]] = defaultdict(list)
+    for f in fields:
+        fields_by_page[f.page].append(f)
+
+    # Pre-load target PDF text blocks, keyed by 1-indexed page number.
+    page_blocks_cache: dict[int, list[tuple[float, float, float, float, str]]] = {}
+    doc = fitz.open(str(target_pdf_path))
+    try:
+        page_count = doc.page_count
+        for page_index in range(page_count):
+            page_num = page_index + 1
+            page = doc[page_index]
+            page_blocks_cache[page_num] = [
+                (float(b[0]), float(b[1]), float(b[2]), float(b[3]), b[4])
+                for b in page.get_text("blocks")
+                if b[6] == 0  # text blocks only
+            ]
+    finally:
+        doc.close()
+
+    results: list[ArrowMatch] = []
+    for arrow in arrows:
+        if arrow.tail_annotation_id is None:
+            results.append(_unresolved_arrow_match(arrow.arrow_id))
+            continue
+
+        parent_match = annot_id_to_match.get(arrow.tail_annotation_id)
+        if parent_match is None or parent_match.field_id is None:
+            results.append(_unresolved_arrow_match(arrow.arrow_id))
+            continue
+
+        query = arrow.head_text.strip()
+        if not query:
+            results.append(_unresolved_arrow_match(arrow.arrow_id))
+            continue
+
+        target_page = parent_match.target_page
+        blocks = page_blocks_cache.get(target_page)
+        if not blocks:
+            results.append(_unresolved_arrow_match(arrow.arrow_id))
+            continue
+
+        # Pass A: fuzzy match within blocks intersecting the inflated parent rect.
+        infl = _ARROW_HEAD_SEARCH_INFLATE_PT
+        px0 = parent_match.target_rect[0] - infl
+        py0 = parent_match.target_rect[1] - infl
+        px1 = parent_match.target_rect[2] + infl
+        py1 = parent_match.target_rect[3] + infl
+        in_field_blocks = [
+            b for b in blocks
+            if not (b[2] < px0 or b[0] > px1 or b[3] < py0 or b[1] > py1)
+        ]
+        hit = _best_fuzzy_block(query, in_field_blocks, threshold)
+        if hit is not None:
+            score, rect = hit
+            results.append(ArrowMatch(
+                arrow_id=arrow.arrow_id,
+                target_page=target_page,
+                target_field_id=parent_match.field_id,
+                head_target_rect=rect,
+                head_match_method="fuzzy_in_field",
+                head_confidence=score / 100.0,
+            ))
+            continue
+
+        # Fallback: fuzzy_on_page, only when the target page has zero fields
+        # at all (plan D1 — no proximity_field pass).
+        if not fields_by_page.get(target_page):
+            hit = _best_fuzzy_block(query, blocks, threshold)
+            if hit is not None:
+                score, rect = hit
+                results.append(ArrowMatch(
+                    arrow_id=arrow.arrow_id,
+                    target_page=target_page,
+                    target_field_id=parent_match.field_id,
+                    head_target_rect=rect,
+                    head_match_method="fuzzy_on_page",
+                    head_confidence=score / 100.0,
+                ))
+                continue
+
+        results.append(_unresolved_arrow_match(arrow.arrow_id))
+
+    return results
