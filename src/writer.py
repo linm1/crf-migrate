@@ -143,6 +143,28 @@ def write_annotations(
 
     doc = fitz.open(str(target_pdf_path))
 
+    # Pre-existing malformed /CL pre-pass: pre-annotated target PDFs (e.g. from
+    # a prior tool) can already carry FreeText annots with the same spec-malformed
+    # empty /CL [ ] + no /IT defect that _strip_cl() fixes for pipeline-written
+    # annots below. The final /CL integrity assertion sweeps every annot on the
+    # page (not just pipeline-written ones), so those pre-existing offenders must
+    # be cleaned here or the assertion aborts Phase 4 even with matches=[].
+    # Well-formed callouts (/CL + /IT /FreeTextCallout) are legitimate and left
+    # intact. Only the Callout intent legitimizes /CL — any other /IT value
+    # (e.g. /FreeTextTypeWriter) alongside /CL is just as malformed as no /IT.
+    preexisting_cl_stripped = 0
+    preexisting_cl_warned: list[int] = []
+    for page in doc:
+        for a in page.annots(types=[fitz.PDF_ANNOT_FREE_TEXT]):
+            if doc.xref_get_key(a.xref, "CL")[0] == "null":
+                continue
+            if doc.xref_get_key(a.xref, "IT") == ("name", "/FreeTextCallout"):
+                continue  # well-formed callout — leave intact
+            if _strip_cl(doc, a) == 1:
+                preexisting_cl_stripped += 1
+            else:
+                preexisting_cl_warned.append(a.xref)
+
     written_ids: list[str] = []
     skipped_ids: list[str] = []
     placed_rects: dict[str, list[float]] = {}
@@ -170,14 +192,21 @@ def write_annotations(
 
     for page in doc:
         for annot in page.annots():
-            if doc.xref_get_key(annot.xref, "CL")[0] != "null":
-                raise RuntimeError(f"annotation xref {annot.xref} still has /CL after stripping")
+            if doc.xref_get_key(annot.xref, "CL")[0] == "null":
+                continue
+            if doc.xref_get_key(annot.xref, "IT") == ("name", "/FreeTextCallout"):
+                continue  # well-formed callout — exempt
+            if annot.xref in preexisting_cl_warned:
+                continue  # ambiguous pre-existing /CL — already surfaced in qc_report
+            raise RuntimeError(f"annotation xref {annot.xref} still has /CL after stripping")
 
     doc.save(str(output_pdf_path), garbage=4, deflate=True)
     doc.close()
 
     report = build_qc_report(matches, written_ids, skipped_ids)
     report.update(arrow_report)
+    report["preexisting_cl_stripped"] = preexisting_cl_stripped
+    report["preexisting_cl_warned_xrefs"] = preexisting_cl_warned
     return report
 
 
@@ -350,7 +379,7 @@ def _write_rc_ds(
     doc.xref_set_key(annot.xref, "DS", f"({_pdf_string_escape(ds)})")
 
 
-def _strip_cl(doc: fitz.Document, annot: fitz.Annot) -> None:
+def _strip_cl(doc: fitz.Document, annot: fitz.Annot) -> int:
     """Remove /CL (callout-line geometry) entirely from this annotation's object.
 
     PyMuPDF's add_freetext_annot() unconditionally emits /CL with no matching /IT
@@ -362,11 +391,19 @@ def _strip_cl(doc: fitz.Document, annot: fitz.Annot) -> None:
     xref_set_key(xref, "CL", "null") is not sufficient — it nulls the value but
     does not remove the key, and stale /CL bytes can survive a plain save. True
     removal requires rewriting the object's raw text via update_object().
+
+    Only applies the rewrite when the regex matches exactly once. A real /CL
+    array can't contain "]", so a genuine /CL key always matches; if a match
+    count of 2+ occurs (e.g. a pre-existing /RC string that itself contains a
+    spurious "/CL [" substring), skip rather than risk corrupting the object.
+    Returns the substitution count so callers can distinguish stripped vs.
+    warned-and-left-alone.
     """
     text = doc.xref_object(annot.xref)
     new_text, n_subs = _CL_LINE_RE.subn("", text)
-    if n_subs:
+    if n_subs == 1:
         doc.update_object(annot.xref, new_text)
+    return n_subs
 
 
 def _write_single_annotation(

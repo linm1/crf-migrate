@@ -970,7 +970,7 @@ def test_cl_stripped_from_output(tmp_path):
     match = make_match(status="approved")
     profile = _make_profile()
 
-    write_annotations(target, output, [match], [annot], profile)
+    report = write_annotations(target, output, [match], [annot], profile)
 
     doc = fitz.open(str(output))
     xref = list(doc[0].annots())[0].xref
@@ -979,3 +979,140 @@ def test_cl_stripped_from_output(tmp_path):
 
     assert cl == "null"
     assert b"/CL" not in output.read_bytes()
+    assert report["preexisting_cl_stripped"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Pre-existing malformed /CL on pre-annotated target PDFs (ticket #4 follow-up)
+# ---------------------------------------------------------------------------
+
+def make_preannotated_target(
+    tmp_path: Path,
+    it: str | None = None,
+    rc_text: str | None = None,
+) -> Path:
+    """Write a 2-page target PDF that already carries one FreeText annotation
+    simulating a prior tool's (e.g. ChuYu/Acrobat) pre-existing /CL, as seen on
+    live pre-annotated target CRFs. Uses a plain save (no garbage collection) so
+    the raw /CL bytes persist on disk exactly as a real pre-annotated PDF would
+    have them, mirroring the target_crf.pdf structure that triggered ticket #4.
+    """
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.new_page(width=595, height=842)
+    page = doc[0]
+    rect = fitz.Rect(50, 50, 200, 100)
+    a = page.add_freetext_annot(rect=rect, text="pre-existing")
+    a.set_info(title="ChuYu")
+    a.update()
+    doc.xref_set_key(a.xref, "CL", "[ ]")
+    if rc_text is not None:
+        doc.xref_set_key(a.xref, "RC", f"({rc_text})")
+    else:
+        doc.xref_set_key(a.xref, "DS", "(text-decoration:;font-size:10.00pt)")
+    if it is not None:
+        doc.xref_set_key(a.xref, "IT", it)
+    p = tmp_path / "target.pdf"
+    doc.save(str(p))
+    doc.close()
+
+    # Precondition: the /CL we just wrote must actually survive the save —
+    # otherwise the test below wouldn't be exercising the pre-pass at all.
+    check = fitz.open(str(p))
+    check_xref = list(check[0].annots())[0].xref
+    assert check.xref_get_key(check_xref, "CL")[0] != "null"
+    check.close()
+
+    return p
+
+
+def test_preexisting_malformed_cl_stripped(tmp_path):
+    """A pre-annotated target PDF's own malformed /CL (no /IT) must be stripped
+    by the pre-pass, not just the pipeline-written annotation's /CL."""
+    target = make_preannotated_target(tmp_path)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [match], [annot], profile)
+
+    assert report["preexisting_cl_stripped"] == 1
+    assert report["preexisting_cl_warned_xrefs"] == []
+    assert b"/CL" not in output.read_bytes()
+
+    doc = fitz.open(str(output))
+    chuyu = [a for a in doc[0].annots() if a.info.get("title") == "ChuYu"][0]
+    assert doc.xref_get_key(chuyu.xref, "CL")[0] == "null"
+    assert doc.xref_get_key(chuyu.xref, "DS")[0] != "null"  # untouched, not stripped
+    doc.close()
+
+
+def test_wellformed_callout_survives(tmp_path):
+    """A pre-existing FreeText with /CL and /IT /FreeTextCallout is a legitimate
+    callout and must be left completely intact by the pre-pass and validator."""
+    target = make_preannotated_target(tmp_path, it="/FreeTextCallout")
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [match], [annot], profile)
+
+    assert report["preexisting_cl_stripped"] == 0
+    assert report["preexisting_cl_warned_xrefs"] == []
+
+    doc = fitz.open(str(output))
+    chuyu = [a for a in doc[0].annots() if a.info.get("title") == "ChuYu"][0]
+    assert doc.xref_get_key(chuyu.xref, "CL")[0] != "null"
+    assert doc.xref_get_key(chuyu.xref, "IT")[0] != "null"
+    doc.close()
+
+
+def test_ambiguous_cl_warned_not_corrupted(tmp_path):
+    """When a second '/CL [' substring appears (e.g. embedded in /RC text), the
+    regex would match more than once — _strip_cl must refuse to touch the object,
+    write() must still succeed, and the xref must be surfaced in qc_report."""
+    target = make_preannotated_target(tmp_path, rc_text="spurious /CL [ ] token")
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [match], [annot], profile)
+
+    assert report["preexisting_cl_stripped"] == 0
+    assert len(report["preexisting_cl_warned_xrefs"]) == 1
+
+    # xrefs shift under the garbage=4 save, so re-locate the annot by title
+    # rather than trusting the pre-save xref recorded in the qc report.
+    doc = fitz.open(str(output))
+    chuyu = [a for a in doc[0].annots() if a.info.get("title") == "ChuYu"][0]
+    assert doc.xref_get_key(chuyu.xref, "CL")[0] != "null"  # left untouched
+    # Anti-corruption guarantee: skipping on subn != 1 must leave /RC verbatim —
+    # the spurious "/CL [ ] token" inside it must survive byte-for-byte.
+    assert "spurious /CL [ ] token" in doc.xref_get_key(chuyu.xref, "RC")[1]
+    doc.close()
+
+
+@pytest.mark.parametrize("it", ["/FreeTextTypeWriter", "/CustomFreeTextCalloutIntent"])
+def test_noncallout_it_malformed_cl_stripped(tmp_path, it):
+    """Only exactly /IT /FreeTextCallout legitimizes /CL — other intents (and
+    nonstandard values merely containing the substring) must be stripped."""
+    target = make_preannotated_target(tmp_path, it=it)
+    output = tmp_path / "output.pdf"
+    annot = make_annotation()
+    match = make_match(status="approved")
+    profile = _make_profile()
+
+    report = write_annotations(target, output, [match], [annot], profile)
+
+    assert report["preexisting_cl_stripped"] == 1
+    assert report["preexisting_cl_warned_xrefs"] == []
+    assert b"/CL" not in output.read_bytes()
+
+    doc = fitz.open(str(output))
+    chuyu = [a for a in doc[0].annots() if a.info.get("title") == "ChuYu"][0]
+    assert doc.xref_get_key(chuyu.xref, "CL")[0] == "null"
+    assert doc.xref_get_key(chuyu.xref, "IT")[0] != "null"  # /IT itself untouched
+    doc.close()
