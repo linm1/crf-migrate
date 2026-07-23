@@ -461,16 +461,99 @@ class TestTransformedProximityC:
             [self._c_arrow()], [match], [field], target, _profile(),
         )  # no annotations kwarg
         assert result[0].head_match_method == "unresolved"
+        # D8: C never ran, so the terminal must NOT claim "outside C's radius"
+        # — it falls back to the generic head_unresolved (skip_reason None).
+        assert result[0].skip_reason is None
+
+    def test_c_uses_transformed_point_not_raw_head_vertex(self, tmp_path):
+        """D1 discriminator: with the parent's source and target origins
+        DIFFERENT, the mapped point != head_vertex. A decoy candidate sitting
+        at the raw head_vertex must be ignored in favor of the one at the
+        transformed point — an implementation that regressed to comparing raw
+        head_vertex against target rects would pick the decoy and fail here."""
+        # source origin (100,100) -> target origin (300,400); head_vertex
+        # (130,110) maps to (330,410), NOT (130,110).
+        source_rect = [100.0, 100.0, 150.0, 120.0]
+        target_rect = [300.0, 400.0, 350.0, 420.0]  # same 50x20 size -> scale 1.0
+        arrow = _arrow(head_text="Yes", head_vertex=(130.0, 110.0))
+        match = _match(target_rect=target_rect, target_page=1)
+        real = _field_at((330.0, 410.0), "Yes", "field-transformed")
+        decoy = _field_at((130.0, 110.0), "Yes", "field-raw-decoy")
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        result = resolve_arrows(
+            [arrow], [match], [real, decoy], target, _profile(),
+            annotations=[_annot(rect=source_rect)],
+        )
+        r = result[0]
+        assert r.head_match_method == "transformed_proximity"
+        cx = (r.head_target_rect[0] + r.head_target_rect[2]) / 2.0
+        # Matched the transformed target (x~330), not the raw-vertex decoy (x~130).
+        assert abs(cx - 330.0) < abs(cx - 130.0)
+
+
+class TestGuardBoundaries:
+    """AHR-3 exact-boundary coverage: the guards use inclusive comparisons
+    (accept at ==, defer just past). Catches an inclusive->exclusive flip."""
+
+    SRC = [100.0, 100.0, 150.0, 120.0]   # 50 x 20
+    TGT = [100.0, 100.0, 150.0, 120.0]   # coincident origin -> mapped == head_vertex
+
+    def _run(self, tmp_path, fields, target_rect=None):
+        arrow = _arrow(head_text="Yes", head_vertex=(400.0, 400.0))  # mapped == (400,400)
+        match = _match(target_rect=target_rect or self.TGT, target_page=1)
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        return resolve_arrows(
+            [arrow], [match], fields, target, _profile(),
+            annotations=[_annot(rect=self.SRC)],
+        )[0]
+
+    def test_radius_exactly_60_accepted(self, tmp_path):
+        r = self._run(tmp_path, [_field_at((460.0, 400.0), "Yes", "f")])  # dist == 60
+        assert r.head_match_method == "transformed_proximity"
+
+    def test_radius_just_over_60_defers(self, tmp_path):
+        r = self._run(tmp_path, [_field_at((461.0, 400.0), "Yes", "f")])  # dist == 61
+        assert r.head_match_method == "unresolved"
+
+    def test_margin_exactly_6_accepted(self, tmp_path):
+        fields = [_field_at((400.0, 400.0), "Yes", "win"),   # dist 0
+                  _field_at((406.0, 400.0), "Yes", "run")]   # dist 6 -> margin == 6
+        assert self._run(tmp_path, fields).head_match_method == "transformed_proximity"
+
+    def test_margin_just_under_6_defers(self, tmp_path):
+        fields = [_field_at((400.0, 400.0), "Yes", "win"),   # dist 0
+                  _field_at((405.0, 400.0), "Yes", "run")]   # dist 5 -> margin < 6
+        assert self._run(tmp_path, fields).head_match_method == "unresolved"
+
+    def test_scale_within_tolerance_accepted(self, tmp_path):
+        # target width 52.0 vs source 50 -> ratio 1.04, |0.04| < 0.05 -> C runs.
+        # (A float tolerance has no clean "exactly ==" boundary — 52.5/50-1.0
+        # is 0.05000000000000004 > 0.05 — so this tests clearly-within.)
+        r = self._run(tmp_path, [_field_at((400.0, 400.0), "Yes", "f")],
+                      target_rect=[100.0, 100.0, 152.0, 120.0])
+        assert r.head_match_method == "transformed_proximity"
+
+    def test_scale_just_over_5pct_defers(self, tmp_path):
+        # target width 52.6 vs source 50 -> ratio 1.052 > tol -> C skips
+        r = self._run(tmp_path, [_field_at((400.0, 400.0), "Yes", "f")],
+                      target_rect=[100.0, 100.0, 152.6, 120.0])
+        assert r.head_match_method != "transformed_proximity"
 
 
 class TestTransformedProximityHelperGuards:
     """Direct coverage of C's defensive guards that resolve_arrows' own
     early-exits keep unreachable through the public path."""
 
-    def test_scale_mismatch_false_for_degenerate_source_rect(self):
-        """A zero-area source rect can't yield a scale ratio -> treated as
-        no-mismatch (C proceeds) rather than dividing by zero."""
-        assert _rect_scale_mismatch([10.0, 10.0, 10.0, 10.0], [0.0, 0.0, 50.0, 20.0], 0.05) is False
+    def test_scale_mismatch_true_for_degenerate_source_rect(self):
+        """A zero-area (or inverted) source rect makes the scale ratio
+        uncomputable -> treated as a mismatch so C defers to B rather than
+        trusting the transform on an unverifiable rect."""
+        assert _rect_scale_mismatch([10.0, 10.0, 10.0, 10.0], [0.0, 0.0, 50.0, 20.0], 0.05) is True
+        assert _rect_scale_mismatch([50.0, 10.0, 10.0, 20.0], [0.0, 0.0, 50.0, 20.0], 0.05) is True
+
+    def test_scale_mismatch_false_for_matching_scale(self):
+        """Positive rects with ~1.0 width/height ratio -> no mismatch (C runs)."""
+        assert _rect_scale_mismatch([0.0, 0.0, 50.0, 20.0], [100.0, 100.0, 150.0, 120.0], 0.05) is False
 
     def test_transformed_proximity_none_when_no_candidates(self):
         """No fields and no text blocks -> no candidate to rank -> None. (In

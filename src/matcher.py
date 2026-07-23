@@ -1190,11 +1190,15 @@ def _rect_scale_mismatch(
     source_rect: list[float], target_rect: list[float], tolerance: float
 ) -> bool:
     """True if the parent's source->target placement implies a width/height
-    scale beyond tolerance, making C's translation-only transform untrustworthy."""
+    scale beyond tolerance, making C's translation-only transform untrustworthy.
+
+    A degenerate or inverted source rect (zero/negative width or height) makes
+    the scale ratio uncomputable — treated as a mismatch (defer to B) rather
+    than silently trusting the transform on an unverifiable rect."""
     sw = source_rect[2] - source_rect[0]
     sh = source_rect[3] - source_rect[1]
     if sw <= 0 or sh <= 0:
-        return False
+        return True
     tw = target_rect[2] - target_rect[0]
     th = target_rect[3] - target_rect[1]
     return abs(tw / sw - 1.0) > tolerance or abs(th / sh - 1.0) > tolerance
@@ -1485,8 +1489,12 @@ def resolve_arrows(
             results.append(b_match)
             continue
 
-        results.append(
-            _unresolved_arrow_match(arrow.arrow_id, skip_reason=_ARROW_SKIP_NO_HEAD_MATCH)
-        )
+        # Plan D8: the residual reason literally names C's radius/guard, so
+        # only apply it when C actually ran for this arrow (parent source rect
+        # was available). When C was skipped (no annotations / parent not in
+        # annotations), fall back to the generic head_unresolved (None) rather
+        # than claiming the head was "outside C's radius" C never evaluated.
+        residual = _ARROW_SKIP_NO_HEAD_MATCH if parent_annot is not None else None
+        results.append(_unresolved_arrow_match(arrow.arrow_id, skip_reason=residual))
 
     return results
