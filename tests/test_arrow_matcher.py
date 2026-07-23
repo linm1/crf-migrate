@@ -490,6 +490,30 @@ class TestTransformedProximityC:
         # Matched the transformed target (x~330), not the raw-vertex decoy (x~130).
         assert abs(cx - 330.0) < abs(cx - 130.0)
 
+    def test_c_fan_out_two_arrows_one_parent_distinct_targets(self, tmp_path):
+        """AHR-1's core evidence for choosing C: two arrows sharing ONE parent
+        but with different head_vertexes must resolve to DIFFERENT targets via
+        C's per-arrow transform (fuzzy_in_field's shared inflated-rect window
+        can't disambiguate this)."""
+        # Coincident source/target origin -> mapped == head_vertex.
+        source_rect = [100.0, 100.0, 150.0, 120.0]
+        arrow_yes = _arrow(arrow_id="a-yes", head_text="Yes", head_vertex=(400.0, 400.0))
+        arrow_no = _arrow(arrow_id="a-no", head_text="No", head_vertex=(400.0, 600.0))
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)  # single parent annot-1
+        fields = [_field_at((400.0, 400.0), "Yes", "f-yes"),
+                  _field_at((400.0, 600.0), "No", "f-no")]
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        result = resolve_arrows(
+            [arrow_yes, arrow_no], [match], fields, target, _profile(),
+            annotations=[_annot(rect=source_rect)],
+        )
+        by_id = {r.arrow_id: r for r in result}
+        assert by_id["a-yes"].head_match_method == "transformed_proximity"
+        assert by_id["a-no"].head_match_method == "transformed_proximity"
+        # Per-arrow geometry disambiguated same-parent arrows to distinct targets.
+        assert by_id["a-yes"].head_target_rect != by_id["a-no"].head_target_rect
+        assert by_id["a-yes"].head_target_rect[1] < by_id["a-no"].head_target_rect[1]
+
 
 class TestGuardBoundaries:
     """AHR-3 exact-boundary coverage: the guards use inclusive comparisons
