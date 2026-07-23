@@ -394,6 +394,20 @@ class TestTransformedProximityC:
         )
         assert result[0].head_match_method == "transformed_proximity"
 
+    def test_c_matches_field_when_page_has_no_text_blocks(self, tmp_path):
+        """A present-but-text-less target page (blocks == []) must NOT
+        short-circuit to unresolved: C still resolves a FieldRecord at the
+        mapped point by geometry. (Regression guard for the over-eager
+        'no blocks' early-exit that skipped C on field-bearing text-less pages.)"""
+        target = _make_target_pdf(tmp_path / "t.pdf", [])  # empty page -> zero text blocks
+        field = _field_at(self.MAPPED, "Yes", "field-hit")
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "transformed_proximity"
+
     def test_c_radius_miss_falls_through_to_unresolved(self, tmp_path):
         """Nearest candidate is beyond the radius -> C falls through; B finds
         no matching block -> terminal unresolved with the residual reason."""

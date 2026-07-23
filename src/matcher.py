@@ -1444,7 +1444,11 @@ def resolve_arrows(
 
         target_page = parent_match.target_page
         blocks = page_blocks_cache.get(target_page)
-        if not blocks:
+        if blocks is None:
+            # target_page is out of the PDF's range (or 0/unknown) — nothing to
+            # search. NOTE: an empty-but-present page (blocks == []) is NOT
+            # short-circuited here: candidate C can still match a FieldRecord by
+            # geometry on a page that has fields but no extracted text blocks.
             results.append(_unresolved_arrow_match(arrow.arrow_id))
             continue
 
