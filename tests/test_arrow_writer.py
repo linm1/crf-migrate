@@ -282,6 +282,62 @@ class TestApprovedParentPageOutOfRange:
         ]
 
 
+class TestArrowHeadMethodQc:
+    """AHR-3 additive QC: per-method resolution counts + review_recommended
+    ids for the guarded fuzzy_on_page (B) hits."""
+
+    def test_per_method_counts_and_review_recommended_ids(self, tmp_path):
+        target = make_target_pdf(tmp_path / "target.pdf")
+        output = tmp_path / "output.pdf"
+        annot = make_annotation()
+        match = make_match(status="approved")
+        arrows = [make_arrow(arrow_id=f"arrow-{i}") for i in range(1, 5)]
+        arrow_matches = [
+            make_arrow_match(arrow_id="arrow-1", head_match_method="fuzzy_in_field"),
+            make_arrow_match(arrow_id="arrow-2", head_match_method="transformed_proximity"),
+            make_arrow_match(arrow_id="arrow-3", head_match_method="fuzzy_on_page"),
+            make_arrow_match(
+                arrow_id="arrow-4", target_page=None, target_field_id=None,
+                head_target_rect=None, head_match_method="unresolved", head_confidence=0.0,
+            ),
+        ]
+        profile = _make_profile()
+
+        qc_report = write_annotations(
+            target, output, [match], [annot], profile,
+            arrows=arrows, arrow_matches=arrow_matches,
+        )
+        assert qc_report["arrow_head_methods"] == {
+            "fuzzy_in_field": 1,
+            "transformed_proximity": 1,
+            "fuzzy_on_page": 1,
+            "unresolved": 1,
+        }
+        # Only the lower-precision B path is flagged for human review.
+        assert qc_report["arrow_review_recommended_ids"] == ["arrow-3"]
+
+    def test_qc_keys_present_and_empty_when_no_arrows(self, tmp_path):
+        """The additive keys keep build_qc_report's shape stable even when the
+        arrow feature is unused (empty arrows/arrow_matches)."""
+        target = make_target_pdf(tmp_path / "target.pdf")
+        output = tmp_path / "output.pdf"
+        annot = make_annotation()
+        match = make_match(status="approved")
+        profile = _make_profile()
+
+        qc_report = write_annotations(
+            target, output, [match], [annot], profile,
+            arrows=[], arrow_matches=[],
+        )
+        assert qc_report["arrow_head_methods"] == {
+            "fuzzy_in_field": 0,
+            "transformed_proximity": 0,
+            "fuzzy_on_page": 0,
+            "unresolved": 0,
+        }
+        assert qc_report["arrow_review_recommended_ids"] == []
+
+
 class TestStyleRoundTrip:
     def test_stroke_color_width_dashes_opacity_round_trip(self, tmp_path):
         target = make_target_pdf(tmp_path / "target.pdf")

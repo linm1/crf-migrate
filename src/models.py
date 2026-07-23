@@ -139,7 +139,9 @@ class ArrowMatch(BaseModel):
     target_page: int | None
     target_field_id: str | None
     head_target_rect: tuple[float, float, float, float] | None
-    head_match_method: Literal["fuzzy_in_field", "fuzzy_on_page", "unresolved"]
+    head_match_method: Literal[
+        "fuzzy_in_field", "transformed_proximity", "fuzzy_on_page", "unresolved"
+    ]
     head_confidence: float = Field(ge=0.0, le=1.0)
     skip_reason: str | None = Field(
         default=None,
