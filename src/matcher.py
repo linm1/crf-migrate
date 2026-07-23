@@ -1452,6 +1452,8 @@ def resolve_arrows(
             results.append(_unresolved_arrow_match(arrow.arrow_id))
             continue
 
+        page_fields = fields_by_page.get(target_page, [])
+
         # Pass A: fuzzy match within blocks intersecting the inflated parent rect.
         infl = _ARROW_HEAD_SEARCH_INFLATE_PT
         px0 = parent_match.target_rect[0] - infl
@@ -1480,8 +1482,7 @@ def resolve_arrows(
         parent_annot = annot_by_id.get(arrow.tail_annotation_id)
         if parent_annot is not None:
             c_match = _resolve_transformed_proximity(
-                arrow, parent_match, parent_annot,
-                fields_by_page.get(target_page, []), blocks,
+                arrow, parent_match, parent_annot, page_fields, blocks,
             )
             if c_match is not None:
                 results.append(c_match)
@@ -1493,12 +1494,17 @@ def resolve_arrows(
             results.append(b_match)
             continue
 
-        # Plan D8: the residual reason literally names C's radius/guard, so
-        # only apply it when C actually ran for this arrow (parent source rect
-        # was available). When C was skipped (no annotations / parent not in
-        # annotations), fall back to the generic head_unresolved (None) rather
-        # than claiming the head was "outside C's radius" C never evaluated.
-        residual = _ARROW_SKIP_NO_HEAD_MATCH if parent_annot is not None else None
+        # Plan D8: the residual reason literally names C's radius/guard AND B's
+        # threshold, so only apply it when C actually ran (parent source rect
+        # available) AND the page had something to evaluate (fields or blocks).
+        # A C-disabled call, or an empty page with nothing to be "outside" of,
+        # falls back to the generic head_unresolved (None).
+        searched = bool(blocks) or bool(page_fields)
+        residual = (
+            _ARROW_SKIP_NO_HEAD_MATCH
+            if parent_annot is not None and searched
+            else None
+        )
         results.append(_unresolved_arrow_match(arrow.arrow_id, skip_reason=residual))
 
     return results

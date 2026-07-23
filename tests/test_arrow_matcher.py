@@ -408,6 +408,21 @@ class TestTransformedProximityC:
         )
         assert result[0].head_match_method == "transformed_proximity"
 
+    def test_empty_page_no_fields_uses_generic_reason_not_residual(self, tmp_path):
+        """An empty target page (no text blocks AND no fields) has nothing for C
+        or B to evaluate, so the terminal must NOT claim the head was 'outside
+        C's radius / B's threshold' — it falls back to the generic
+        head_unresolved (skip_reason None). The residual reason is reserved for
+        pages that actually had candidates the head failed to match."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [])  # no blocks
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [], target, _profile(),  # no fields
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "unresolved"
+        assert result[0].skip_reason is None
+
     def test_c_radius_miss_falls_through_to_unresolved(self, tmp_path):
         """Nearest candidate is beyond the radius -> C falls through; B finds
         no matching block -> terminal unresolved with the residual reason."""
