@@ -23,7 +23,9 @@
       "Bash(C:\\\\Program Files\\\\Python312\\\\python.exe:*)",
       "Bash(dir C:\\\\Users\\\\LinM1\\\\Documents\\\\python\\\\crf-migrate\\\\sessions\\\\session_ION373-CS1 *)",
       "Bash(rtk git *)",
-      "Bash(rtk ls *)"
+      "Bash(rtk ls *)",
+      "Bash(orca orchestration *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
