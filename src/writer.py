@@ -614,9 +614,24 @@ def _write_arrows(
             skipped += 1
             skipped_ids.append({"arrow_id": arrow_match.arrow_id, "reason": reason})
 
+    # Additive QC (AHR-3): per-method *resolution* counts (tallied from
+    # arrow_matches, so a C-resolved arrow later skipped at write time still
+    # counts as C), plus the arrow_ids whose head resolved via the guarded
+    # fuzzy_on_page (B) pass — its ~2/88 wrong-row rate makes those the one
+    # path worth a human glance (AHR-2 §3: review_recommended).
+    arrow_head_methods = {
+        method: sum(1 for am in arrow_matches if am.head_match_method == method)
+        for method in ("fuzzy_in_field", "transformed_proximity", "fuzzy_on_page", "unresolved")
+    }
+    arrow_review_recommended_ids = [
+        am.arrow_id for am in arrow_matches if am.head_match_method == "fuzzy_on_page"
+    ]
+
     return {
         "arrows_total": len(arrow_matches),
         "arrows_written": written,
         "arrows_skipped": skipped,
         "arrow_skipped_ids": skipped_ids,
+        "arrow_head_methods": arrow_head_methods,
+        "arrow_review_recommended_ids": arrow_review_recommended_ids,
     }

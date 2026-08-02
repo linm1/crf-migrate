@@ -10,8 +10,12 @@ from pathlib import Path
 import fitz
 import pytest
 
-from src.matcher import resolve_arrows
-from src.models import ArrowRecord, ArrowStyle, FieldRecord, MatchRecord
+from src.matcher import (
+    _rect_scale_mismatch,
+    _resolve_transformed_proximity,
+    resolve_arrows,
+)
+from src.models import AnnotationRecord, ArrowRecord, ArrowStyle, FieldRecord, MatchRecord
 from src.profile_loader import load_profile
 
 PROFILES_DIR = Path(__file__).parent.parent / "profiles"
@@ -58,6 +62,31 @@ def _match(annotation_id="annot-1", field_id="field-1", target_page=1,
         target_rect=target_rect or [50.0, 80.0, 200.0, 100.0],
         target_page=target_page,
         status=status,
+    )
+
+
+def _annot(annotation_id="annot-1", rect=None) -> AnnotationRecord:
+    """A parent AnnotationRecord — required for candidate C (transformed
+    proximity), which maps head_vertex through the parent's *source* rect
+    (this record) into the placed target_rect (the MatchRecord). Without it
+    C cannot run (D1: never compare raw source coords to target rects)."""
+    return AnnotationRecord(
+        id=annotation_id,
+        page=1,
+        content="AEYN",
+        domain="AE",
+        category="sdtm_mapping",
+        matched_rule="test",
+        rect=rect or [100.0, 100.0, 150.0, 120.0],
+    )
+
+
+def _field_at(center, label, field_id, half=5.0, page=1) -> FieldRecord:
+    cx, cy = center
+    return FieldRecord(
+        id=field_id, page=page, label=label,
+        rect=[cx - half, cy - half, cx + half, cy + half],
+        field_type="text_field",
     )
 
 
@@ -123,9 +152,13 @@ class TestFuzzyOnPageFallback:
         assert r.head_match_method == "fuzzy_on_page"
         assert r.head_confidence >= 0.85
 
-    def test_no_fallback_when_fields_exist_on_page_even_if_no_match(self, tmp_path):
-        """Plan D1: fuzzy_on_page fires ONLY when zero fields exist on the
-        target page — not merely when Pass A fails to find a match."""
+    def test_unresolved_when_no_block_matches_even_with_fields_present(self, tmp_path):
+        """AHR-2: the guarded fuzzy_on_page (B) pass is *relaxed* — it no
+        longer refuses pages that have FieldRecords (the old zero-fields
+        gate). Here resolution is unresolved solely because no text block
+        fuzzy-matches head_text, NOT because a gate blocked B. (D1 is still
+        intact: B matches head_text against target *text*, never source
+        coordinates against target rects.)"""
         target = _make_target_pdf(
             tmp_path / "t.pdf", [("Completely Different Text", (400.0, 700.0))]
         )
@@ -138,6 +171,41 @@ class TestFuzzyOnPageFallback:
         result = resolve_arrows([arrow], [match], [field], target, _profile())
 
         assert result[0].head_match_method == "unresolved"
+
+    def test_relaxed_b_fires_on_field_rich_page(self, tmp_path):
+        """AHR-2 positive relaxed-B case: a page WITH FieldRecords still
+        gets a fuzzy_on_page hit when a text block matches head_text and
+        Pass A / C did not resolve it. Proves the zero-fields gate is gone."""
+        target = _make_target_pdf(
+            tmp_path / "t.pdf", [("Yes", (400.0, 700.0))]  # far from parent rect
+        )
+        arrow = _arrow(head_text="Yes")
+        match = _match(target_rect=[50.0, 80.0, 200.0, 100.0], target_page=1)
+        field = FieldRecord(
+            id="field-1", page=1, label="Some Field",
+            rect=[10.0, 10.0, 30.0, 20.0], field_type="text_field",
+        )
+        # No annotations passed -> C is off, isolating the relaxed-B path.
+        result = resolve_arrows([arrow], [match], [field], target, _profile())
+
+        assert result[0].head_match_method == "fuzzy_on_page"
+
+    def test_b_proximity_tiebreak_prefers_block_nearer_parent(self, tmp_path):
+        """AHR-2: B keeps its proximity tiebreak — among equally-scoring
+        text blocks it prefers the one nearest the parent's placed
+        target_rect (never regress to A's no-tiebreak failure mode)."""
+        target = _make_target_pdf(
+            tmp_path / "t.pdf",
+            [("Yes", (250.0, 300.0)), ("Yes", (450.0, 700.0))],  # both outside A's window
+        )
+        arrow = _arrow(head_text="Yes")
+        match = _match(target_rect=[100.0, 100.0, 150.0, 120.0], target_page=1)
+        result = resolve_arrows([arrow], [match], [], target, _profile())
+
+        r = result[0]
+        assert r.head_match_method == "fuzzy_on_page"
+        # The nearer block (y~290) wins over the far one (y~690).
+        assert r.head_target_rect is not None and r.head_target_rect[1] < 400.0
 
 
 class TestUnresolved:
@@ -276,3 +344,275 @@ class TestMultiPage:
         result = resolve_arrows([arrow], [match], [], target, _profile())
         assert result[0].target_page == 2
         assert result[0].head_match_method == "fuzzy_in_field"
+
+
+class TestTransformedProximityC:
+    """AHR-2/AHR-3: candidate C — transformed_proximity. Maps the arrow's
+    head_vertex through the parent's source-rect -> target-rect translation
+    (D1-preserving), then accepts the nearest target field/text block iff ALL
+    guards hold (radius, text-compatibility, locality margin, page/rect scale)
+    — else falls through to the guarded fuzzy_on_page (B) pass.
+
+    Test geometry convention: the parent source rect and target rect share
+    top-left (100, 100), so the mapped point equals head_vertex — head_vertex
+    is placed at (400, 400), well outside Pass A's inflated window (~[70, 70,
+    180, 150]), so A always misses and C is the pass under test. A single far
+    dummy block ("zzz qqq" at (10, 800)) keeps the page's text-block list
+    non-empty without ever being C's winner.
+    """
+
+    MAPPED = (400.0, 400.0)
+    SRC_RECT = [100.0, 100.0, 150.0, 120.0]           # w=50, h=20
+    TGT_RECT_SAME = [100.0, 100.0, 150.0, 120.0]       # scale 1.0
+
+    def _c_arrow(self):
+        return _arrow(head_text="Yes", head_vertex=self.MAPPED)
+
+    def test_c_accepts_single_block_candidate(self, tmp_path):
+        """One matching text block at the mapped point, no fields -> C
+        accepts it (runner-up is None -> margin guard passes)."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("Yes", self.MAPPED)])
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        r = result[0]
+        assert r.head_match_method == "transformed_proximity"
+        assert r.head_target_rect is not None
+        assert r.head_confidence >= 0.85
+
+    def test_c_accepts_field_over_far_runner_up(self, tmp_path):
+        """A field at the mapped point wins over a far dummy block; the
+        locality margin is large, so C accepts."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        field = _field_at(self.MAPPED, "Yes", "field-hit")
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "transformed_proximity"
+
+    def test_c_matches_field_when_page_has_no_text_blocks(self, tmp_path):
+        """A present-but-text-less target page (blocks == []) must NOT
+        short-circuit to unresolved: C still resolves a FieldRecord at the
+        mapped point by geometry. (Regression guard for the over-eager
+        'no blocks' early-exit that skipped C on field-bearing text-less pages.)"""
+        target = _make_target_pdf(tmp_path / "t.pdf", [])  # empty page -> zero text blocks
+        field = _field_at(self.MAPPED, "Yes", "field-hit")
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "transformed_proximity"
+
+    def test_empty_page_no_fields_uses_generic_reason_not_residual(self, tmp_path):
+        """An empty target page (no text blocks AND no fields) has nothing for C
+        or B to evaluate, so the terminal must NOT claim the head was 'outside
+        C's radius / B's threshold' — it falls back to the generic
+        head_unresolved (skip_reason None). The residual reason is reserved for
+        pages that actually had candidates the head failed to match."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [])  # no blocks
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [], target, _profile(),  # no fields
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "unresolved"
+        assert result[0].skip_reason is None
+
+    def test_c_radius_miss_falls_through_to_unresolved(self, tmp_path):
+        """Nearest candidate is beyond the radius -> C falls through; B finds
+        no matching block -> terminal unresolved with the residual reason."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        field = _field_at((500.0, 500.0), "Yes", "field-far")  # ~141pt from mapped
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        r = result[0]
+        assert r.head_match_method == "unresolved"
+        assert r.skip_reason == "head_outside_radius_and_fuzzy"
+
+    def test_c_text_incompatible_falls_through(self, tmp_path):
+        """Nearest candidate is within radius but its text is incompatible
+        with head_text -> C's text guard fails -> fall through."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        field = _field_at(self.MAPPED, "Zzz Qqq Www", "field-wrongtext")
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "unresolved"
+
+    def test_c_margin_too_small_falls_through(self, tmp_path):
+        """Two equally-plausible fields sit within the locality margin of each
+        other -> near-tie -> C's margin guard fails -> fall through."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        near = _field_at((400.0, 400.0), "Yes", "field-a")   # dist 0
+        tie = _field_at((404.0, 400.0), "Yes", "field-b")    # dist ~4 (< margin 6)
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [near, tie], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        assert result[0].head_match_method == "unresolved"
+
+    def test_c_scale_mismatch_skips_transform(self, tmp_path):
+        """When the parent's source/target rect scale diverges beyond
+        tolerance, C's translation-only transform is untrustworthy and is
+        skipped entirely (defers to B) — even with a perfect candidate at the
+        mapped point. Real samples are uniform 595x842, so this branch is only
+        reachable synthetically."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        field = _field_at(self.MAPPED, "Yes", "field-hit")
+        scaled_target_rect = [100.0, 100.0, 180.0, 160.0]  # w=80,h=60 vs src 50x20
+        match = _match(target_rect=scaled_target_rect, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+            annotations=[_annot(rect=self.SRC_RECT)],
+        )
+        # C must NOT claim this; B has no matching block -> unresolved.
+        assert result[0].head_match_method != "transformed_proximity"
+        assert result[0].head_match_method == "unresolved"
+
+    def test_c_requires_annotations(self, tmp_path):
+        """Without annotations, C cannot map through the parent source rect
+        and is silently disabled — the field at the mapped point is ignored."""
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        field = _field_at(self.MAPPED, "Yes", "field-hit")
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)
+        result = resolve_arrows(
+            [self._c_arrow()], [match], [field], target, _profile(),
+        )  # no annotations kwarg
+        assert result[0].head_match_method == "unresolved"
+        # D8: C never ran, so the terminal must NOT claim "outside C's radius"
+        # — it falls back to the generic head_unresolved (skip_reason None).
+        assert result[0].skip_reason is None
+
+    def test_c_uses_transformed_point_not_raw_head_vertex(self, tmp_path):
+        """D1 discriminator: with the parent's source and target origins
+        DIFFERENT, the mapped point != head_vertex. A decoy candidate sitting
+        at the raw head_vertex must be ignored in favor of the one at the
+        transformed point — an implementation that regressed to comparing raw
+        head_vertex against target rects would pick the decoy and fail here."""
+        # source origin (100,100) -> target origin (300,400); head_vertex
+        # (130,110) maps to (330,410), NOT (130,110).
+        source_rect = [100.0, 100.0, 150.0, 120.0]
+        target_rect = [300.0, 400.0, 350.0, 420.0]  # same 50x20 size -> scale 1.0
+        arrow = _arrow(head_text="Yes", head_vertex=(130.0, 110.0))
+        match = _match(target_rect=target_rect, target_page=1)
+        real = _field_at((330.0, 410.0), "Yes", "field-transformed")
+        decoy = _field_at((130.0, 110.0), "Yes", "field-raw-decoy")
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        result = resolve_arrows(
+            [arrow], [match], [real, decoy], target, _profile(),
+            annotations=[_annot(rect=source_rect)],
+        )
+        r = result[0]
+        assert r.head_match_method == "transformed_proximity"
+        cx = (r.head_target_rect[0] + r.head_target_rect[2]) / 2.0
+        # Matched the transformed target (x~330), not the raw-vertex decoy (x~130).
+        assert abs(cx - 330.0) < abs(cx - 130.0)
+
+    def test_c_fan_out_two_arrows_one_parent_distinct_targets(self, tmp_path):
+        """AHR-1's core evidence for choosing C: two arrows sharing ONE parent
+        but with different head_vertexes must resolve to DIFFERENT targets via
+        C's per-arrow transform (fuzzy_in_field's shared inflated-rect window
+        can't disambiguate this)."""
+        # Coincident source/target origin -> mapped == head_vertex.
+        source_rect = [100.0, 100.0, 150.0, 120.0]
+        arrow_yes = _arrow(arrow_id="a-yes", head_text="Yes", head_vertex=(400.0, 400.0))
+        arrow_no = _arrow(arrow_id="a-no", head_text="No", head_vertex=(400.0, 600.0))
+        match = _match(target_rect=self.TGT_RECT_SAME, target_page=1)  # single parent annot-1
+        fields = [_field_at((400.0, 400.0), "Yes", "f-yes"),
+                  _field_at((400.0, 600.0), "No", "f-no")]
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        result = resolve_arrows(
+            [arrow_yes, arrow_no], [match], fields, target, _profile(),
+            annotations=[_annot(rect=source_rect)],
+        )
+        by_id = {r.arrow_id: r for r in result}
+        assert by_id["a-yes"].head_match_method == "transformed_proximity"
+        assert by_id["a-no"].head_match_method == "transformed_proximity"
+        # Per-arrow geometry disambiguated same-parent arrows to distinct targets.
+        assert by_id["a-yes"].head_target_rect != by_id["a-no"].head_target_rect
+        assert by_id["a-yes"].head_target_rect[1] < by_id["a-no"].head_target_rect[1]
+
+
+class TestGuardBoundaries:
+    """AHR-3 exact-boundary coverage: the guards use inclusive comparisons
+    (accept at ==, defer just past). Catches an inclusive->exclusive flip."""
+
+    SRC = [100.0, 100.0, 150.0, 120.0]   # 50 x 20
+    TGT = [100.0, 100.0, 150.0, 120.0]   # coincident origin -> mapped == head_vertex
+
+    def _run(self, tmp_path, fields, target_rect=None):
+        arrow = _arrow(head_text="Yes", head_vertex=(400.0, 400.0))  # mapped == (400,400)
+        match = _match(target_rect=target_rect or self.TGT, target_page=1)
+        target = _make_target_pdf(tmp_path / "t.pdf", [("zzz qqq", (10.0, 800.0))])
+        return resolve_arrows(
+            [arrow], [match], fields, target, _profile(),
+            annotations=[_annot(rect=self.SRC)],
+        )[0]
+
+    def test_radius_exactly_60_accepted(self, tmp_path):
+        r = self._run(tmp_path, [_field_at((460.0, 400.0), "Yes", "f")])  # dist == 60
+        assert r.head_match_method == "transformed_proximity"
+
+    def test_radius_just_over_60_defers(self, tmp_path):
+        r = self._run(tmp_path, [_field_at((461.0, 400.0), "Yes", "f")])  # dist == 61
+        assert r.head_match_method == "unresolved"
+
+    def test_margin_exactly_6_accepted(self, tmp_path):
+        fields = [_field_at((400.0, 400.0), "Yes", "win"),   # dist 0
+                  _field_at((406.0, 400.0), "Yes", "run")]   # dist 6 -> margin == 6
+        assert self._run(tmp_path, fields).head_match_method == "transformed_proximity"
+
+    def test_margin_just_under_6_defers(self, tmp_path):
+        fields = [_field_at((400.0, 400.0), "Yes", "win"),   # dist 0
+                  _field_at((405.0, 400.0), "Yes", "run")]   # dist 5 -> margin < 6
+        assert self._run(tmp_path, fields).head_match_method == "unresolved"
+
+    def test_scale_within_tolerance_accepted(self, tmp_path):
+        # target width 52.0 vs source 50 -> ratio 1.04, |0.04| < 0.05 -> C runs.
+        # (A float tolerance has no clean "exactly ==" boundary — 52.5/50-1.0
+        # is 0.05000000000000004 > 0.05 — so this tests clearly-within.)
+        r = self._run(tmp_path, [_field_at((400.0, 400.0), "Yes", "f")],
+                      target_rect=[100.0, 100.0, 152.0, 120.0])
+        assert r.head_match_method == "transformed_proximity"
+
+    def test_scale_just_over_5pct_defers(self, tmp_path):
+        # target width 52.6 vs source 50 -> ratio 1.052 > tol -> C skips
+        r = self._run(tmp_path, [_field_at((400.0, 400.0), "Yes", "f")],
+                      target_rect=[100.0, 100.0, 152.6, 120.0])
+        assert r.head_match_method != "transformed_proximity"
+
+
+class TestTransformedProximityHelperGuards:
+    """Direct coverage of C's defensive guards that resolve_arrows' own
+    early-exits keep unreachable through the public path."""
+
+    def test_scale_mismatch_true_for_degenerate_source_rect(self):
+        """A zero-area (or inverted) source rect makes the scale ratio
+        uncomputable -> treated as a mismatch so C defers to B rather than
+        trusting the transform on an unverifiable rect."""
+        assert _rect_scale_mismatch([10.0, 10.0, 10.0, 10.0], [0.0, 0.0, 50.0, 20.0], 0.05) is True
+        assert _rect_scale_mismatch([50.0, 10.0, 10.0, 20.0], [0.0, 0.0, 50.0, 20.0], 0.05) is True
+
+    def test_scale_mismatch_false_for_matching_scale(self):
+        """Positive rects with ~1.0 width/height ratio -> no mismatch (C runs)."""
+        assert _rect_scale_mismatch([0.0, 0.0, 50.0, 20.0], [100.0, 100.0, 150.0, 120.0], 0.05) is False
+
+    def test_transformed_proximity_none_when_no_candidates(self):
+        """No fields and no text blocks -> no candidate to rank -> None. (In
+        resolve_arrows the `if not blocks` early-exit prevents this, so it is
+        exercised only directly.)"""
+        arrow = _arrow(head_text="Yes", head_vertex=(400.0, 400.0))
+        match = _match(target_rect=[100.0, 100.0, 150.0, 120.0], target_page=1)
+        parent = _annot(rect=[100.0, 100.0, 150.0, 120.0])
+        assert _resolve_transformed_proximity(arrow, match, parent, [], []) is None

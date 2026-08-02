@@ -11,6 +11,7 @@ when scipy is available, falling back to greedy iteration otherwise.
 """
 from __future__ import annotations
 
+import math
 import warnings
 from collections import defaultdict
 from pathlib import Path
@@ -1141,6 +1142,152 @@ _ARROW_HEAD_SEARCH_INFLATE_PT = 30.0
 _ARROW_SKIP_DUPLICATE_PARENT_ANNOTATION_ID = "duplicate_parent_annotation_id"
 
 
+# Candidate C (transformed_proximity) acceptance guards — AHR-2 locked. ALL
+# four must hold or C defers to the guarded fuzzy_on_page (B) pass. The seeds
+# below are AHR-1's starting points; AHR-4 tunes/validates them on a diverse
+# sample — this path must NOT be called "high precision" until then. Kept as
+# module constants (mirroring _ARROW_HEAD_SEARCH_INFLATE_PT), not profile
+# fields: AHR-4's tunable knobs are the three OQ1 profile values, not these.
+_ARROW_TRANSFORM_RADIUS_PT = 60.0        # max mapped-point -> candidate-center distance
+_ARROW_TRANSFORM_TEXT_THRESHOLD = 60.0   # min token_sort_ratio(head_text, candidate) (0-100)
+_ARROW_TRANSFORM_MARGIN_PT = 6.0         # min (runner_up_dist - winner_dist); must exceed the
+                                         # <=5pt near-tie band that hit 28% of AHR-1's C hits
+_ARROW_TRANSFORM_SCALE_TOLERANCE = 0.05  # max |target/source rect scale - 1.0| before deferring
+
+# Guarded fuzzy_on_page (B) proximity tiebreak: rapidfuzz score points within
+# which two blocks count as "tied" and are broken by distance to the parent's
+# placed target_rect (never regress to A's no-tiebreak failure mode).
+_ARROW_FUZZY_TIE_EPSILON = 1.0
+
+# Residual QC reason (plan D8): a resolvable parent and non-empty head_text
+# that landed outside C's radius/guard AND B's fuzzy threshold — a
+# distinguishing unresolved cause rather than the generic head_unresolved.
+_ARROW_SKIP_NO_HEAD_MATCH = "head_outside_radius_and_fuzzy"
+
+
+def _rect_center(rect) -> tuple[float, float]:
+    return ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0)
+
+
+def _point_dist(p, q) -> float:
+    return math.hypot(p[0] - q[0], p[1] - q[1])
+
+
+def _transform_head_point(
+    head_vertex: tuple[float, float],
+    source_rect: list[float],
+    target_rect: list[float],
+) -> tuple[float, float]:
+    """Map head_vertex from the parent's source-rect top-left into its placed
+    target-rect top-left (pure translation — the codebase's _apply_anchor_offset
+    idiom). D1: only this transformed point is ever compared to target rects."""
+    dx = head_vertex[0] - source_rect[0]
+    dy = head_vertex[1] - source_rect[1]
+    return (target_rect[0] + dx, target_rect[1] + dy)
+
+
+def _rect_scale_mismatch(
+    source_rect: list[float], target_rect: list[float], tolerance: float
+) -> bool:
+    """True if the parent's source->target placement implies a width/height
+    scale beyond tolerance, making C's translation-only transform untrustworthy.
+
+    A degenerate or inverted source rect (zero/negative width or height) makes
+    the scale ratio uncomputable — treated as a mismatch (defer to B) rather
+    than silently trusting the transform on an unverifiable rect."""
+    sw = source_rect[2] - source_rect[0]
+    sh = source_rect[3] - source_rect[1]
+    if sw <= 0 or sh <= 0:
+        return True
+    tw = target_rect[2] - target_rect[0]
+    th = target_rect[3] - target_rect[1]
+    return abs(tw / sw - 1.0) > tolerance or abs(th / sh - 1.0) > tolerance
+
+
+def _resolve_transformed_proximity(
+    arrow: ArrowRecord,
+    parent_match: MatchRecord,
+    parent_annot: AnnotationRecord,
+    page_fields: list[FieldRecord],
+    blocks: list[tuple[float, float, float, float, str]],
+) -> ArrowMatch | None:
+    """Candidate C (AHR-2): transformed proximity. Returns a
+    transformed_proximity ArrowMatch iff ALL guards hold (scale, radius,
+    text-compatibility, locality margin), else None → defer to fuzzy_on_page."""
+    source_rect = parent_annot.rect
+    target_rect = parent_match.target_rect
+    if _rect_scale_mismatch(source_rect, target_rect, _ARROW_TRANSFORM_SCALE_TOLERANCE):
+        return None
+
+    mapped = _transform_head_point(arrow.head_vertex, source_rect, target_rect)
+
+    # Rank all target candidates (fields + text blocks) by distance from the
+    # mapped point; retain winner + nearest runner-up for the margin guard.
+    candidates: list[tuple[float, tuple[float, float, float, float], str]] = []
+    for f in page_fields:
+        candidates.append((_point_dist(mapped, _rect_center(f.rect)), tuple(f.rect), f.label))
+    for b in blocks:
+        rect = (b[0], b[1], b[2], b[3])
+        candidates.append((_point_dist(mapped, _rect_center(rect)), rect, b[4]))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+
+    win_dist, win_rect, win_text = candidates[0]
+    if win_dist > _ARROW_TRANSFORM_RADIUS_PT:
+        return None
+    text_sim = fuzz.token_sort_ratio(arrow.head_text.strip(), win_text.strip())
+    if text_sim < _ARROW_TRANSFORM_TEXT_THRESHOLD:
+        return None
+    if len(candidates) > 1 and candidates[1][0] - win_dist < _ARROW_TRANSFORM_MARGIN_PT:
+        return None
+
+    return ArrowMatch(
+        arrow_id=arrow.arrow_id,
+        target_page=parent_match.target_page,
+        target_field_id=parent_match.field_id,
+        head_target_rect=win_rect,
+        head_match_method="transformed_proximity",
+        head_confidence=text_sim / 100.0,
+    )
+
+
+def _resolve_fuzzy_on_page(
+    arrow: ArrowRecord,
+    parent_match: MatchRecord,
+    blocks: list[tuple[float, float, float, float, str]],
+    threshold: float,
+) -> ArrowMatch | None:
+    """Guarded fuzzy_on_page (B, AHR-2): relaxed — runs regardless of whether
+    the page has FieldRecords (the old zero-fields gate is gone). Among blocks
+    scoring >= threshold, break ties by proximity to the parent's placed
+    target_rect. Returns a fuzzy_on_page ArrowMatch or None.
+
+    B has a known ~2/88 wrong-row rate (AHR-1) — the one lower-precision path.
+    Its hits are surfaced review_recommended in QC (writer._write_arrows)."""
+    query = arrow.head_text.strip()
+    hits = [
+        (fuzz.token_sort_ratio(query, b[4].strip()), b)
+        for b in blocks
+    ]
+    hits = [(s, b) for s, b in hits if s >= threshold]
+    if not hits:
+        return None
+    best_score = max(s for s, _ in hits)
+    tied = [(s, b) for s, b in hits if s >= best_score - _ARROW_FUZZY_TIE_EPSILON]
+    ref_center = _rect_center(parent_match.target_rect)
+    tied.sort(key=lambda sb: _point_dist(_rect_center(sb[1]), ref_center))
+    score, block = tied[0]
+    return ArrowMatch(
+        arrow_id=arrow.arrow_id,
+        target_page=parent_match.target_page,
+        target_field_id=parent_match.field_id,
+        head_target_rect=(block[0], block[1], block[2], block[3]),
+        head_match_method="fuzzy_on_page",
+        head_confidence=score / 100.0,
+    )
+
+
 def _unresolved_arrow_match(arrow_id: str, skip_reason: str | None = None) -> ArrowMatch:
     return ArrowMatch(
         arrow_id=arrow_id,
@@ -1193,8 +1340,12 @@ def resolve_arrows(
     fields: list[FieldRecord],
     target_pdf_path: Path,
     profile: Profile,
+    annotations: list[AnnotationRecord] | None = None,
 ) -> list[ArrowMatch]:
     """Resolve each arrow's head endpoint against the target CRF text.
+
+    AHR-2 locked cascade (additive; D1 intact throughout):
+      ``fuzzy_in_field → transformed_proximity (C) → fuzzy_on_page (B) → unresolved``
 
     For each ArrowRecord:
       1. Look up the parent annotation's MatchRecord (by tail_annotation_id)
@@ -1208,17 +1359,28 @@ def resolve_arrows(
       2. Pass A (fuzzy_in_field): fuzzy-match head_text (rapidfuzz
          token_sort_ratio) against target text blocks intersecting the
          parent's target_rect inflated by 30pt on each side.
-      3. Fallback fuzzy_on_page: only when the target page has zero
-         FieldRecords at all — fuzzy-match head_text against every text
-         block on the page. (No Pass B "proximity_field" — plan D1: the
-         reference branch's 2-D field-proximity pass compared source-PDF
-         head_vertex coordinates against target-PDF field rects, a
-         wrong-coordinate-space correctness bug.)
-      4. Otherwise unresolved.
+      3. Pass C (transformed_proximity): map head_vertex through the parent's
+         source-rect → placed target-rect translation (D1: only the
+         transformed point is compared to target rects), then accept the
+         nearest field/text candidate iff ALL guards hold — radius,
+         text-compatibility, locality margin, and page/rect scale. Requires
+         `annotations` (the parent's *source* rect); when omitted, C is
+         silently skipped. Any guard failure defers to Pass B.
+      4. Pass B (guarded fuzzy_on_page): relaxed — runs on every page (the old
+         zero-fields gate is gone), fuzzy-matching head_text against every
+         text block, tie-broken by proximity to the parent's target_rect. Its
+         hits carry a known ~2/88 wrong-row rate and are surfaced
+         review_recommended in QC (writer._write_arrows).
+      5. Otherwise unresolved — with skip_reason "head_outside_radius_and_fuzzy"
+         when C's guard and B's threshold both missed (plan D8).
 
-    head_target_rect is the bounding box of the matched *text block* (not a
-    FieldRecord). target_field_id and target_page are inherited from the
-    parent MatchRecord.
+    (Plan D1 is preserved: neither the removed reference-branch "proximity_field"
+    pass nor anything here compares raw source coordinates to target rects — C
+    only ever compares the *transformed* point.)
+
+    head_target_rect is the matched candidate's bounding box (a text block, or
+    a FieldRecord rect for a C hit). target_field_id and target_page are
+    inherited from the parent MatchRecord.
     """
     if not arrows:
         return []
@@ -1230,6 +1392,10 @@ def resolve_arrows(
     for m in matches:
         if m.annotation_id not in duplicated_ids:
             annot_id_to_match[m.annotation_id] = m
+
+    # Parent *source* rects for Pass C (transformed proximity). Absent →
+    # C is disabled (backward-compatible with pre-AHR-3 call sites).
+    annot_by_id: dict[str, AnnotationRecord] = {a.id: a for a in (annotations or [])}
 
     fields_by_page: dict[int, list[FieldRecord]] = defaultdict(list)
     for f in fields:
@@ -1278,9 +1444,15 @@ def resolve_arrows(
 
         target_page = parent_match.target_page
         blocks = page_blocks_cache.get(target_page)
-        if not blocks:
+        if blocks is None:
+            # target_page is out of the PDF's range (or 0/unknown) — nothing to
+            # search. NOTE: an empty-but-present page (blocks == []) is NOT
+            # short-circuited here: candidate C can still match a FieldRecord by
+            # geometry on a page that has fields but no extracted text blocks.
             results.append(_unresolved_arrow_match(arrow.arrow_id))
             continue
+
+        page_fields = fields_by_page.get(target_page, [])
 
         # Pass A: fuzzy match within blocks intersecting the inflated parent rect.
         infl = _ARROW_HEAD_SEARCH_INFLATE_PT
@@ -1305,22 +1477,34 @@ def resolve_arrows(
             ))
             continue
 
-        # Fallback: fuzzy_on_page, only when the target page has zero fields
-        # at all (plan D1 — no proximity_field pass).
-        if not fields_by_page.get(target_page):
-            hit = _best_fuzzy_block(query, blocks, threshold)
-            if hit is not None:
-                score, rect = hit
-                results.append(ArrowMatch(
-                    arrow_id=arrow.arrow_id,
-                    target_page=target_page,
-                    target_field_id=parent_match.field_id,
-                    head_target_rect=rect,
-                    head_match_method="fuzzy_on_page",
-                    head_confidence=score / 100.0,
-                ))
+        # Pass C: transformed proximity (D1-preserving). Only when the parent's
+        # source rect is available; any guard failure falls through to B.
+        parent_annot = annot_by_id.get(arrow.tail_annotation_id)
+        if parent_annot is not None:
+            c_match = _resolve_transformed_proximity(
+                arrow, parent_match, parent_annot, page_fields, blocks,
+            )
+            if c_match is not None:
+                results.append(c_match)
                 continue
 
-        results.append(_unresolved_arrow_match(arrow.arrow_id))
+        # Pass B: guarded (relaxed) fuzzy_on_page + proximity tiebreak.
+        b_match = _resolve_fuzzy_on_page(arrow, parent_match, blocks, threshold)
+        if b_match is not None:
+            results.append(b_match)
+            continue
+
+        # Plan D8: the residual reason literally names C's radius/guard AND B's
+        # threshold, so only apply it when C actually ran (parent source rect
+        # available) AND the page had something to evaluate (fields or blocks).
+        # A C-disabled call, or an empty page with nothing to be "outside" of,
+        # falls back to the generic head_unresolved (None).
+        searched = bool(blocks) or bool(page_fields)
+        residual = (
+            _ARROW_SKIP_NO_HEAD_MATCH
+            if parent_annot is not None and searched
+            else None
+        )
+        results.append(_unresolved_arrow_match(arrow.arrow_id, skip_reason=residual))
 
     return results

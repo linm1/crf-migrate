@@ -133,7 +133,8 @@ def _render_topbar(matches: list[MatchRecord]) -> None:
                     # connectors from a stale session-state arrows list.
                     active_arrows = arrows if profile.arrows.enabled else []
                     arrow_matches = resolve_arrows(
-                        active_arrows, matches, fields, target_pdf_path, profile
+                        active_arrows, matches, fields, target_pdf_path, profile,
+                        annotations=annotations,
                     )
                     _result["arrow_matches"] = arrow_matches
                     _result["qc_report"] = write_annotations(
